@@ -1,0 +1,135 @@
+# flighttrack configuration.
+#
+# This file is the whole control surface. There is deliberately no settings UI
+# (see build plan §12) — config changes are rare, and a YAML file is diffable,
+# version-controllable and editable over SSH.
+
+home: SEA
+
+# ---------------------------------------------------------------------------
+# Routes
+#
+# `label` is what reports group by, so HND and NRT both labelled "Tokyo" are
+# tracked as separate fare surfaces but shown together as one destination.
+#
+# target_price is in CENTS and is a starting guess, not a measured number.
+# Phase-1 alerting leans on it until ~30 days of history exists; revise it
+# once you have seen a season of real data (plan §8).
+#
+# max_stops: null = record everything and filter at report time.
+# ---------------------------------------------------------------------------
+routes:
+  - dest: HND
+    label: Tokyo
+    target_price: 65000      # $650 round trip — sale territory for SEA→Tokyo
+    priority: 1
+    max_stops: null
+
+  - dest: NRT
+    label: Tokyo
+    target_price: 60000      # $600 — NRT skews cheaper (ZIPAIR and friends)
+    priority: 2
+    max_stops: null
+
+  - dest: SLC
+    label: Salt Lake City
+    target_price: 14000      # $140 round trip — a good SEA→SLC fare
+    priority: 1
+    max_stops: null
+
+# ---------------------------------------------------------------------------
+# Date patterns. Every pattern is expanded against every active route.
+# ---------------------------------------------------------------------------
+patterns:
+  - name: extended_weekend_thu
+    depart_dow: THU
+    nights: 4                # Thu → Mon
+
+  - name: extended_weekend_fri
+    depart_dow: FRI
+    nights: 3                # Fri → Mon
+
+  - name: full_week
+    depart_dow: SAT
+    nights: 7                # Sat → Sat
+
+  - name: long_haul_10
+    depart_dow: SAT
+    nights: 10               # Sat → Tue
+
+# ---------------------------------------------------------------------------
+# Horizon. Below ~21 days out fares are last-minute and not comparable to
+# advance pricing; beyond ~11 months Google often has no inventory.
+# ---------------------------------------------------------------------------
+horizon:
+  min_days_ahead: 21
+  max_days_ahead: 240
+
+# ---------------------------------------------------------------------------
+# Search parameters applied to every query.
+#
+# carry_on_bags and exclude_basic_economy are NOT about discarding options —
+# they make the recorded number mean one consistent thing. Without them the
+# history mixes basic-economy fares that are not like-for-like (plan §3).
+# Set both off if you would rather record the true headline minimum.
+# ---------------------------------------------------------------------------
+search:
+  seat: economy              # economy | premium-economy | business | first
+  currency: USD
+  adults: 1
+  carry_on_bags: 1
+  exclude_basic_economy: true
+  hide_separate_and_self_transfer: false
+
+# ---------------------------------------------------------------------------
+# Fetch pacing. These numbers are the conservative STARTING POSTURE from
+# plan §7 and are not yet calibrated — run `flighttrack calibrate` on the box
+# that will host this, then revise. Never retry into a rate limit.
+# ---------------------------------------------------------------------------
+fetch:
+  max_queries_per_run: 60
+  min_sleep_seconds: 4.0
+  max_sleep_seconds: 8.0
+  abort_after_consecutive_failures: 2
+  offers_per_fetch: 5        # store the cheapest N offers, not just the minimum
+
+# ---------------------------------------------------------------------------
+# Alerting. Phase 1 only (threshold + all-time low). Expect this to be QUIET
+# for the first few weeks — that is the system accumulating, not failing.
+# ---------------------------------------------------------------------------
+alerts:
+  enabled: true
+  max_per_run: 3             # beyond this, send one digest instead
+  dedup_days: 7              # do not re-alert a query within this window...
+  dedup_further_drop_pct: 10 # ...unless it dropped a further N%
+  min_observations_for_all_time_low: 5
+  consider_observations_within_hours: 48   # only alert on fresh observations
+  percentile_phase2_enabled: false   # flip on once ≥30 days of history exists
+  percentile: 20
+  percentile_window_days: 60
+  history_days_required: 30
+
+# ---------------------------------------------------------------------------
+# Notification. Keep secrets out of this file: ${VAR} is expanded from the
+# environment at load time.
+#
+# NOTE: topics on the public ntfy.sh are world-readable to anyone who guesses
+# the name. Use a long random topic, or self-host and set `server`.
+# ---------------------------------------------------------------------------
+notify:
+  channel: ntfy              # ntfy | smtp | file | none
+  ntfy:
+    server: https://ntfy.sh
+    topic: ${NTFY_TOPIC}
+  smtp:
+    host: ${SMTP_HOST}
+    port: 587
+    username: ${SMTP_USER}
+    password: ${SMTP_PASS}
+    to: ${SMTP_TO}
+  file:
+    path: out/digest.md
+
+output:
+  db_path: data/flights.db
+  html_path: out/index.html
