@@ -4,24 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flighttrack"
-version = "0.1.0"
-description = "Self-hosted daily price sensor for a fixed set of flight routes and date patterns."
+version = "0.2.0"
+description = "Self-hosted daily flight price sensor: fixed trips, date-window grids, and announced-deal feeds."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 
+# The core has ONE dependency. The Google Flights client, the deal-feed
+# parser, notifications and storage are all stdlib.
 dependencies = [
-    # Pinned deliberately. An auto-upgrade that changes the response shape would
-    # corrupt the observation history silently. See README "Upgrading fast-flights".
-    "fast-flights==3.1.0",
-    # fast-flights 3.1.0 imports typing_extensions but does not declare it.
-    # Pinned here so a clean install actually works.
-    "typing_extensions>=4.7",
     "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+# Browser TLS fingerprinting for the HTTP transport — the most effective
+# single measure against bot heuristics. Compiled wheel; optional.
+impersonate = ["primp>=0.9"]
+# An independent second parser of the same Google page, used only when ours
+# cannot read it. Pinned: an unpinned upgrade could change the response shape.
+fallback = ["fast-flights==3.1.0", "typing_extensions>=4.7"]
+# Everything, for the box that runs it.
+full = ["flighttrack[impersonate,fallback]"]
+dev = ["pytest>=7.4", "flighttrack[full]"]
 
 [project.scripts]
 flighttrack = "flighttrack.cli:main"

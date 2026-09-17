@@ -1,0 +1,17 @@
+# /etc/systemd/system/flighttrack.timer
+#
+# Daily, off-peak, with jitter so the request pattern is not a fixed signature.
+# Persistent=true runs a missed job at boot — a laptop that was asleep still
+# collects today's prices.
+
+[Unit]
+Description=Run flighttrack once a day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=45m
+Persistent=true
+Unit=flighttrack.service
+
+[Install]
+WantedBy=timers.target

@@ -87,3 +87,54 @@ BEFORE DELETE ON observations
 BEGIN
     SELECT RAISE(ABORT, 'observations is append-only: DELETE is forbidden');
 END;
+
+-- ---------------------------------------------------------------------------
+-- Added in v2 (robustness work). All CREATE IF NOT EXISTS; column additions
+-- to older tables are applied by db.migrate().
+-- ---------------------------------------------------------------------------
+
+-- Every request we make, whatever happened to it. `run_log` is the summary;
+-- this is the evidence. It is what `calibrate` measured once, measured
+-- continuously.
+CREATE TABLE IF NOT EXISTS fetch_attempts (
+    id          INTEGER PRIMARY KEY,
+    run_id      INTEGER REFERENCES run_log(id),
+    query_id    INTEGER REFERENCES queries(id),
+    at          TEXT    NOT NULL,
+    source      TEXT,                              -- which source answered / failed
+    outcome     TEXT    NOT NULL,                  -- ok | empty | blocked | network | layout | unknown
+    latency_ms  INTEGER,
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_time ON fetch_attempts(at);
+
+-- Small key/value store for operational state that must survive between
+-- cron invocations: cooldown_until, blocked_streak, last_health_alert_at.
+CREATE TABLE IF NOT EXISTS state (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
+-- Deal-feed posts that matched a watch (and, for dedup, those we alerted on).
+CREATE TABLE IF NOT EXISTS deal_posts (
+    id           INTEGER PRIMARY KEY,
+    guid         TEXT    NOT NULL UNIQUE,
+    feed         TEXT    NOT NULL,
+    title        TEXT    NOT NULL,
+    link         TEXT,
+    published_at TEXT,
+    seen_at      TEXT    NOT NULL,
+    price_cents  INTEGER,
+    watch        TEXT,                             -- name of the watch it matched, NULL if none
+    alerted_at   TEXT
+);
+
+-- One row per feed poll, so a dead feed is visible in `health`.
+CREATE TABLE IF NOT EXISTS feed_log (
+    id        INTEGER PRIMARY KEY,
+    feed      TEXT NOT NULL,
+    at        TEXT NOT NULL,
+    ok        INTEGER NOT NULL,
+    items     INTEGER NOT NULL DEFAULT 0,
+    error     TEXT
+);

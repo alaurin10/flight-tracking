@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from .config import Config
+from .expand import trip_targets
 from .db import utcnow
 from .notify import NotifyError, notify
 from .report import fmt_date, fmt_money
@@ -167,13 +168,15 @@ def find_candidates(conn: sqlite3.Connection, cfg: Config) -> tuple[list[Candida
 
     phase2_cache: dict[int, int | None] = {}
     candidates: list[Candidate] = []
+    targets = trip_targets(cfg)
 
     for row in rows:
         price = row["price_cents"]
         reasons: list[tuple[str, str]] = []
 
         # --- absolute threshold -------------------------------------------
-        target = row["target_price"]
+        # A fixed trip may carry its own target; it wins over the route's.
+        target = targets.get(row["pattern"], row["target_price"])
         if target and price <= target:
             reasons.append(("threshold", f"at or below target of {fmt_money(target)}"))
 
