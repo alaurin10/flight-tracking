@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd job — the "run it on my Mac" option.
+
+    cp deploy/com.flighttrack.daily.plist ~/Library/LaunchAgents/
+    # edit the paths below to your checkout and venv, and set your NTFY_TOPIC
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.flighttrack.daily.plist
+    launchctl kickstart -k gui/$(id -u)/com.flighttrack.daily   # run once now
+
+  The Mac must be awake at 03:15. Either leave it on, or schedule a wake:
+    sudo pmset repeat wakeorpoweron MTWRFSU 03:10:00
+  A closed MacBook lid sleeps regardless; a Mac mini or an open laptop on
+  power is fine. If the Mac was asleep, launchd runs the job at next wake
+  (StartCalendarInterval jobs are not skipped, they are deferred).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.flighttrack.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/flight-tracking/.venv/bin/flighttrack</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/YOU/flight-tracking</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NTFY_TOPIC</key><string>replace-with-a-long-random-topic</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>15</integer></dict>
+  <key>StandardOutPath</key><string>/Users/YOU/flight-tracking/log/run.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/flight-tracking/log/run.log</string>
+  <key>Nice</key><integer>10</integer>
+</dict>
+</plist>
