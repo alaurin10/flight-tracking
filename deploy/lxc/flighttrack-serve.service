@@ -1,0 +1,24 @@
+[Unit]
+Description=flighttrack: daily airfare collection + report server on :8080
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flighttrack
+Group=flighttrack
+WorkingDirectory=/opt/flighttrack
+EnvironmentFile=/etc/flighttrack.env
+ExecStart=/opt/flighttrack/.venv/bin/flighttrack --config /opt/flighttrack/config.yaml serve --host 0.0.0.0 --port 8080 --at 03:15
+Restart=on-failure
+RestartSec=30
+Nice=10
+# Hardening: only its own data/ and out/ are writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/flighttrack/data /opt/flighttrack/out
+
+[Install]
+WantedBy=multi-user.target

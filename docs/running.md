@@ -1,5 +1,9 @@
 # Where to run it
 
+> Have a Proxmox box already? **`docs/deploy-proxmox.md`** is the step-by-step
+> runbook for a small unprivileged LXC (or a compose stack on an existing Docker VM),
+> with the measured storage budget.
+
 The tracker needs three things: to be awake once a day, a home (residential) IP
 address, and somewhere you can open the report from your phone. That rules some
 options in and some out.

@@ -209,6 +209,17 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_compact(args) -> int:
+    """Prune runner-up offers and old request logs; never the price series."""
+    from .compact import compact
+
+    cfg = _load(args)
+    conn = _db(cfg)
+    st = compact(conn, cfg, dry_run=not args.yes)
+    print(f"[compact] {st.summary()}" + ("" if args.yes else "  (pass --yes to apply)"))
+    return 0
+
+
 def cmd_demo(args) -> int:
     """Seed synthetic history and render the report, to see the UI before real data exists."""
     from . import demo as demo_mod
@@ -302,7 +313,11 @@ def cmd_status(args) -> int:
     print(f"observations   : {obs}")
     if span and span[0]:
         print(f"history span   : {span[0]} → {span[1]}")
-    print(f"database       : {cfg.db_path}")
+    try:
+        size_mb = Path(cfg.db_path).stat().st_size / 1e6
+        print(f"database       : {cfg.db_path} ({size_mb:.1f} MB)")
+    except OSError:
+        print(f"database       : {cfg.db_path}")
     until = fetch_mod.cooldown_active(conn)
     if until:
         print(f"cooldown       : ACTIVE until {until}")
@@ -653,6 +668,10 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--limit", type=int, default=None)
     sv.add_argument("--dry-run", action="store_true")
     sv.set_defaults(func=cmd_serve)
+
+    cp = sub.add_parser("compact", help="prune runner-up offers and old logs, then VACUUM (dry run unless --yes)")
+    cp.add_argument("--yes", action="store_true")
+    cp.set_defaults(func=cmd_compact)
 
     dm = sub.add_parser("demo", help="seed synthetic history and render the report (no network)")
     dm.add_argument("--db", default="data/demo.db")

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import alert as alert_mod
+from . import compact as compact_mod
 from . import deals as deals_mod
 from . import expand as expand_mod
 from . import fetch as fetch_mod
@@ -22,7 +23,7 @@ from . import html as html_mod
 from . import sweep as sweep_mod
 from .config import Config
 
-STAGES = ("expand", "sweep", "fetch", "deals", "alert", "health", "html")
+STAGES = ("expand", "sweep", "fetch", "deals", "alert", "health", "compact", "html")
 
 
 @dataclass
@@ -123,6 +124,14 @@ def run_daily(
         rep, _ = health_mod.run(conn, cfg, dry_run=dry_run, verbose=verbose)
         return (0 if rep.ok else 1), ("ok" if rep.ok else rep.signature)
 
+    def do_compact():
+        if not compact_mod.due(conn, cfg):
+            return 0, "not due"
+        st = compact_mod.compact(conn, cfg)
+        if verbose:
+            log(f"[compact] {st.summary()}")
+        return 0, st.summary()
+
     def do_html():
         p = html_mod.write(conn, cfg.html_path, cfg=cfg)
         if verbose:
@@ -135,5 +144,6 @@ def run_daily(
     stage("deals", do_deals)
     stage("alert", do_alert)
     stage("health", do_health)
+    stage("compact", do_compact)
     stage("html", do_html)
     return result

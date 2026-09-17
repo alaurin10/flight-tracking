@@ -47,8 +47,10 @@ On an always-on box at home with a residential IP: a mini PC, NAS or Raspberry P
 running `docker compose up -d`, which starts one process that runs the daily job
 at 03:15 and serves the report on port 8080 (Tailscale for your phone away from
 home). A Mac works with the launchd agent in `deploy/` if it stays awake. Cloud
-IPs get captcha'd. **`docs/running.md`** compares the options and walks through
-the setup; **`docs/using.md`** is the day-to-day guide.
+IPs get captcha'd. **`docs/running.md`** compares the options; **`docs/deploy-proxmox.md`**
+is the Proxmox LXC runbook (`deploy/lxc/`); **`docs/using.md`** is the day-to-day guide.
+Storage is light: one SQLite file, ~100 MB/year unbounded or ~35 MB bounded with the default
+weekly retention (`flighttrack compact`), which never touches the cheapest-offer price series.
 
 ```bash
 flighttrack demo && open out/demo.html   # see the report with synthetic data, right now
@@ -149,6 +151,7 @@ and spends the detail budget on the dates that look interesting.
 | `run` | The daily job: expand → sweep → fetch → deals → alert → health → html. Stages are isolated. |
 | `serve` | `run` on a daily schedule **and** a web server for the report (`/`, `/status.json`, `POST /run`). One process for an always-on box. |
 | `demo` | Seed synthetic history into `data/demo.db` and render `out/demo.html`. No network. |
+| `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; `run` does it weekly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
 | `fetch` | Fetch due queries through the source chain. `--dry-run` lists them. Skips itself during a cooldown. |
 | `sweep` | Calendar RPC over every route/pattern window, then confirm the best candidates. Experimental. |
@@ -257,7 +260,9 @@ deal feeds ──► deals ──► deal_posts  └──► alert ◄───
 raise). Every historical percentile depends on nothing ever rewriting that table. Calendar-sweep
 prices are stored with `is_best = 0` and `source = 'google_calendar'`: context, never the series.
 Expired queries and dropped routes are deactivated, never deleted. Schema changes are additive
-and applied automatically on connect.
+and applied automatically on connect. The one sanctioned exception to append-only is `compact`,
+which removes runner-up offers and old request logs (never `is_best` rows) inside a transaction
+that drops and immediately restores the delete trigger.
 
 ---
 

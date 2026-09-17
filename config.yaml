@@ -208,6 +208,17 @@ health:
   stale_fraction_warn: 0.5
 
 # ---------------------------------------------------------------------------
+# Retention. Keeps the database small on a box with little disk. The
+# cheapest-offer price series (what alerts, lows and percentiles use) is
+# NEVER pruned; only the 2nd–5th cheapest offers per fetch, sweep context
+# rows and the per-request log age out. `flighttrack run` compacts weekly.
+# ---------------------------------------------------------------------------
+retention:
+  enabled: true
+  runner_up_days: 90
+  attempts_days: 180
+
+# ---------------------------------------------------------------------------
 # Notification. ${VAR} is expanded from the environment at load time.
 # Topics on the public ntfy.sh are world-readable to anyone who guesses the
 # name — use a long random topic, or self-host and set `server`.
