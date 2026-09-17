@@ -178,73 +178,66 @@ def cmd_health(args) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_run(args) -> int:
-    """expand → sweep (if enabled) → fetch → deals → alert → health → html.
+    """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
+    from .jobs import run_daily
 
-    Stages are isolated: an exception in one is reported and the next still
-    runs, because a broken notification channel must never stop history from
-    accumulating, and a blocked scraper must never hide a health alert.
-    """
     cfg = _load(args, strict_secrets=False)
     conn = _db(cfg)
-    rc = 0
-    source = None
+    result = run_daily(conn, cfg, _source, limit=args.limit, dry_run=args.dry_run)
+    print(f"\n[run] {result.summary()}")
+    return result.rc
 
-    def stage(name, fn):
-        nonlocal rc
-        print(f"\n== {name} ==")
+
+def cmd_serve(args) -> int:
+    """Scheduler + web server in one process — the always-on-box way to run this."""
+    from .jobs import run_daily
+    from .serve import serve
+
+    cfg = _load(args, strict_secrets=False)
+    connect(cfg.db_path).close()   # apply schema up front so the first GET has tables
+
+    def job():
+        conn = _db(cfg)
         try:
-            r = fn()
-            if r:
-                rc = max(rc, r)
-        except KeyboardInterrupt:
-            raise
-        except Exception as exc:  # noqa: BLE001 — isolation is the point
-            print(f"[{name}] crashed: {type(exc).__name__}: {exc}", file=sys.stderr)
-            rc = max(rc, 1)
+            result = run_daily(conn, cfg, _source, limit=args.limit, dry_run=args.dry_run)
+            print(f"[run] {result.summary()}")
+        finally:
+            conn.close()
 
-    def do_expand():
-        print(f"[expand] {expand_mod.expand(conn, cfg).summary()}")
+    serve(cfg, job, host=args.host, port=args.port, at=args.at, jitter_minutes=args.jitter,
+          run_on_start=args.run_on_start)
+    return 0
 
-    def do_sweep():
-        nonlocal source
-        if not cfg.calendar.enabled:
-            print("[sweep] disabled (calendar.enabled: false)")
-            return 0
-        source = source or _source(cfg)
-        s = sweep_mod.run(conn, cfg, confirm_source=source)
-        print(f"[sweep] {s.summary()}")
-        return 0
 
-    def do_fetch():
-        nonlocal source
-        source = source or _source(cfg)
-        s = fetch_mod.run(conn, cfg, source, limit=args.limit)
-        print(f"[fetch] {s.summary()}")
-        return _fetch_exit(s)
+def cmd_compact(args) -> int:
+    """Prune runner-up offers and old request logs; never the price series."""
+    from .compact import compact
 
-    def do_deals():
-        s = deals_mod.run(conn, cfg, dry_run=args.dry_run)
-        return 1 if s.delivery_error else 0
+    cfg = _load(args)
+    conn = _db(cfg)
+    st = compact(conn, cfg, dry_run=not args.yes)
+    print(f"[compact] {st.summary()}" + ("" if args.yes else "  (pass --yes to apply)"))
+    return 0
 
-    def do_alert():
-        s = alert_mod.run(conn, cfg, dry_run=args.dry_run)
-        return 1 if s.delivery_error else 0
 
-    def do_health():
-        rep, _ = health_mod.run(conn, cfg, dry_run=args.dry_run)
-        return 0 if rep.ok else 1
+def cmd_demo(args) -> int:
+    """Seed synthetic history and render the report, to see the UI before real data exists."""
+    from . import demo as demo_mod
 
-    def do_html():
-        print(f"[html] wrote {html_mod.write(conn, cfg.html_path, cfg=cfg)}")
-
-    stage("expand", do_expand)
-    stage("sweep", do_sweep)
-    stage("fetch", do_fetch)
-    stage("deals", do_deals)
-    stage("alert", do_alert)
-    stage("health", do_health)
-    stage("html", do_html)
-    return rc
+    cfg = _load(args, strict_secrets=False)
+    db_path = Path(args.db)
+    if db_path.exists():
+        if not args.force:
+            print(f"[demo] {db_path} exists — pass --force to overwrite")
+            return 2
+        db_path.unlink()
+    conn = connect(db_path)
+    stats = demo_mod.seed(conn, cfg, days=args.days)
+    out = html_mod.write(conn, args.out, cfg=cfg)
+    print(f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over {stats['days']} days")
+    print(f"[demo] database {db_path}\n[demo] report   {out}")
+    print("[demo] open the report in a browser; every number in it is synthetic (source='demo').")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +281,7 @@ def cmd_advise(args) -> int:
     items = report_mod.advise(
         conn, dest=args.dest, label=args.label, pattern=args.pattern, month=args.month,
         window_days=args.window, route_window_days=cfg.alerts.percentile_window_days,
+        targets=expand_mod.trip_targets(cfg),
     )
     print(report_mod.render_advice(items, _title(cfg, args) + " — book or wait?"))
     return 0
@@ -319,7 +313,11 @@ def cmd_status(args) -> int:
     print(f"observations   : {obs}")
     if span and span[0]:
         print(f"history span   : {span[0]} → {span[1]}")
-    print(f"database       : {cfg.db_path}")
+    try:
+        size_mb = Path(cfg.db_path).stat().st_size / 1e6
+        print(f"database       : {cfg.db_path} ({size_mb:.1f} MB)")
+    except OSError:
+        print(f"database       : {cfg.db_path}")
     until = fetch_mod.cooldown_active(conn)
     if until:
         print(f"cooldown       : ACTIVE until {until}")
@@ -660,6 +658,27 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("--limit", type=int, default=None)
     rn.add_argument("--dry-run", action="store_true", help="print alerts instead of sending them")
     rn.set_defaults(func=cmd_run)
+
+    sv = sub.add_parser("serve", help="run the daily job on a schedule AND serve the report (one process)")
+    sv.add_argument("--host", default="0.0.0.0")
+    sv.add_argument("--port", type=int, default=8080)
+    sv.add_argument("--at", default="03:15", help="local time HH:MM for the daily run")
+    sv.add_argument("--jitter", type=int, default=45, help="random delay after --at, minutes")
+    sv.add_argument("--run-on-start", action="store_true", help="run once immediately, then on schedule")
+    sv.add_argument("--limit", type=int, default=None)
+    sv.add_argument("--dry-run", action="store_true")
+    sv.set_defaults(func=cmd_serve)
+
+    cp = sub.add_parser("compact", help="prune runner-up offers and old logs, then VACUUM (dry run unless --yes)")
+    cp.add_argument("--yes", action="store_true")
+    cp.set_defaults(func=cmd_compact)
+
+    dm = sub.add_parser("demo", help="seed synthetic history and render the report (no network)")
+    dm.add_argument("--db", default="data/demo.db")
+    dm.add_argument("--out", default="out/demo.html")
+    dm.add_argument("--days", type=int, default=45)
+    dm.add_argument("--force", action="store_true")
+    dm.set_defaults(func=cmd_demo)
 
     r = sub.add_parser("report", help="the date-grid table and other slices")
     r.add_argument("--dest", help="filter to one destination airport, e.g. HND")

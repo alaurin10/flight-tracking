@@ -31,13 +31,30 @@ over days, so daily resolution is plenty.
 | Fixed trips, windowed multi-weekday patterns, route filters | ✅ |
 | Deal feeds (RSS) | ✅ enabled in the shipped config |
 | Book-or-wait advisor, price-sorted reports, `ingest` | ✅ |
+| Report: trip cards with history charts and verdicts, best-of-grid, calendar heatmaps, deals, collector | ✅ light/dark, phone-first, no external requests |
+| `serve`: scheduler + report server in one process; Docker Compose; launchd; systemd | ✅ see `docs/running.md` |
+| `demo`: synthetic history to see the UI today | ✅ |
 | Rate-limit calibration | ⬜ `flighttrack calibrate` on the always-on box |
-| Scheduling | ⬜ systemd timer or cron line in `deploy/` |
 
 This was built in an environment whose egress policy blocks Google, so the live request is the
 one thing not verified here. Everything around it is: 187 offline tests, passing with and without
 the optional dependencies. **`docs/data-sources.md`** is the full analysis of every data source
 considered and why the system is layered the way it is.
+
+### Where it runs
+
+On an always-on box at home with a residential IP: a mini PC, NAS or Raspberry Pi
+running `docker compose up -d`, which starts one process that runs the daily job
+at 03:15 and serves the report on port 8080 (Tailscale for your phone away from
+home). A Mac works with the launchd agent in `deploy/` if it stays awake. Cloud
+IPs get captcha'd. **`docs/running.md`** compares the options; **`docs/deploy-proxmox.md`**
+is the Proxmox LXC runbook (`deploy/lxc/`); **`docs/using.md`** is the day-to-day guide.
+Storage is light: one SQLite file, ~100 MB/year unbounded or ~35 MB bounded with the default
+weekly retention (`flighttrack compact`), which never touches the cheapest-offer price series.
+
+```bash
+flighttrack demo && open out/demo.html   # see the report with synthetic data, right now
+```
 
 ### First run on the host
 
@@ -132,6 +149,9 @@ and spends the detail budget on the dates that look interesting.
 | Command | Does |
 |---|---|
 | `run` | The daily job: expand → sweep → fetch → deals → alert → health → html. Stages are isolated. |
+| `serve` | `run` on a daily schedule **and** a web server for the report (`/`, `/status.json`, `POST /run`). One process for an always-on box. |
+| `demo` | Seed synthetic history into `data/demo.db` and render `out/demo.html`. No network. |
+| `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; `run` does it weekly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
 | `fetch` | Fetch due queries through the source chain. `--dry-run` lists them. Skips itself during a cooldown. |
 | `sweep` | Calendar RPC over every route/pattern window, then confirm the best candidates. Experimental. |
@@ -146,12 +166,14 @@ and spends the detail budget on the dates that look interesting.
 | `ingest` | Record prices from another tool, one JSON object per line. |
 | `html` | Regenerate the static page. |
 
-### The static page
+### The report
 
-Every run rewrites `out/index.html`: the grid per destination and pattern, trailing lows,
-sparklines, sweep prices, matched deals, and a health banner. Every departure date is a deep link
-into the exact Google Flights search. Serve it from whatever already runs on the box; the moment
-you want this data is idly, from a phone.
+Every run rewrites `out/index.html` (and `flighttrack serve` serves it): trip cards with today's
+price, a book-or-wait verdict and reasons, and the price history charted against your target;
+the best date in each grid; every tracked departure as a calendar heatmap with the cheapest
+outlined and a table twin; announced deals; and the collector's own health. Light and dark,
+phone-first, hover readouts, no external requests, every date a deep link into the exact Google
+Flights search. `flighttrack demo` renders it with synthetic data so you can see it before day one.
 
 ---
 
@@ -208,12 +230,14 @@ recorded as sent, so a broken channel does not let the dedup window swallow the 
 
 ## Scheduling
 
-`deploy/` has a systemd service + timer (daily, jittered, hardened, catches up after sleep) and a
-crontab example. One line does everything:
+Three ways, in order of preference — details in `docs/running.md`:
 
-```cron
-15 3 * * *  cd /srv/flighttrack && .venv/bin/flighttrack run >> log/run.log 2>&1
-```
+1. **`docker compose up -d`** on a mini PC: `flighttrack serve` runs the job daily and serves the report.
+2. **systemd** timer + service in `deploy/` (daily, jittered, hardened, catches up after sleep).
+3. **launchd** agent in `deploy/` for a Mac, or one cron line:
+   ```cron
+   15 3 * * *  cd /srv/flighttrack && .venv/bin/flighttrack run >> log/run.log 2>&1
+   ```
 
 `run` exits non-zero when the collector aborted or health is critical, so cron mail surfaces it —
 and `health` pushes to your phone as well.
@@ -236,7 +260,9 @@ deal feeds ──► deals ──► deal_posts  └──► alert ◄───
 raise). Every historical percentile depends on nothing ever rewriting that table. Calendar-sweep
 prices are stored with `is_best = 0` and `source = 'google_calendar'`: context, never the series.
 Expired queries and dropped routes are deactivated, never deleted. Schema changes are additive
-and applied automatically on connect.
+and applied automatically on connect. The one sanctioned exception to append-only is `compact`,
+which removes runner-up offers and old request logs (never `is_best` rows) inside a transaction
+that drops and immediately restores the delete trigger.
 
 ---
 
@@ -244,7 +270,8 @@ and applied automatically on connect.
 
 ```bash
 pip install -e '.[dev]'
-pytest -q        # 187 tests, all offline; passes with or without primp/fast-flights
+pytest -q        # 195 tests, all offline; passes with or without primp/fast-flights
+FLIGHTTRACK_BROWSER_TESTS=1 pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
 ```
 
 `FakeSource` and `FakeTransport` make every path testable without a request. The encoder test

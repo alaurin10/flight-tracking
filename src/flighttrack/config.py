@@ -134,6 +134,15 @@ class Deals:
 
 
 @dataclass(frozen=True)
+class Retention:
+    """What `compact` may remove. The is_best price series is never touched."""
+
+    enabled: bool = True
+    runner_up_days: int = 90      # 2nd–5th cheapest offers per fetch, and sweep context rows
+    attempts_days: int = 180      # per-request log and feed poll log; 0 = keep forever
+
+
+@dataclass(frozen=True)
 class Health:
     max_hours_without_success: int = 36
     notify: bool = True
@@ -172,6 +181,7 @@ class Config:
     calendar: Calendar = field(default_factory=Calendar)
     deals: Deals = field(default_factory=Deals)
     health: Health = field(default_factory=Health)
+    retention: Retention = field(default_factory=Retention)
     failure_dir: str = "data/failures"
 
     def route(self, dest: str) -> Route | None:
@@ -463,6 +473,15 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         stale_fraction_warn=float(h.get("stale_fraction_warn", 0.5)),
     )
 
+    # --- retention --------------------------------------------------------
+    rt = raw.get("retention") or {}
+    _require(isinstance(rt, dict), "retention: must be a mapping")
+    retention = Retention(
+        enabled=bool(rt.get("enabled", True)),
+        runner_up_days=_int(rt.get("runner_up_days", 90), "retention.runner_up_days", lo=0),
+        attempts_days=_int(rt.get("attempts_days", 180), "retention.attempts_days", lo=0),
+    )
+
     # --- notify -----------------------------------------------------------
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
@@ -490,5 +509,6 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         calendar=calendar,
         deals=deals,
         health=health,
+        retention=retention,
         failure_dir=str(out.get("failure_dir", "data/failures")),
     )

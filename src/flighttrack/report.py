@@ -328,6 +328,7 @@ def advise(
     window_days: int = 30,
     route_window_days: int = 60,
     today: datetime | None = None,
+    targets: dict[str, int] | None = None,
 ) -> list[Advice]:
     """Score each priced date pair on its own history and its route's.
 
@@ -372,8 +373,9 @@ def advise(
         reasons: list[str] = []
         points = 0
 
-        if r.target_price and r.current_cents <= r.target_price:
-            reasons.append(f"at or under your {fmt_money(r.target_price)} target")
+        target = (targets or {}).get(r.pattern, r.target_price)
+        if target and r.current_cents <= target:
+            reasons.append(f"at or under your {fmt_money(target)} target")
             points += 2
         if n >= 5 and atl is not None and r.current_cents <= atl:
             reasons.append(f"lowest of {n} observations for these dates")

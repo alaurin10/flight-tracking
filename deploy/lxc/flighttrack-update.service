@@ -1,0 +1,7 @@
+[Unit]
+Description=flighttrack: pull origin/main and restart if it changed
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flighttrack/deploy/lxc/update.sh

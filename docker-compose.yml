@@ -1,0 +1,21 @@
+# The recommended way to run flighttrack on a mini PC / NAS / Pi.
+#
+#   cp .env.example .env     # set NTFY_TOPIC (and optionally SERPAPI_KEY, TZ)
+#   docker compose up -d
+#
+# The container's clock drives `--at 03:15`; set TZ to your zone.
+services:
+  flighttrack:
+    build: .
+    container_name: flighttrack
+    restart: unless-stopped
+    ports:
+      - "8080:8080"           # LAN only — put Tailscale in front for phone access away from home
+    environment:
+      - TZ=${TZ:-America/Los_Angeles}
+      - NTFY_TOPIC=${NTFY_TOPIC}
+      - SERPAPI_KEY=${SERPAPI_KEY:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+      - ./out:/app/out
