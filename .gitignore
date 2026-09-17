@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Local data and generated output — never commit price history or secrets.
+*.db
+*.db-wal
+*.db-shm
+data/
+out/
+.env

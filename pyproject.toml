@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flighttrack"
+version = "0.1.0"
+description = "Self-hosted daily price sensor for a fixed set of flight routes and date patterns."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    # Pinned deliberately. An auto-upgrade that changes the response shape would
+    # corrupt the observation history silently. See README "Upgrading fast-flights".
+    "fast-flights==3.1.0",
+    # fast-flights 3.1.0 imports typing_extensions but does not declare it.
+    # Pinned here so a clean install actually works.
+    "typing_extensions>=4.7",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+flighttrack = "flighttrack.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flighttrack"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
