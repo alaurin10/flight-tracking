@@ -1,0 +1,31 @@
+# /etc/systemd/system/flighttrack.service
+#
+# One-shot: the timer below fires it daily. `flighttrack run` does everything
+# (expand → sweep → fetch → deals → alert → health → html) with stages
+# isolated, so one failure never hides another.
+#
+#   sudo cp deploy/flighttrack.{service,timer} /etc/systemd/system/
+#   sudo systemctl edit flighttrack.service   # add Environment=NTFY_TOPIC=...
+#   sudo systemctl enable --now flighttrack.timer
+#   journalctl -u flighttrack -n 100
+
+[Unit]
+Description=flighttrack daily price collection and alerting
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=flighttrack
+WorkingDirectory=/srv/flighttrack
+# Secrets belong in a drop-in or an EnvironmentFile, never in this file:
+#   EnvironmentFile=/etc/flighttrack.env
+ExecStart=/srv/flighttrack/.venv/bin/flighttrack run
+Nice=10
+TimeoutStartSec=2h
+# Hardening — the process needs only its own directory and outbound HTTPS.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/flighttrack/data /srv/flighttrack/out

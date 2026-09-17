@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+        extras: ["dev", "core"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          if [ "${{ matrix.extras }}" = "dev" ]; then pip install -e '.[dev]'; else pip install -e . pytest; fi
+      # Every test is offline. The suite must pass with and without the
+      # optional fast-flights/primp extras, because the box that runs this
+      # may have neither.
+      - name: Test
+        run: python -m pytest -q
+      - name: Offline doctor on the shipped config
+        run: flighttrack doctor --offline

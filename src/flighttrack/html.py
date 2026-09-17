@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .report import GridRow, fmt_date, fmt_money, grid, history, sparkline
+from .health import check as health_check
 
 CSS = """
 :root {
@@ -59,6 +60,12 @@ a:hover { text-decoration: underline; }
   margin-left: 6px; vertical-align: middle;
 }
 .empty { color: var(--muted); font-style: italic; padding: 14px 10px; }
+.sweep { color: var(--muted); }
+.health { margin: 0 0 20px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.health.bad { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.health.ok { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.deal { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.deal .when { color: var(--muted); font-size: 12px; margin-left: 8px; }
 footer { margin-top: 44px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
 @media (max-width: 620px) {
   body { padding: 16px 12px 48px; }
@@ -68,7 +75,7 @@ footer { margin-top: 44px; color: var(--muted); font-size: 12px; border-top: 1px
 """
 
 
-def _row_html(r: GridRow, conn: sqlite3.Connection, show_dest: bool = False) -> str:
+def _row_html(r: GridRow, conn: sqlite3.Connection, show_dest: bool = False, show_sweep: bool = False) -> str:
     pct = r.vs_low_pct
     if pct is None:
         vs = '<span class="num">—</span>'
@@ -90,6 +97,7 @@ def _row_html(r: GridRow, conn: sqlite3.Connection, show_dest: bool = False) -> 
     spark = _html.escape(sparkline(values[-24:])) if len(values) > 1 else ""
 
     dest_cell = f"<td>{_html.escape(r.dest)}</td>" if show_dest else ""
+    sweep_cell = f'<td class="num sweep">{fmt_money(r.sweep_cents)}</td>' if show_sweep else ""
 
     return (
         "<tr>"
@@ -99,6 +107,7 @@ def _row_html(r: GridRow, conn: sqlite3.Connection, show_dest: bool = False) -> 
         f'<td class="num"><span class="{price_cls}">{fmt_money(r.current_cents)}</span>{tag}</td>'
         f'<td class="num">{fmt_money(r.low_cents)}</td>'
         f'<td class="num">{vs}</td>'
+        f"{sweep_cell}"
         f'<td class="hide-sm">{_html.escape(r.airline or "—")}</td>'
         f'<td class="num hide-sm">{"—" if r.stops is None else r.stops}</td>'
         f'<td class="spark hide-sm">{spark}</td>'
@@ -106,8 +115,8 @@ def _row_html(r: GridRow, conn: sqlite3.Connection, show_dest: bool = False) -> 
     )
 
 
-def render(conn: sqlite3.Connection, window_days: int = 30) -> str:
-    """Build the whole page as a string."""
+def render(conn: sqlite3.Connection, window_days: int = 30, cfg=None) -> str:
+    """Build the whole page as a string. `cfg` enables the health banner."""
     rows = grid(conn, window_days=window_days)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -128,6 +137,16 @@ def render(conn: sqlite3.Connection, window_days: int = 30) -> str:
         f"{len(rows)} priced date pairs · lows over trailing {window_days} days · "
         "tap a departure date to open the exact Google Flights search</div>",
     ]
+
+    if cfg is not None:
+        try:
+            rep = health_check(conn, cfg)
+            cls = "ok" if rep.ok else "bad"
+            text = "Collector healthy" if rep.ok else "Collector needs attention: " + "; ".join(
+                p.message for p in rep.problems if p.severity == "crit")
+            parts.append(f'<div class="health {cls}">{_html.escape(text)}</div>')
+        except Exception:  # the page must never fail because a check did
+            pass
 
     if not rows:
         parts.append(
@@ -154,6 +173,7 @@ def render(conn: sqlite3.Connection, window_days: int = 30) -> str:
                 f'{_html.escape(pattern)} · {_html.escape(", ".join(dests))}</h2>'
             )
             show_dest = len(dests) > 1
+            show_sweep = any(r.sweep_cents is not None for r in prows)
             parts.append(
                 "<table><thead><tr>"
                 + ("<th>Dest</th>" if show_dest else "")
@@ -161,11 +181,28 @@ def render(conn: sqlite3.Connection, window_days: int = 30) -> str:
                 '<th class="num">Current</th>'
                 f'<th class="num">{window_days}d low</th>'
                 '<th class="num">vs low</th>'
-                '<th class="hide-sm">Airline</th><th class="num hide-sm">Stops</th>'
+                + ('<th class="num">Sweep</th>' if show_sweep else "")
+                + '<th class="hide-sm">Airline</th><th class="num hide-sm">Stops</th>'
                 '<th class="hide-sm">History</th></tr></thead><tbody>'
             )
-            parts.extend(_row_html(r, conn, show_dest) for r in prows)
+            parts.extend(_row_html(r, conn, show_dest, show_sweep) for r in prows)
             parts.append("</tbody></table>")
+
+    deals = conn.execute(
+        "SELECT title, link, price_cents, watch, seen_at FROM deal_posts "
+        "WHERE watch IS NOT NULL ORDER BY id DESC LIMIT 15"
+    ).fetchall()
+    if deals:
+        parts.append('<h2>Announced deals<span class="meta">matched from your feeds</span></h2>')
+        for d in deals:
+            title = _html.escape(d["title"])
+            if d["link"]:
+                title = f'<a href="{_html.escape(d["link"], quote=True)}" target="_blank" rel="noopener">{title}</a>'
+            price = f' · <span class="price">{fmt_money(d["price_cents"])}</span>' if d["price_cents"] else ""
+            parts.append(
+                f'<div class="deal"><span class="tag">{_html.escape(d["watch"])}</span> {title}{price}'
+                f'<span class="when">{_html.escape((d["seen_at"] or "")[:10])}</span></div>'
+            )
 
     last_run = conn.execute(
         "SELECT started_at, attempted, succeeded, failed, blocked, notes "
@@ -188,9 +225,9 @@ def render(conn: sqlite3.Connection, window_days: int = 30) -> str:
     return "\n".join(parts)
 
 
-def write(conn: sqlite3.Connection, path: str | Path, window_days: int = 30) -> Path:
+def write(conn: sqlite3.Connection, path: str | Path, window_days: int = 30, cfg=None) -> Path:
     """Render and write the page, creating parent directories as needed."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(conn, window_days=window_days), encoding="utf-8")
+    path.write_text(render(conn, window_days=window_days, cfg=cfg), encoding="utf-8")
     return path
