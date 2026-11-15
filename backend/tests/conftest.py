@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 APP_ENV_VARS = (
@@ -19,6 +21,7 @@ APP_ENV_VARS = (
     "VAPID_PRIVATE_KEY",
     "SERPAPI_KEY",
     "GIT_COMMIT",
+    "FLIGHTTRACK_SOURCE",
 )
 
 
@@ -32,3 +35,13 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempP
     base = tmp_path_factory.mktemp("app")
     monkeypatch.setenv("DATA_DIR", str(base / "data"))
     monkeypatch.setenv("CONFIG_DIR", str(base / "config"))
+
+
+@pytest.fixture(autouse=True)
+def wall_clock() -> Iterator[None]:
+    """Every test starts and ends on the real clock, whatever it moved."""
+    from flighttrack.store.db import set_clock
+
+    set_clock(None)
+    yield
+    set_clock(None)

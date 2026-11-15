@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import json
 import random
+import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 from . import fetch as fetch_mod
 from . import health as health_mod
@@ -34,10 +37,13 @@ from .store.db import get_state, open_db, parse_ts, utcnow
 # At start-up, run at once when nothing has succeeded for this long, so a
 # restart or a week of downtime does not wait for tomorrow's 03:15.
 CATCHUP_HOURS = 20
+# With no scheduler (`serve --no-schedule`, the worker collects), the page is drawn
+# again on request when it is older than this.
+PAGE_MAX_AGE_SECONDS = 60
 
 
 def needs_catchup(
-    conn, now: datetime | None = None, hours: float = CATCHUP_HOURS
+    conn: sqlite3.Connection, now: datetime | None = None, hours: float = CATCHUP_HOURS
 ) -> tuple[bool, str]:
     """(run now?, why) from `last_success_at` in the state table."""
     now = now or datetime.now(UTC)
@@ -119,7 +125,7 @@ class Scheduler:
                 self.log(f"[serve] next scheduled run {self.next_run:%Y-%m-%d %H:%M %Z}")
 
 
-def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
+def status_payload(cfg: Config, sched: Scheduler | None) -> dict[str, Any]:
     """Everything a phone widget or a home dashboard would want, as JSON."""
     conn = open_db(cfg.db_path)
     try:
@@ -173,13 +179,15 @@ def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
         conn.close()
 
 
-def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None] = print):
+def make_handler(
+    cfg: Config, sched: Scheduler | None, log: Callable[[str], None] = print
+) -> type[BaseHTTPRequestHandler]:
     html_path = Path(cfg.html_path)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "flighttrack/0.2"
 
-        def log_message(self, fmt, *args):  # quieter than the default
+        def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
             log(f"[http] {self.address_string()} {fmt % args}")
 
         def _send(self, status: int, body: bytes, ctype: str) -> None:
@@ -190,10 +198,14 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self):
+        def do_GET(self) -> None:
             path = self.path.split("?", 1)[0]
             if path in ("/", "/index.html"):
-                if not html_path.exists():
+                stale = sched is None and (
+                    not html_path.exists()
+                    or time.time() - html_path.stat().st_mtime > PAGE_MAX_AGE_SECONDS
+                )
+                if stale or not html_path.exists():
                     conn = open_db(cfg.db_path)
                     try:
                         html_mod.write(conn, html_path, cfg=cfg)
@@ -210,7 +222,7 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
             else:
                 self._send(HTTPStatus.NOT_FOUND, b"not found\n", "text/plain")
 
-        def do_POST(self):
+        def do_POST(self) -> None:
             path = self.path.split("?", 1)[0]
             if path == "/run":
                 if sched is None:
@@ -227,7 +239,7 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
 
 def serve(
     cfg: Config,
-    job: Callable[[], None],
+    job: Callable[[], None] | None,
     host: str = "0.0.0.0",
     port: int = 8080,
     at: str = "03:15",
@@ -236,14 +248,17 @@ def serve(
     log: Callable[[str], None] = print,
     ready: threading.Event | None = None,
 ) -> None:
-    sched = Scheduler(at=at, jitter_minutes=jitter_minutes, job=job, log=log)
-    t = threading.Thread(
-        target=sched.loop,
-        kwargs={"run_on_start": run_on_start},
-        name="flighttrack-scheduler",
-        daemon=True,
-    )
-    t.start()
+    """Serve the page; with a `job`, also run it daily. `job=None` serves only (the
+    worker collects)."""
+    sched = None
+    if job is not None:
+        sched = Scheduler(at=at, jitter_minutes=jitter_minutes, job=job, log=log)
+        threading.Thread(
+            target=sched.loop,
+            kwargs={"run_on_start": run_on_start},
+            name="flighttrack-scheduler",
+            daemon=True,
+        ).start()
     httpd = ThreadingHTTPServer((host, port), make_handler(cfg, sched, log))
     log(
         f"[serve] report at http://{host}:{httpd.server_address[1]}/  ·  status at /status.json  "
@@ -256,5 +271,6 @@ def serve(
     except KeyboardInterrupt:
         pass
     finally:
-        sched.stop()
+        if sched is not None:
+            sched.stop()
         httpd.server_close()

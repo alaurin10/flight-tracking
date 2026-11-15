@@ -1,6 +1,6 @@
-# Flight Watch: one image. For now it runs one service, `flighttrack serve` (the
-# daily collector and the static page); later milestones add the worker and the
-# API from the same image.
+# Flight Watch: one image for every service. docker-compose.yml runs the worker
+# (`flighttrack worker`, which collects) and the page server (`flighttrack serve
+# --no-schedule`); the API joins them in M5.
 # Built on the server by `docker compose up -d --build`; CI only checks that it builds.
 # The base image is pinned by digest (Dependabot proposes updates).
 
@@ -39,4 +39,5 @@ ENV GIT_COMMIT=$GIT_COMMIT \
 EXPOSE 8080
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/status.json', timeout=8)"]
-CMD ["flighttrack", "serve", "--host", "0.0.0.0", "--port", "8080", "--at", "03:15"]
+# The page server. The worker service overrides the command and the health check.
+CMD ["flighttrack", "serve", "--no-schedule", "--host", "0.0.0.0", "--port", "8080"]

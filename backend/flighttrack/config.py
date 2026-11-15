@@ -213,6 +213,20 @@ class Alerts:
 
 
 @dataclass(frozen=True)
+class Collect:
+    """How the worker paces collecting (M4). Every Google request counts against one
+    rolling 24-hour budget; detail fetches go out in small batches with a random gap."""
+
+    daily_request_budget: int = 50
+    batch_size: int = 5
+    batch_gap_minutes: tuple[float, float] = (25.0, 45.0)
+    sweep_at: str = "04:10"  # local time (TZ) of the daily calendar sweep
+    trip_refresh_hours: int = 20  # an active trip older than this goes first
+    top_dates_per_search: int = 3  # each search's cheapest dates, refreshed like trips
+    canary_dest: str = "LAX"  # the daily canary: home airport to here, one way, 30 days out
+
+
+@dataclass(frozen=True)
 class Config:
     home: str  # the default origin (HOME_AIRPORT)
     min_days_ahead: int
@@ -228,6 +242,7 @@ class Config:
     health: Health = field(default_factory=Health)
     retention: Retention = field(default_factory=Retention)
     failure_dir: str = "data/failures"
+    collect: Collect = field(default_factory=Collect)
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +678,44 @@ def load(
         attempts_days=_int(rt.get("attempts_days", 180), "retention.attempts_days", lo=0),
     )
 
+    # --- collect (the worker) ----------------------------------------------
+    co = raw.get("collect") or {}
+    _require(isinstance(co, dict), "collect: must be a mapping")
+    gap = co.get("batch_gap_minutes", list(Collect.batch_gap_minutes))
+    _require(
+        isinstance(gap, list)
+        and len(gap) == 2
+        and all(isinstance(x, (int, float)) and x >= 0 for x in gap)
+        and gap[0] <= gap[1],
+        "collect.batch_gap_minutes must be two numbers [low, high], low <= high",
+    )
+    sweep_at = str(co.get("sweep_at", Collect.sweep_at))
+    _require(
+        re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", sweep_at) is not None,
+        "collect.sweep_at must be a local time HH:MM",
+    )
+    collect = Collect(
+        daily_request_budget=_int(
+            co.get("daily_request_budget", Collect.daily_request_budget),
+            "collect.daily_request_budget",
+            lo=1,
+        ),
+        batch_size=_int(co.get("batch_size", Collect.batch_size), "collect.batch_size", lo=1),
+        batch_gap_minutes=(float(gap[0]), float(gap[1])),
+        sweep_at=sweep_at,
+        trip_refresh_hours=_int(
+            co.get("trip_refresh_hours", Collect.trip_refresh_hours),
+            "collect.trip_refresh_hours",
+            lo=1,
+        ),
+        top_dates_per_search=_int(
+            co.get("top_dates_per_search", Collect.top_dates_per_search),
+            "collect.top_dates_per_search",
+            lo=0,
+        ),
+        canary_dest=_airport(co.get("canary_dest", Collect.canary_dest), "collect.canary_dest"),
+    )
+
     # --- notify -----------------------------------------------------------
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
@@ -703,4 +756,5 @@ def load(
         health=health,
         retention=retention,
         failure_dir=str(settings.failure_dir),
+        collect=collect,
     )

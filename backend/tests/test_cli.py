@@ -117,3 +117,43 @@ def test_import_config_reports_a_bad_file(tmp_path, capsys):
     bad.write_text("home: SEA\nroutes:\n  - dest: SEATTLE\n")
     assert cli.main(["import-config", str(bad)]) == 2
     assert "not a 3-letter IATA code" in capsys.readouterr().err
+
+
+def test_healthcheck_worker_reads_the_heartbeat(tmp_path, capsys):
+    import os
+    import time
+
+    assert cli.main(["healthcheck", "worker"]) == 1
+    assert "missing" in capsys.readouterr().out
+    beat = tmp_path / "worker.heartbeat"
+    beat.touch()
+    assert cli.main(["healthcheck", "worker"]) == 0
+    old = time.time() - 200
+    os.utime(beat, (old, old))
+    assert cli.main(["healthcheck", "worker"]) == 1
+    assert "200 s old" in capsys.readouterr().out
+
+
+def test_worker_command_starts_the_worker_and_its_schedule(tmp_path, monkeypatch):
+    """`flighttrack worker` migrates, beats once and hands over to APScheduler."""
+    from flighttrack import scheduler
+
+    started = []
+
+    class Sched:
+        def start(self):
+            started.append(True)
+
+    monkeypatch.setattr(scheduler, "build_scheduler", lambda w: Sched())
+    monkeypatch.setenv("FLIGHTTRACK_SOURCE", "fake")
+    assert cli.main(["worker"]) == 0
+    assert started == [True] and (tmp_path / "worker.heartbeat").exists()
+    conn = open_db(tmp_path / "flights.db")
+    assert conn.execute("SELECT value FROM state WHERE key = 'next_batch_at'").fetchone()
+
+
+def test_fake_source_switch(monkeypatch):
+    from flighttrack.source import FakeSource
+
+    monkeypatch.setenv("FLIGHTTRACK_SOURCE", "fake")
+    assert isinstance(cli._source(cli.load(settings=cli.Settings())), FakeSource)

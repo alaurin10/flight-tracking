@@ -4,6 +4,7 @@ version = "0.3.0"
 description = "Flight Watch: self-hosted flight price tracker (fixed trips, date grids, deal feeds)"
 requires-python = ">=3.12"
 dependencies = [
+    "apscheduler>=3.10,<4",
     "primp>=2,<3", # browser TLS fingerprint for the Google Flights client
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
@@ -52,7 +53,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fast_flights.*", "primp.*"]
+module = ["fast_flights.*", "primp.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 # Modules from before the restructure. New modules are never added here; a
@@ -60,16 +61,12 @@ ignore_missing_imports = true
 # and makes it pass.
 [[tool.mypy.overrides]]
 module = [
-    "flighttrack.compact",
     "flighttrack.gflights",
     "flighttrack.gflights.calendar",
     "flighttrack.gflights.page",
     "flighttrack.gflights.results",
     "flighttrack.gflights.tfs",
     "flighttrack.gflights.transport",
-    "flighttrack.jobs",
-    "flighttrack.notify",
-    "flighttrack.serve",
 ]
 ignore_errors = true
 

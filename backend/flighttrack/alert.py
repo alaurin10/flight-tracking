@@ -18,11 +18,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+from functools import partial
 
 from .config import Config
-from .notify import NotifyError, notify
+from .notifier import Notifier
 from .report import fmt_date, fmt_money
+from .store.db import now as clock_now
 from .store.db import utcnow
 from .watches import target_for
 
@@ -80,7 +82,7 @@ class AlertStats:
 
 
 def _iso_ago(**kw: float) -> str:
-    return (datetime.now(UTC) - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (clock_now() - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def percentile(values: list[int], p: float) -> int | None:
@@ -268,22 +270,31 @@ def _passes_dedup(conn: sqlite3.Connection, cand: Candidate, cfg: Config) -> boo
 
 
 def _record(conn: sqlite3.Connection, cands: list[Candidate]) -> None:
+    """`alerts_sent` rows; written in the notification row's transaction."""
     now = utcnow()
-    for c in cands:
-        conn.execute(
-            """
-            INSERT INTO alerts_sent (query_id, observation_id, sent_at, reason, price_cents)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (c.query_id, c.observation_id, now, c.reason, c.price_cents),
-        )
-    conn.commit()
+    conn.executemany(
+        """
+        INSERT INTO alerts_sent (query_id, observation_id, sent_at, reason, price_cents)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [(c.query_id, c.observation_id, now, c.reason, c.price_cents) for c in cands],
+    )
 
 
 def run(
-    conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True
+    conn: sqlite3.Connection,
+    cfg: Config,
+    dry_run: bool = False,
+    verbose: bool = True,
+    notifier: Notifier | None = None,
 ) -> AlertStats:
-    """Evaluate fresh observations and deliver what qualifies."""
+    """Evaluate fresh observations and record what qualifies as notifications.
+
+    Each alert is written to `notifications` and `alerts_sent` together, then
+    handed to the channels. A channel that fails is reported in
+    `delivery_error`; the alert stays recorded (the app shows it) and is not
+    sent again inside the dedup window.
+    """
     stats = AlertStats()
     if not cfg.alerts.enabled:
         if verbose:
@@ -308,41 +319,47 @@ def run(
             log.info("[alert] nothing to send")
         return stats
 
-    try:
+    if dry_run:
         if len(passing) <= cfg.alerts.max_per_run:
-            # Few enough to send individually, each with its own deep link.
             for c in passing:
-                if dry_run:
-                    print(f"  [dry-run] {c.line()}")
-                else:
-                    notify(
-                        cfg.notify,
-                        f"✈ {fmt_money(c.price_cents)} {c.label} · {fmt_date(c.depart_date)}",
-                        c.line(),
-                        c.deep_link,
-                    )
-                stats.sent += 1
+                print(f"  [dry-run] {c.line()}")
+            stats.sent = len(passing)
         else:
-            # More than the cap qualified: one digest beats N notifications.
-            body = "\n\n".join(c.line() for c in passing)
-            subject = (
-                f"✈ {len(passing)} fares worth a look (cheapest "
-                f"{fmt_money(passing[0].price_cents)})"
-            )
-            if dry_run:
-                print(f"  [dry-run digest] {subject}\n{body}")
-            else:
-                notify(cfg.notify, subject, body, passing[0].deep_link)
-            stats.sent = 1
-            stats.digested = len(passing)
-    except NotifyError as exc:
-        # Delivery failure must not be recorded as a sent alert, or the dedup
-        # window would suppress the retry on the next run.
-        stats.delivery_error = str(exc)
-        if verbose:
-            log.warning(f"[alert] DELIVERY FAILED: {exc}")
+            print(f"  [dry-run digest] {len(passing)} fares")
+            for c in passing:
+                print(f"  {c.line()}")
+            stats.sent, stats.digested = 1, len(passing)
         return stats
 
-    if not dry_run:
-        _record(conn, passing)
+    notifier = notifier or Notifier.from_config(cfg)
+    errors: list[str] = []
+    if len(passing) <= cfg.alerts.max_per_run:
+        # Few enough to send individually, each with its own deep link.
+        for c in passing:
+            d = notifier.send(
+                conn,
+                "price",
+                f"✈ {fmt_money(c.price_cents)} {c.label} · {fmt_date(c.depart_date)}",
+                c.line(),
+                c.deep_link,
+                record=partial(_record, cands=[c]),
+            )
+            errors += d.errors
+            stats.sent += 1
+    else:
+        # More than the cap qualified: one digest beats N notifications.
+        d = notifier.send(
+            conn,
+            "price",
+            f"✈ {len(passing)} fares worth a look (cheapest {fmt_money(passing[0].price_cents)})",
+            "\n\n".join(c.line() for c in passing),
+            passing[0].deep_link,
+            record=partial(_record, cands=passing),
+        )
+        errors += d.errors
+        stats.sent, stats.digested = 1, len(passing)
+    if errors:
+        stats.delivery_error = "; ".join(dict.fromkeys(errors))
+        if verbose:
+            log.warning(f"[alert] DELIVERY FAILED (alerts are recorded): {stats.delivery_error}")
     return stats

@@ -23,7 +23,7 @@ import statistics
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from . import fetch as fetch_mod
 from .config import Config, Pattern, Route
@@ -42,6 +42,7 @@ from .gflights.calendar import (
 from .gflights.transport import Response, Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
 from .store.db import get_state, set_state, utcnow
+from .store.db import now as clock_now
 from .watches import target_for
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,11 @@ class SweepJob:
     def describe(self) -> str:
         return f"{self.route.dest} {self.pattern.name} {self.start}..{self.end}"
 
+    def key(self) -> str:
+        """Names this window across processes (the worker keeps a day's plan in `state`)."""
+        origin = self.route.origin or ""
+        return f"{origin}|{self.route.dest}|{self.pattern.name}|{self.start}|{self.end}"
+
 
 @dataclass
 class SweepStats:
@@ -77,6 +83,8 @@ class SweepStats:
     matched: int = 0
     written: int = 0
     confirm_ids: list[int] = field(default_factory=list)
+    # (price ÷ target, cents, query_id, why) for every promising date, cheapest first
+    candidates: list[tuple[float, int, int, str]] = field(default_factory=list)
     confirm_stats: fetch_mod.FetchStats | None = None
     errors: list[str] = field(default_factory=list)
 
@@ -198,7 +206,7 @@ def promising(
     """
     if target and sweep_cents <= target:
         return True, "under target"
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     since = (now - timedelta(days=MEDIAN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     prior = [
         r[0]
@@ -229,9 +237,14 @@ def run(
     now: datetime | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     verbose: bool = True,
+    jobs: list[SweepJob] | None = None,
 ) -> SweepStats:
+    """Price windows with the calendar call. By default the next `max_calls_per_run`
+    windows of today's plan; `jobs` gives the exact windows instead (the worker sends
+    a day's plan in groups). Promising dates are in `stats.candidates`, and are
+    confirmed here only when `confirm_source` is given."""
     stats = SweepStats()
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     transport = transport or default_transport(cfg.fetch.transport)
     failures = FailureStore(cfg.failure_dir, keep=cfg.fetch.keep_failure_artifacts)
 
@@ -251,9 +264,12 @@ def run(
             log.warning(f"[sweep] skipped — cooldown until {until}")
         return stats
 
-    jobs = plan(conn, cfg, now.date())
-    stats.planned = len(jobs)
-    jobs = _rotate(jobs, conn, cfg.calendar.max_calls_per_run)
+    if jobs is None:
+        jobs = plan(conn, cfg, now.date())
+        stats.planned = len(jobs)
+        jobs = _rotate(jobs, conn, cfg.calendar.max_calls_per_run)
+    else:
+        stats.planned = len(jobs)
     if verbose:
         log.info(f"[sweep] run {stats.run_id}: {len(jobs)} of {stats.planned} windows this run")
 
@@ -360,6 +376,8 @@ def run(
                 f"${lo.price:,.0f}"
             )
 
+    candidates.sort()
+    stats.candidates = candidates
     # Confirm the best few with a real results fetch, through the normal chain.
     if (
         candidates
@@ -367,7 +385,6 @@ def run(
         and cfg.calendar.confirm_budget > 0
         and not stats.blocked
     ):
-        candidates.sort()
         seen: set[int] = set()
         for _, _, qid, _why in candidates:
             if qid not in seen:

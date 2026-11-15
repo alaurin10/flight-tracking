@@ -1,10 +1,16 @@
-# Flight Watch. For now one service: `flighttrack serve` runs the daily collector
-# and serves the static page. Later milestones split it into a worker and an API.
+# Flight Watch: one image, two services.
+#   worker       `flighttrack worker`: collects on its own (batches, sweep, deals,
+#                alerts, health, canary, job queue, backups). No port.
+#   flighttrack  `flighttrack serve --no-schedule`: the static page and
+#                /status.json until the API replaces it (M5). Collects nothing.
+#
 #   cp .env.example .env
 #   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
-#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" flighttrack \
+#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" worker \
 #       flighttrack import-config /tmp/t.yaml      # what to track (see the README)
 #   open http://<host>:8091/   (LAN only: this server has no sign-in yet)
+#
+# A demo with no outside requests at all: FLIGHTTRACK_SOURCE=fake docker compose up -d worker
 name: flightwatch
 
 x-hardening: &hardening
@@ -15,23 +21,48 @@ x-hardening: &hardening
   security_opt:
     - no-new-privileges:true
 
+x-image: &image
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    args:
+      GIT_COMMIT: ${GIT_COMMIT:-}
+  image: flightwatch:local
+
 services:
-  flighttrack:
-    <<: *hardening
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      args:
-        GIT_COMMIT: ${GIT_COMMIT:-}
-    image: flightwatch:local
+  worker:
+    <<: [*hardening, *image]
+    command: ["flighttrack", "worker"]
     env_file:
       - path: .env
         required: false
     environment:
-      TZ: ${TZ:-America/Los_Angeles} # the daily run time (--at 03:15) is local time
+      TZ: ${TZ:-America/Los_Angeles} # collect.sweep_at and the nightly jobs are local time
+      FLIGHTTRACK_SOURCE: ${FLIGHTTRACK_SOURCE:-}
     volumes:
-      - ./data:/data # the database (prices and what is tracked), the page, backups
+      - ./data:/data # the database (prices and what is tracked), backups, failure pages
+    healthcheck:
+      # The scheduler touches data/worker.heartbeat every 30 s.
+      test: ["CMD", "flighttrack", "healthcheck", "worker"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      start_interval: 5s
+      retries: 3
+    mem_limit: 384m
+    restart: unless-stopped
+
+  flighttrack:
+    <<: [*hardening, *image]
+    command: ["flighttrack", "serve", "--no-schedule", "--host", "0.0.0.0", "--port", "8080"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TZ: ${TZ:-America/Los_Angeles}
+    volumes:
+      - ./data:/data
     ports:
       - "8091:8080"
-    mem_limit: 384m
+    mem_limit: 256m
     restart: unless-stopped

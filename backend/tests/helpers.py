@@ -250,3 +250,24 @@ def load_old(path, strict_secrets=True, settings=None) -> WatchedConfig:
         trips=wf.trips,
         deal_watches=wf.deal_watches,
     )
+
+
+# ---------------------------------------------------------------------------
+# A clock the tests move by hand (store.db.set_clock): the worker's decisions and
+# every timestamp it writes follow it, so days of running take no real time.
+# ---------------------------------------------------------------------------
+
+
+class FakeClock:
+    def __init__(self, start: datetime):
+        self.t = start
+
+    def __call__(self) -> datetime:
+        return self.t
+
+    def advance(self, **kw: float) -> datetime:
+        self.t += timedelta(**kw)
+        return self.t
+
+    def set(self, t: datetime) -> None:
+        self.t = t

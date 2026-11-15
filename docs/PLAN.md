@@ -18,7 +18,7 @@ Update this table in the same pull request that finishes a milestone.
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | done | [#6](https://github.com/alaurin10/flight-tracking/pull/6) | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
 | M3 | Database as the source of truth | done | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
-| M4 | The worker | not started | | |
+| M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
 | M5 | API and deploy kit | not started | | |
 | B | Owner: go live at flights.andrewlaurin.com | not started | | |
 | M6 | Frontend: read-only app | not started | | |
@@ -101,6 +101,52 @@ Decisions log (add a line when a milestone departs from this document, with the 
 - 2026-11-15 (M3): `.gitignore` anchors `data/` and `out/` to the repository root, because
   `backend/flighttrack/data/airports.csv` is committed. The acceptance grep for the old trip
   date is written `"2027-04-1[0]"` so the line stating it does not match itself.
+- 2026-11-15 (M4): `store.db` has one injectable clock (`now()`, `set_clock()`). `utcnow()` and
+  the `now` defaults in fetch, sweep, alert, deals, health and compact read it, so a test moves
+  one clock through days of running and every row written agrees with the worker's decisions.
+- 2026-11-15 (M4): in the worker the calendar sweep does not confirm its own picks. At
+  `collect.sweep_at` it plans the day's windows (`calendar.max_calls_per_run`, rotated as
+  before); the batch slots then run them four calls at a time, sharing the gap and the budget
+  with detail batches; at the end its best `calendar.confirm_budget` dates are flagged and
+  become step 3 of `select_due`. `flighttrack run` and `flighttrack sweep` still confirm at once.
+- 2026-11-15 (M4): dates a person asked for and the sweep's flags live in `state` as JSON
+  (`requested_queries`, `sweep_flagged`), not a new table. Each stays first until it has been
+  fetched after it was asked for or flagged; requests lapse after 7 days, flags after 24 hours.
+- 2026-11-15 (M4): the budget counts every `fetch_attempts` row except SerpApi's (results pages,
+  fast-flights, calendar calls, the canary). When the chain falls from `google_html` to
+  `fast_flights` within one fetch, that is two requests logged as one attempt, so the count can
+  run one low per such fallback. `fetch.run(max_requests=)` stops a batch before it would go
+  over, retries included.
+- 2026-11-15 (M4): an alert is recorded even when its channel fails: the `notifications` row and
+  `alerts_sent` (or `deal_posts.alerted_at`) are written in one transaction before delivery. The
+  M1 rule "a failed delivery is not recorded, so it is retried" is reversed, as task 5 says.
+  `notify.py` is gone; its `file` and `smtp` channels are in `notifier.py`, and `notify.channel:
+  none` now means "record only". A broken `notify:` section becomes a delivery error per send.
+- 2026-11-15 (M4): the health messages are titled "⚠ Flight Watch has stopped collecting prices"
+  and "Flight Watch is collecting prices again" (the M8 wording); health records them even with
+  no channel configured.
+- 2026-11-15 (M4): a `fetch_search` job puts that search's next `collect.batch_size` date pairs
+  first (never fetched, then oldest), not all of them, so one search cannot hold trips back for
+  days. A fetch job during a cooldown, or with the budget spent, finishes `failed` with a message
+  saying when collecting resumes; its dates stay first in line.
+- 2026-11-15 (M4): `FLIGHTTRACK_SOURCE=fake` also skips the deal feeds, the sweep and the canary
+  (no outside requests at all), and its first batch goes 5 seconds after start instead of 1–5
+  minutes, so the compose check sees prices within two minutes.
+- 2026-11-15 (M4): the canary is an hourly check that sends its one request when the last one is
+  24 hours old and the cooldown and budget allow. Its request is logged with source `canary` and
+  spends the budget; a block starts the cooldown; a block or network error leaves the drift
+  verdict as it was. A "no results" page on the canary route counts as a failure.
+- 2026-11-15 (M4): the plan gave no times for backup, retention and vacuum: 03:30 and 03:45
+  nightly and Sunday 04:40, local time.
+- 2026-11-15 (M4): Compose's `flighttrack` service (and the image's default command) is now
+  `serve --no-schedule`: the page and `/status.json` only, the page drawn again on request when a
+  minute old, so only the worker collects. `serve` without the flag behaves as before.
+- 2026-11-15 (M4): `cycle.py` (the old `jobs.py`), `compact` and `serve` pass strict mypy and left
+  the exception list with `notify` (deleted) and `jobs` (now the queue).
+- 2026-11-15 (M4): checkpoint A has not happened, so `collect.daily_request_budget` stays 50.
+  Problem 13 is still unassigned: `fetch.run` treats an `errorHasStatus` page as before.
+- 2026-11-15 (M4): `docker build` could not run in the cloud session (Docker Hub answered 429 for
+  the base image). CI's `docker` job builds the image and runs the compose worker check.
 
 ## How to work from this document
 
@@ -184,7 +230,7 @@ The captured responses are in `tests/fixtures/live-20261114/` with their expecte
 | 9 | The tolerant parser can hide a layout change. A moved index turns a field into `None` without any error | By design of `results._at` | M1 (self-check), M4 (canary) |
 | 10 | The web server cannot face the internet: stdlib `http.server`, no sign-in, and `POST /run` open to anyone | `serve.py` | M5 |
 | 11 | Real trip dates are committed to a public repository in `config.yaml` | Repository visibility | M3 |
-| 12 | Two processes cannot share the database safely (no `busy_timeout`), and there are no backups | `db.connect` | M2, M4 |
+| 12 | Two processes cannot share the database safely (no `busy_timeout`), and there are no backups | `db.connect` | M2, M4 (nightly backups, 14 kept) |
 | 13 | **A Google-side error is recorded as "no itineraries".** On 2026-11-15 the results page for SEA→SLC Jan 13–16 came back with `ds:1` = `[13, null, [ErrorResponse …]]` and `errorHasStatus`. `classify()` calls any `errorHasStatus` page `no_results`, so `fetch.run` marks the query fetched and resets the failure counter. It was neither empty nor a block: the calendar priced that date at $277 and the next request succeeded | `tests/fixtures/live-20261115/` | not assigned; M4 (with the canary) is the natural place. Needs a real "no flights" page to tell the two apart |
 
 ## Target
