@@ -376,7 +376,8 @@ def test_export_then_import_round_trips(tmp_path: Path) -> None:
     from flighttrack.config import parse_watch_file
 
     conn, cfg = _imported(tmp_path)
-    watches.set_search_status(conn, cfg, watches.get_search(conn, "tokyo_10").id, "paused")
+    tokyo_10 = watches.get_search(conn, "tokyo_10").id
+    watches.set_search_status(conn, cfg, tokyo_10, "paused", today=TODAY)
     exported = watches.export_watch_file(conn, cfg)
     text = yaml.safe_dump(exported, sort_keys=False)
     assert "2027-04-10" in text
