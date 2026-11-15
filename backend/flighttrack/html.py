@@ -18,6 +18,8 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from .config import Config
+from .health import HealthReport
 from .health import check as health_check
 from .report import Advice, GridRow, advise, fmt_date, fmt_money, grid, history
 from .watches import list_trips
@@ -304,7 +306,7 @@ PLANE = (
 )
 
 
-def e(text) -> str:
+def e(text: object) -> str:
     return _html.escape("" if text is None else str(text), quote=True)
 
 
@@ -320,7 +322,7 @@ def _nice_ticks(lo: float, hi: float, n: int = 3) -> list[int]:
     mag = 10 ** int(len(str(int(raw))) - 1) if raw >= 1 else 1
     step = max(mag, round(raw / mag) * mag)
     start = int(lo // step) * step
-    ticks = []
+    ticks: list[int] = []
     t = start
     while t <= hi + step and len(ticks) < n + 2:
         if t >= lo - step:
@@ -348,10 +350,10 @@ def line_chart(
     t0, t1 = ts[0], ts[-1]
     tspan = (t1 - t0).total_seconds() or 1
 
-    def X(t):
+    def X(t: datetime) -> float:
         return pad_l + (t - t0).total_seconds() / tspan * w
 
-    def Y(v):
+    def Y(v: float) -> float:
         return pad_t + (hi - v) / (hi - lo) * h
 
     pts = [(round(X(t), 1), round(Y(v), 1)) for t, v in zip(ts, ys, strict=True)]
@@ -409,7 +411,7 @@ def history_table(series: list[tuple[str, int]]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _health_pill(rep) -> str:
+def _health_pill(rep: HealthReport | None) -> str:
     if rep is None:
         return ""
     if rep.ok and not rep.problems:
@@ -425,7 +427,7 @@ def _verdict_pill(v: str) -> str:
     return f'<span class="pill verdict {cls}">{icon} {e(v)}</span>'
 
 
-def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
+def trip_cards(conn: sqlite3.Connection, cfg: Config | None, window_days: int) -> str:
     trips = list_trips(conn, status="active")
     if not trips:
         return ""
@@ -489,6 +491,11 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
     )
 
 
+def _cents(r: GridRow) -> int:
+    """A priced row's current price (callers have already skipped unpriced rows)."""
+    return r.current_cents or 0
+
+
 def cheapest_tiles(conn: sqlite3.Connection, window_days: int, exclude_patterns: set[str]) -> str:
     """The best current fare in each date grid (label × pattern), cheapest first."""
     best: dict[tuple[str, str], GridRow] = {}
@@ -496,9 +503,9 @@ def cheapest_tiles(conn: sqlite3.Connection, window_days: int, exclude_patterns:
         if r.pattern in exclude_patterns or r.current_cents is None:
             continue
         key = (r.label, r.pattern)
-        if key not in best or r.current_cents < best[key].current_cents:
+        if key not in best or r.current_cents < _cents(best[key]):
             best[key] = r
-    rows = sorted(best.values(), key=lambda r: r.current_cents)[:6]
+    rows = sorted(best.values(), key=_cents)[:6]
     if not rows:
         return ""
     tiles = []
@@ -549,7 +556,7 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
     ]
     for (label, pattern), prows in sorted(groups.items()):
         priced = [r for r in prows if r.current_cents is not None]
-        prices = [r.current_cents for r in priced]
+        prices = [r.current_cents for r in priced if r.current_cents is not None]
         if not prices:
             continue
         lo, hi = min(prices), max(prices)
@@ -567,13 +574,13 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
         )
         cells = []
         for r in sorted(priced, key=lambda r: r.depart_date):
-            cls = _heat_class(r.current_cents, lo, hi)
+            cls = _heat_class(_cents(r), lo, hi)
             flags = []
             if r.is_at_low:
                 flags.append("low")
             elif r.vs_low_pct is not None and r.vs_low_pct >= 0.5:
                 flags.append(f"+{r.vs_low_pct:.0f}%")
-            if r.target_price and r.current_cents <= r.target_price:
+            if r.target_price and _cents(r) <= r.target_price:
                 flags.append("★ target")
             if r.sweep_cents is not None:
                 flags.append(f"sweep {fmt_money(r.sweep_cents)}")
@@ -592,7 +599,7 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
             else:
                 cells.append(f'<div class="cell {cls}{best}" title="{e(title)}">{body}</div>')
         trs = []
-        for r in sorted(priced, key=lambda r: r.current_cents):
+        for r in sorted(priced, key=_cents):
             vs = (
                 "—"
                 if r.vs_low_pct is None
@@ -651,7 +658,9 @@ def deals_section(conn: sqlite3.Connection) -> str:
     )
 
 
-def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
+def collector_section(
+    conn: sqlite3.Connection, rep: HealthReport | None, cfg: Config | None
+) -> str:
     last = conn.execute("SELECT * FROM run_log ORDER BY id DESC LIMIT 1").fetchone()
     obs = conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0]
     since = (datetime.now(UTC) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -718,7 +727,10 @@ def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
 
 
 def render(
-    conn: sqlite3.Connection, window_days: int = 30, cfg=None, fragment: bool = False
+    conn: sqlite3.Connection,
+    window_days: int = 30,
+    cfg: Config | None = None,
+    fragment: bool = False,
 ) -> str:
     """Build the whole page. `fragment=True` omits the document skeleton
     (for hosts that wrap the page themselves)."""
@@ -790,7 +802,7 @@ def write(
     conn: sqlite3.Connection,
     path: str | Path,
     window_days: int = 30,
-    cfg=None,
+    cfg: Config | None = None,
     fragment: bool = False,
 ) -> Path:
     """Render and write the page, creating parent directories as needed."""

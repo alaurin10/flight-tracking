@@ -105,7 +105,7 @@ def seed(
     days: int = 45,
     today: date | None = None,
     rng_seed: int = 7,
-) -> dict:
+) -> dict[str, int]:
     """Expand the grid (inventing watches if there are none), then fabricate `days` of
     daily observations."""
     rng = random.Random(rng_seed)

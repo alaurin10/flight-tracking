@@ -255,7 +255,7 @@ def _airport(code: Any, where: str) -> str:
     _require(isinstance(code, str), f"{where}: airport code must be a string")
     code = code.strip().upper()
     _require(bool(_IATA.match(code)), f"{where}: {code!r} is not a 3-letter IATA code")
-    return code
+    return str(code)
 
 
 def _int(v: Any, where: str, lo: int | None = None, hi: int | None = None) -> int:
@@ -266,7 +266,7 @@ def _int(v: Any, where: str, lo: int | None = None, hi: int | None = None) -> in
         _require(v >= lo, f"{where} must be >= {lo}")
     if hi is not None:
         _require(v <= hi, f"{where} must be <= {hi}")
-    return v
+    return int(v)
 
 
 def _cents(v: Any, where: str) -> int | None:
@@ -276,7 +276,7 @@ def _cents(v: Any, where: str) -> int | None:
         isinstance(v, int) and not isinstance(v, bool) and v > 0,
         f"{where} must be a positive integer in CENTS",
     )
-    return v
+    return int(v)
 
 
 def _iso(v: Any, where: str) -> str:
@@ -286,7 +286,7 @@ def _iso(v: Any, where: str) -> str:
         date.fromisoformat(v)
     except ValueError:
         raise ConfigError(f"{where}: {v} is not a valid date") from None
-    return v
+    return str(v)
 
 
 def _str_list(v: Any, where: str) -> tuple[str, ...]:
@@ -343,7 +343,8 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
         seen.add(dest)
         label = r.get("label") or dest
         _require(
-            isinstance(label, str) and label.strip(), f"{where}: label must be a non-empty string"
+            isinstance(label, str) and bool(label.strip()),
+            f"{where}: label must be a non-empty string",
         )
         target = _cents(r.get("target_price"), f"{where}.target_price")
         priority = r.get("priority", 2)
@@ -363,7 +364,8 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
         _require(isinstance(p, dict), f"{where}: must be a mapping")
         name = p.get("name")
         _require(
-            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+            isinstance(name, str) and bool(name.strip()),
+            f"{where}: name must be a non-empty string",
         )
         _require(name not in pat_names, f"{where}: duplicate pattern name {name!r}")
         pat_names.add(name)
@@ -420,7 +422,8 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
         _require(isinstance(t, dict), f"{where}: must be a mapping")
         name = t.get("name")
         _require(
-            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+            isinstance(name, str) and bool(name.strip()),
+            f"{where}: name must be a non-empty string",
         )
         _require(name not in pat_names, f"{where}: name {name!r} collides with a pattern")
         pat_names.add(name)
@@ -448,15 +451,16 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
             )
         )
 
-    d = raw.get("deals") or {}
-    _require(isinstance(d, dict), "deals: must be a mapping")
+    deals_raw = raw.get("deals") or {}
+    _require(isinstance(deals_raw, dict), "deals: must be a mapping")
     deal_watches: list[DealWatch] = []
-    for i, w in enumerate(d.get("watches") or []):
+    for i, w in enumerate(deals_raw.get("watches") or []):
         where = f"deals.watches[{i}]"
         _require(isinstance(w, dict), f"{where}: must be a mapping")
         wname = w.get("name")
         _require(
-            isinstance(wname, str) and wname.strip(), f"{where}: name must be a non-empty string"
+            isinstance(wname, str) and bool(wname.strip()),
+            f"{where}: name must be a non-empty string",
         )
         deal_watches.append(
             DealWatch(
@@ -467,7 +471,7 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
                 keywords=_str_list(w.get("keywords"), f"{where}.keywords"),
             )
         )
-    feeds = list(_str_list(d.get("feeds"), "deals.feeds"))
+    feeds = list(_str_list(deals_raw.get("feeds"), "deals.feeds"))
     return WatchFile(home, routes, patterns, trips, deal_watches, feeds)
 
 
@@ -571,7 +575,7 @@ def load(
     cooldown = f.get("cooldown_hours", list(Fetch.cooldown_hours))
     _require(
         isinstance(cooldown, list)
-        and cooldown
+        and bool(cooldown)
         and all(isinstance(x, (int, float)) and x > 0 for x in cooldown),
         "fetch.cooldown_hours must be a non-empty list of positive numbers",
     )

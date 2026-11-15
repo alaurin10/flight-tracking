@@ -17,6 +17,7 @@ import sys
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import airports, watches
 from . import alert as alert_mod
@@ -30,12 +31,15 @@ from . import sweep as sweep_mod
 from .config import Config, ConfigError, Route, load, read_watch_file
 from .logs import setup_logging
 from .settings import Settings
-from .store.db import connect, open_db
+
+if TYPE_CHECKING:
+    from .source import Source
+from .store.db import connect, open_db, utcnow
 
 log = logging.getLogger("flighttrack.cli")
 
 
-def _load(args, strict_secrets: bool = False) -> Config:
+def _load(args: argparse.Namespace, strict_secrets: bool = False) -> Config:
     try:
         return load(strict_secrets=strict_secrets, settings=args.settings)
     except ConfigError as exc:
@@ -47,7 +51,7 @@ def _db(cfg: Config) -> sqlite3.Connection:
     return open_db(cfg.db_path)
 
 
-def _source(cfg: Config):
+def _source(cfg: Config) -> Source:
     from .source import build_source
 
     return build_source(cfg, failure_dir=cfg.failure_dir)
@@ -100,7 +104,7 @@ def _tracked_counts(cfg: Config) -> dict[str, int] | None:
 # ---------------------------------------------------------------------------
 
 
-def cmd_import_config(args) -> int:
+def cmd_import_config(args: argparse.Namespace) -> int:
     """Create what is missing, update what exists (by slug), never delete."""
     cfg = _load(args)
     try:
@@ -125,7 +129,7 @@ def cmd_import_config(args) -> int:
     return 0
 
 
-def cmd_export_config(args) -> int:
+def cmd_export_config(args: argparse.Namespace) -> int:
     import yaml
 
     cfg = _load(args)
@@ -152,7 +156,7 @@ def cmd_export_config(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_expand(args) -> int:
+def cmd_expand(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     result = expand_mod.expand(conn, cfg, build_links=not args.no_links)
@@ -175,7 +179,7 @@ def cmd_expand(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_fetch(args) -> int:
+def cmd_fetch(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -228,7 +232,7 @@ def _fetch_exit(stats: fetch_mod.FetchStats) -> int:
     return 0
 
 
-def cmd_sweep(args) -> int:
+def cmd_sweep(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     if not cfg.calendar.enabled and not args.force:
@@ -259,14 +263,14 @@ def cmd_sweep(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_alert(args) -> int:
+def cmd_alert(args: argparse.Namespace) -> int:
     cfg = _load(args, strict_secrets=True)
     conn = _db(cfg)
     stats = alert_mod.run(conn, cfg, dry_run=args.dry_run)
     return 1 if stats.delivery_error else 0
 
 
-def cmd_deals(args) -> int:
+def cmd_deals(args: argparse.Namespace) -> int:
     cfg = _load(args, strict_secrets=not (args.dry_run or args.test_match))
     conn = _db(cfg)
     if args.test_match:
@@ -284,7 +288,7 @@ def cmd_deals(args) -> int:
     return 1 if stats.delivery_error or (stats.feeds and stats.feeds_ok == 0) else 0
 
 
-def cmd_health(args) -> int:
+def cmd_health(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     rep, notified = health_mod.run(
@@ -301,7 +305,7 @@ def cmd_health(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_run(args) -> int:
+def cmd_run(args: argparse.Namespace) -> int:
     """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
     from .jobs import run_daily
 
@@ -312,7 +316,7 @@ def cmd_run(args) -> int:
     return result.rc
 
 
-def cmd_serve(args) -> int:
+def cmd_serve(args: argparse.Namespace) -> int:
     """Scheduler + web server in one process — the always-on-box way to run this."""
     from .jobs import run_daily
     from .serve import needs_catchup, serve
@@ -327,7 +331,7 @@ def cmd_serve(args) -> int:
     if catchup and not args.run_on_start:
         log.info(f"[serve] catching up at start: {why}")
 
-    def job():
+    def job() -> None:
         conn = _db(cfg)
         try:
             result = run_daily(
@@ -350,7 +354,7 @@ def cmd_serve(args) -> int:
     return 0
 
 
-def cmd_compact(args) -> int:
+def cmd_compact(args: argparse.Namespace) -> int:
     """Prune runner-up offers and old request logs; never the price series."""
     from .compact import compact
 
@@ -361,7 +365,7 @@ def cmd_compact(args) -> int:
     return 0
 
 
-def cmd_demo(args) -> int:
+def cmd_demo(args: argparse.Namespace) -> int:
     """Seed synthetic history and render the report, to see the UI before real data exists."""
     from . import demo as demo_mod
 
@@ -389,7 +393,7 @@ def cmd_demo(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _title(cfg, args) -> str:
+def _title(cfg: Config, args: argparse.Namespace) -> str:
     scope = args.label or args.dest or "all routes"
     bits = [f"{cfg.home} → {scope}"]
     if args.pattern:
@@ -399,7 +403,7 @@ def _title(cfg, args) -> str:
     return " · ".join(bits)
 
 
-def cmd_report(args) -> int:
+def cmd_report(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -426,7 +430,7 @@ def cmd_report(args) -> int:
     return 0
 
 
-def cmd_advise(args) -> int:
+def cmd_advise(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     items = report_mod.advise(
@@ -442,7 +446,7 @@ def cmd_advise(args) -> int:
     return 0
 
 
-def cmd_html(args) -> int:
+def cmd_html(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     path = html_mod.write(conn, args.out or cfg.html_path, window_days=args.window, cfg=cfg)
@@ -450,7 +454,7 @@ def cmd_html(args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -521,7 +525,7 @@ def cmd_status(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_doctor(args) -> int:
+def cmd_doctor(args: argparse.Namespace) -> int:
     print("\n=== flighttrack doctor ===\n")
     ok = True
 
@@ -771,7 +775,7 @@ def cmd_doctor(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_calibrate(args) -> int:
+def cmd_calibrate(args: argparse.Namespace) -> int:
     cfg = _load(args)
     if not args.yes:
         print(
@@ -844,10 +848,10 @@ def cmd_calibrate(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_ingest(args) -> int:
+def cmd_ingest(args: argparse.Namespace) -> int:
     """Record prices found by something else (a browser session, another API).
 
-    Each line: {"dest": "HND", "depart": "2027-04-10", "return": "2027-04-24",
+    Each line: {"dest": "LIS", "depart": "2031-10-03", "return": "2031-10-13",
                 "price": 812, "airline": "ANA", "stops": 0, "source": "expedia"}
     `price` is in whole currency units. Unknown date pairs get a query row
     with pattern 'manual' so they appear in reports and alerts.
@@ -902,7 +906,7 @@ def cmd_ingest(args) -> int:
             raw={"ingested": True, **rec},
         )
         w, _ = fetch_mod.store(conn, qid, [offer])
-        conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (fetch_mod.utcnow(), qid))
+        conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), qid))
         conn.commit()
         written += w
     print(f"[ingest] {written} observation(s) written, {skipped} line(s) skipped")
@@ -1065,7 +1069,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _default_dates(args) -> None:
+def _default_dates(args: argparse.Namespace) -> None:
     if getattr(args, "depart", None) is None:
         args.depart = (date.today() + timedelta(days=60)).isoformat()
     if getattr(args, "ret", None) is None and args.cmd == "doctor":
@@ -1082,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("doctor", "calibrate"):
         _default_dates(args)
     try:
-        return args.func(args)
+        return int(args.func(args))
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
         return 130

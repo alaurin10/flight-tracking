@@ -25,6 +25,7 @@ import random
 import sqlite3
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -77,8 +78,8 @@ class FetchStats:
     observations_written: int = 0
     implausible: int = 0
     parser_mismatch: int = 0  # fetches whose lowest parsed price != the page's own cheapest
-    by_kind: Counter = field(default_factory=Counter)
-    sources_used: Counter = field(default_factory=Counter)
+    by_kind: Counter[str] = field(default_factory=Counter)
+    sources_used: Counter[str] = field(default_factory=Counter)
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -266,7 +267,15 @@ def store(
     return written, implausible
 
 
-def log_attempt(conn, run_id, query_id, source, outcome, latency_ms, error=None) -> None:
+def log_attempt(
+    conn: sqlite3.Connection,
+    run_id: int | None,
+    query_id: int | None,
+    source: str,
+    outcome: str,
+    latency_ms: int | None,
+    error: str | None = None,
+) -> None:
     conn.execute(
         "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, error) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -275,7 +284,7 @@ def log_attempt(conn, run_id, query_id, source, outcome, latency_ms, error=None)
 
 
 def _source_used(source: Source) -> str:
-    return getattr(source, "last_used", None) or getattr(source, "name", "?")
+    return str(getattr(source, "last_used", None) or getattr(source, "name", "?"))
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +297,7 @@ def run(
     cfg: Config,
     source: Source,
     now: datetime | None = None,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
     limit: int | None = None,
     verbose: bool = True,
     respect_cooldown: bool = True,

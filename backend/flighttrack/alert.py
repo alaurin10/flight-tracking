@@ -79,7 +79,7 @@ class AlertStats:
         return s
 
 
-def _iso_ago(**kw) -> str:
+def _iso_ago(**kw: float) -> str:
     return (datetime.now(UTC) - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -264,7 +264,7 @@ def _passes_dedup(conn: sqlite3.Connection, cand: Candidate, cfg: Config) -> boo
 
     # Already alerted recently — only a materially further drop gets through.
     required = row["price_cents"] * (1 - cfg.alerts.dedup_further_drop_pct / 100.0)
-    return cand.price_cents <= required
+    return bool(cand.price_cents <= required)
 
 
 def _record(conn: sqlite3.Connection, cands: list[Candidate]) -> None:

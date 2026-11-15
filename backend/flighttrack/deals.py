@@ -20,7 +20,7 @@ import re
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -440,7 +440,7 @@ def poll(
     transport: Transport | None = None,
     now: datetime | None = None,
     verbose: bool = True,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> DealStats:
     stats = DealStats()
     now = now or datetime.now(UTC)
@@ -586,7 +586,7 @@ def run(
     dry_run: bool = False,
     verbose: bool = True,
     now: datetime | None = None,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> DealStats:
     if not cfg.deals.enabled:
         if verbose:

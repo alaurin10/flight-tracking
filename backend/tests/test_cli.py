@@ -92,3 +92,28 @@ def test_run_orchestrates_all_stages_offline(tmp_path, capsys, monkeypatch):
     for stage in ("expand", "sweep", "fetch", "deals", "alert", "health", "html"):
         assert f"== {stage} ==" in out
     assert (tmp_path / "out" / "index.html").exists()
+
+
+def test_import_config_twice_then_export(tmp_path, capsys):
+    from pathlib import Path
+
+    old = Path(__file__).parent / "fixtures" / "config_m1.yaml"
+    assert cli.main(["import-config", str(old)]) == 0
+    out = capsys.readouterr().out
+    assert "searches: 4 created" in out and "trips: 1 created" in out
+    assert cli.main(["import-config", str(old)]) == 0
+    assert "nothing changed" in capsys.readouterr().out
+
+    exported = tmp_path / "backup.yaml"
+    assert cli.main(["export-config", "--out", str(exported)]) == 0
+    text = exported.read_text()
+    assert "tokyo_week" in text and "Europe from Seattle" in text
+    assert cli.main(["import-config", str(exported)]) == 0
+    assert "nothing changed" in capsys.readouterr().out
+
+
+def test_import_config_reports_a_bad_file(tmp_path, capsys):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("home: SEA\nroutes:\n  - dest: SEATTLE\n")
+    assert cli.main(["import-config", str(bad)]) == 2
+    assert "not a 3-letter IATA code" in capsys.readouterr().err

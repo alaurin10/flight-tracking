@@ -21,6 +21,7 @@ import random
 import sqlite3
 import statistics
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -38,7 +39,7 @@ from .gflights.calendar import (
     parse_calendar,
     windows,
 )
-from .gflights.transport import Transport, TransportError, default_transport
+from .gflights.transport import Response, Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
 from .store.db import get_state, set_state, utcnow
 from .watches import target_for
@@ -148,7 +149,9 @@ def _query_lookup(
     return {(r["depart_date"], r["return_date"]): r["id"] for r in rows}
 
 
-def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: float = 30.0):
+def fetch_window(
+    transport: Transport, cfg: Config, job: SweepJob, timeout: float = 30.0
+) -> tuple[list[DatePrice], Response]:
     """One RPC. Returns (list[DatePrice], response). Raises TransportError."""
     nights = job.pattern.nights or None
     body = build_body(
@@ -168,7 +171,7 @@ def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: floa
     return parse_calendar(resp.text), resp
 
 
-def calendar_filters(cfg: Config) -> dict:
+def calendar_filters(cfg: Config) -> dict[str, bool]:
     """What a stored calendar price means, so later readers do not compare it with the wrong
     thing."""
     return {
@@ -224,7 +227,7 @@ def run(
     transport: Transport | None = None,
     confirm_source: Source | None = None,
     now: datetime | None = None,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
     verbose: bool = True,
 ) -> SweepStats:
     stats = SweepStats()
