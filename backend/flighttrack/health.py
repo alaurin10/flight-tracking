@@ -11,6 +11,7 @@ Everything here is a read of tables the other modules already write:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,8 @@ from .config import Config
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
 from .notify import NotifyError, notify
 from .store.db import get_state, parse_ts, set_state, utcnow
+
+log = logging.getLogger(__name__)
 
 STATE_LAST_HEALTH_ALERT = "last_health_alert_at"
 STATE_LAST_HEALTH_SIG = "last_health_signature"
@@ -284,7 +287,11 @@ def run(
     now = now or datetime.now(UTC)
     rep = check(conn, cfg, now)
     if verbose:
-        print(rep.render())
+        log.info(f"[health] {'ok' if rep.ok else 'NOT OK'}: {len(rep.problems)} problem(s)")
+        for p in rep.problems:
+            (log.warning if p.severity == "crit" else log.info)(
+                f"[health] {p.severity}: {p.message}"
+            )
 
     if rep.ok and not rep.problems:
         # Fully clean: forget the last alert so a recurrence notifies promptly.
@@ -312,7 +319,7 @@ def run(
         notify(cfg.notify, subject, body)
     except NotifyError as exc:
         if verbose:
-            print(f"[health] notification failed: {exc}")
+            log.warning(f"[health] notification failed: {exc}")
         return rep, False
     set_state(conn, STATE_LAST_HEALTH_ALERT, utcnow())
     set_state(conn, STATE_LAST_HEALTH_SIG, rep.signature)

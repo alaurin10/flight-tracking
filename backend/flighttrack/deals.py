@@ -15,6 +15,7 @@ at or under `max_price` when one is set. There is no NLP to be wrong.
 from __future__ import annotations
 
 import html
+import logging
 import re
 import sqlite3
 import time
@@ -27,6 +28,8 @@ from .config import Config, DealWatch
 from .gflights.transport import Transport, TransportError, default_transport
 from .notify import NotifyError, notify
 from .report import fmt_money
+
+log = logging.getLogger(__name__)
 
 # A region name in `destinations` expands to these words (matched as whole
 # words, case-insensitively). Extend freely — it is only a list.
@@ -463,7 +466,7 @@ def poll(
             )
             conn.commit()
             if verbose:
-                print(f"  [FAIL] {feed}: {msg}")
+                log.warning(f"[FAIL] {feed}: {msg}")
             continue
 
         stats.feeds_ok += 1
@@ -501,7 +504,7 @@ def poll(
         stats.new += new_here
         conn.commit()
         if verbose:
-            print(f"  [ok] {feed}: {len(items)} items, {new_here} new")
+            log.info(f"[ok] {feed}: {len(items)} items, {new_here} new")
     return stats
 
 
@@ -562,7 +565,7 @@ def alert(
     except NotifyError as exc:
         stats.delivery_error = str(exc)
         if verbose:
-            print(f"[deals] DELIVERY FAILED: {exc}")
+            log.warning(f"[deals] DELIVERY FAILED: {exc}")
         return stats
     if not dry_run:
         stamp = _iso(now)
@@ -584,12 +587,12 @@ def run(
 ) -> DealStats:
     if not cfg.deals.enabled:
         if verbose:
-            print("[deals] disabled in config")
+            log.info("[deals] disabled in config")
         return DealStats()
     now = now or datetime.now(UTC)
     stats = poll(conn, cfg, transport, now=now, verbose=verbose, sleeper=sleeper)
     a = alert(conn, cfg, dry_run=dry_run, verbose=verbose, now=now)
     stats.alerted, stats.delivery_error = a.alerted, a.delivery_error
     if verbose:
-        print(f"[deals] {stats.summary()}")
+        log.info(f"[deals] {stats.summary()}")
     return stats

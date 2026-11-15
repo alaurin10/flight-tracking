@@ -1,12 +1,27 @@
 """Config loading and validation.
 
-Everything the system does is driven by one YAML file. Invalid config should
-fail loudly at load time, not at 3am inside a cron job, so validation here is
-deliberately strict and the error messages name the offending key.
+Two YAML files make one `Config`:
+
+* `config/flighttrack.yaml` (in `Settings.config_dir`): the tunables. Committed,
+  nothing personal: search filters, pacing, alerts, health, retention, the
+  horizon, notification delivery and the default deal feeds. Optional; every key
+  has a default in code.
+* the watch file (`--config`, default `config.yaml` at the repository root): what
+  is tracked: `home`, `routes`, `trips`, `patterns` and `deals` (`enabled`,
+  `watches`). M3 moves these into the database.
+
+The watch file is merged over the tunables section by section, so an older
+single-file config still loads unchanged. Paths (database, page, failure
+pages) come from `Settings`, never from YAML.
+
+Invalid config should fail loudly at load time, not at 3am inside a scheduled
+run, so validation here is deliberately strict and the error messages name the
+offending key.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -15,6 +30,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .settings import Settings
+
+log = logging.getLogger(__name__)
 
 DOW = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
 SEATS = {"economy", "premium-economy", "business", "first"}
@@ -262,20 +281,55 @@ def _str_list(v: Any, where: str) -> tuple[str, ...]:
     return tuple(x.strip() for x in v)
 
 
-def load(path: str | Path, strict_secrets: bool = True) -> Config:
-    """Load and validate the YAML config at ``path``.
+def _read_yaml(path: Path, what: str) -> dict[str, Any]:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{what} {path} is not valid YAML: {exc}") from None
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{what} {path}: the root must be a mapping")
+    return raw
+
+
+def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    """`over` on top of `base`; mappings merge key by key, anything else is replaced."""
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def read_raw(path: str | Path, settings: Settings) -> dict[str, Any]:
+    """The tunables file with the watch file merged over it, before validation."""
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"config file not found: {path}")
+    tunables = settings.tunables_path
+    base = _read_yaml(tunables, "tunables file") if tunables.exists() else {}
+    over = _read_yaml(path, "config file")
+    if "output" in over:
+        log.warning(
+            "%s: the output: section is ignored; the database and pages live under DATA_DIR (%s)",
+            path,
+            settings.data_dir,
+        )
+        over = {k: v for k, v in over.items() if k != "output"}
+    return merge(base, over)
+
+
+def load(
+    path: str | Path, strict_secrets: bool = True, *, settings: Settings | None = None
+) -> Config:
+    """Load and validate the watch file at ``path`` over the tunables file.
 
     ``strict_secrets`` controls whether a missing delivery secret is fatal —
     True for commands that send, False for read-only/diagnostic ones.
     """
-    path = Path(path)
-    if not path.exists():
-        raise ConfigError(f"config file not found: {path}")
-
-    raw = yaml.safe_load(path.read_text()) or {}
-    if not isinstance(raw, dict):
-        raise ConfigError("config root must be a mapping")
-    raw = _expand_env(raw)
+    settings = settings or Settings()
+    raw = _expand_env(read_raw(path, settings))
 
     home = _airport(raw.get("home"), "home")
 
@@ -437,7 +491,7 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         cooldown_hours=tuple(float(x) for x in cooldown),
         keep_failure_artifacts=int(f.get("keep_failure_artifacts", 20)),
         request_timeout_seconds=float(f.get("request_timeout_seconds", 30.0)),
-        serpapi_key=(f.get("serpapi") or {}).get("api_key") or None,
+        serpapi_key=(f.get("serpapi") or {}).get("api_key") or settings.serpapi_key or None,
         serpapi_url=(f.get("serpapi") or {}).get("base_url") or None,
     )
     _require(fetch.max_queries_per_run > 0, "fetch.max_queries_per_run must be positive")
@@ -547,7 +601,13 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
             "(or hard-code them) before enabling alerts",
         )
 
-    out = raw.get("output") or {}
+    # The file channel writes under DATA_DIR unless given an absolute path.
+    n = dict(n)
+    file_conf = dict(n.get("file") or {})
+    digest = Path(str(file_conf.get("path") or "out/digest.md"))
+    file_conf["path"] = str(digest if digest.is_absolute() else settings.data_dir / digest)
+    n["file"] = file_conf
+
     return Config(
         home=home,
         routes=routes,
@@ -558,12 +618,12 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         fetch=fetch,
         alerts=alerts,
         notify=n,
-        db_path=str(out.get("db_path", "data/flights.db")),
-        html_path=str(out.get("html_path", "out/index.html")),
+        db_path=str(settings.database),
+        html_path=str(settings.html_path),
         trips=trips,
         calendar=calendar,
         deals=deals,
         health=health,
         retention=retention,
-        failure_dir=str(out.get("failure_dir", "data/failures")),
+        failure_dir=str(settings.failure_dir),
     )

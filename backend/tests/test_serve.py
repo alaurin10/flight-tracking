@@ -136,19 +136,18 @@ def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys)
     from flighttrack import cli
     from flighttrack.store.db import set_state, utcnow
 
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
         "home: SEA\nroutes:\n  - dest: SLC\n    label: Salt Lake City\npatterns:\n  - name: "
-        "fri\n    depart_dow: FRI\n"
-        f"    nights: 3\nnotify:\n  channel: none\noutput:\n  db_path: {tmp_path / 'f.db'}\n  "
-        f"html_path: {tmp_path / 'i.html'}\n"
+        "fri\n    depart_dow: FRI\n    nights: 3\nnotify:\n  channel: none\n"
     )
     seen = []
     monkeypatch.setattr(serve, "serve", lambda cfg, job, **kw: seen.append(kw["run_on_start"]))
 
     assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # empty database → catch up
-    assert "catching up at start" in capsys.readouterr().out
-    conn = open_db(tmp_path / "f.db")
+    assert "catching up at start" in capsys.readouterr().err  # a JSON log line
+    conn = open_db(tmp_path / "flights.db")
     set_state(conn, "last_success_at", utcnow())
     conn.close()
     assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # fresh → wait for the schedule

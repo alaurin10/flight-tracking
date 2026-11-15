@@ -181,10 +181,15 @@ def test_config_rejects_bad_scenario_values(tmp_path, extra, match):
         _load(tmp_path, extra)
 
 
-def test_shipped_config_is_valid_and_covers_all_three_scenarios():
-    from pathlib import Path
+def _shipped(tmp_path):
+    from flighttrack.settings import REPO_ROOT, Settings
 
-    cfg = load(Path(__file__).resolve().parents[2] / "config.yaml", strict_secrets=False)
+    settings = Settings(config_dir=REPO_ROOT / "config", data_dir=tmp_path)
+    return load(REPO_ROOT / "config.yaml", strict_secrets=False, settings=settings)
+
+
+def test_shipped_config_is_valid_and_covers_all_three_scenarios(tmp_path):
+    cfg = _shipped(tmp_path)
     assert any(p.window_start for p in cfg.patterns), "a windowed (ski) pattern"
     assert cfg.trips, "a fixed trip"
     assert cfg.deals.watches, "a deal watch"
@@ -195,3 +200,26 @@ def test_shipped_config_is_valid_and_covers_all_three_scenarios():
         "https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/",
     )
     assert cfg.fetch.max_queries_per_run == 25
+
+
+def test_shipped_files_split_tunables_from_watches(tmp_path):
+    """M2: config/flighttrack.yaml holds only tunables; config.yaml only what is tracked."""
+    import yaml
+
+    from flighttrack.settings import REPO_ROOT
+
+    tunables = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
+    watches = yaml.safe_load((REPO_ROOT / "config.yaml").read_text())
+    assert set(tunables) == {
+        "search", "fetch", "calendar", "alerts", "health", "retention", "horizon", "notify",
+        "deals",
+    }  # fmt: skip
+    assert set(tunables["deals"]) == {"feeds", "max_alerts_per_run", "lookback_days"}
+    assert set(watches) == {"home", "routes", "trips", "patterns", "deals"}
+    assert set(watches["deals"]) == {"enabled", "watches"}
+
+    cfg = _shipped(tmp_path)
+    assert cfg.db_path == str(tmp_path / "flights.db")
+    assert cfg.html_path == str(tmp_path / "out" / "index.html")
+    assert cfg.failure_dir == str(tmp_path / "failures")
+    assert cfg.notify["file"]["path"] == str(tmp_path / "out" / "digest.md")

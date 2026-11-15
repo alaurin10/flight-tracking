@@ -3,6 +3,8 @@
 import io
 import json
 
+import pytest
+
 from flighttrack import cli
 from flighttrack.store.db import open_db
 
@@ -20,15 +22,18 @@ deals:
   enabled: false
 notify:
   channel: none
-output:
-  db_path: {db}
-  html_path: {html}
 """
+
+
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path, monkeypatch):
+    """The database and the page go under DATA_DIR."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
 
 def _cfg(tmp_path):
     p = tmp_path / "config.yaml"
-    p.write_text(CONFIG.format(db=tmp_path / "f.db", html=tmp_path / "index.html"))
+    p.write_text(CONFIG)
     return str(p)
 
 
@@ -69,7 +74,7 @@ def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
     assert (
         cli.main(["--config", c, "ingest"]) == 1
     )  # two bad lines → non-zero, but the good one lands
-    conn = open_db(tmp_path / "f.db")
+    conn = open_db(tmp_path / "flights.db")
     row = conn.execute(
         "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = "
         "o.query_id"
@@ -90,4 +95,4 @@ def test_run_orchestrates_all_stages_offline(tmp_path, capsys, monkeypatch):
     assert rc == 0
     for stage in ("expand", "sweep", "fetch", "deals", "alert", "health", "html"):
         assert f"== {stage} ==" in out
-    assert (tmp_path / "index.html").exists()
+    assert (tmp_path / "out" / "index.html").exists()

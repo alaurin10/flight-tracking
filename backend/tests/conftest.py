@@ -23,7 +23,12 @@ APP_ENV_VARS = (
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests must not see the real settings of the machine they run on."""
+def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Tests must not see the real settings of the machine they run on, nor write to
+    the repository's data/. CONFIG_DIR points at an empty folder, so `config.load`
+    uses the code defaults unless a test writes its own tunables file."""
     for name in APP_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+    base = tmp_path_factory.mktemp("app")
+    monkeypatch.setenv("DATA_DIR", str(base / "data"))
+    monkeypatch.setenv("CONFIG_DIR", str(base / "config"))

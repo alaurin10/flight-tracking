@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sqlite3
 import statistics
 import sys
@@ -26,14 +27,18 @@ from . import html as html_mod
 from . import report as report_mod
 from . import sweep as sweep_mod
 from .config import Config, ConfigError, load
+from .logs import setup_logging
+from .settings import REPO_ROOT, Settings
 from .store.db import open_db
 
-DEFAULT_CONFIG = "config.yaml"
+# The watch file (trips, patterns, deal watches) until M3 moves them into the database.
+DEFAULT_CONFIG = REPO_ROOT / "config.yaml"
+log = logging.getLogger("flighttrack.cli")
 
 
 def _load(args, strict_secrets: bool = False) -> Config:
     try:
-        return load(args.config, strict_secrets=strict_secrets)
+        return load(args.config, strict_secrets=strict_secrets, settings=args.settings)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
@@ -187,7 +192,10 @@ def cmd_deals(args) -> int:
 def cmd_health(args) -> int:
     cfg = _load(args)
     conn = _db(cfg)
-    rep, notified = health_mod.run(conn, cfg, dry_run=args.dry_run or not args.notify)
+    rep, notified = health_mod.run(
+        conn, cfg, dry_run=args.dry_run or not args.notify, verbose=args.dry_run
+    )
+    print(rep.render())
     if notified and not args.dry_run and args.notify:
         print("[health] notification sent")
     return 0 if rep.ok else 1
@@ -222,13 +230,15 @@ def cmd_serve(args) -> int:
         conn.close()
     run_on_start = args.run_on_start or catchup
     if catchup and not args.run_on_start:
-        print(f"[serve] catching up at start: {why}")
+        log.info(f"[serve] catching up at start: {why}")
 
     def job():
         conn = _db(cfg)
         try:
-            result = run_daily(conn, cfg, _source, limit=args.limit, dry_run=args.dry_run)
-            print(f"[run] {result.summary()}")
+            result = run_daily(
+                conn, cfg, _source, limit=args.limit, dry_run=args.dry_run, log=log.info
+            )
+            log.info(f"[run] {result.summary()}")
         finally:
             conn.close()
 
@@ -240,6 +250,7 @@ def cmd_serve(args) -> int:
         at=args.at,
         jitter_minutes=args.jitter,
         run_on_start=run_on_start,
+        log=log.info,
     )
     return 0
 
@@ -260,7 +271,7 @@ def cmd_demo(args) -> int:
     from . import demo as demo_mod
 
     cfg = _load(args, strict_secrets=False)
-    db_path = Path(args.db)
+    db_path = Path(args.db) if args.db else args.settings.data_dir / "demo.db"
     if db_path.exists():
         if not args.force:
             print(f"[demo] {db_path} exists — pass --force to overwrite")
@@ -268,7 +279,7 @@ def cmd_demo(args) -> int:
         db_path.unlink()
     conn = open_db(db_path)
     stats = demo_mod.seed(conn, cfg, days=args.days)
-    out = html_mod.write(conn, args.out, cfg=cfg)
+    out = html_mod.write(conn, args.out or args.settings.out_dir / "demo.html", cfg=cfg)
     print(
         f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over "
         f"{stats['days']} days"
@@ -416,7 +427,7 @@ def cmd_doctor(args) -> int:
     ok = True
 
     try:
-        cfg = load(args.config, strict_secrets=False)
+        cfg = load(args.config, strict_secrets=False, settings=args.settings)
         print(
             f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, "
             f"{len(cfg.trips)} trips"
@@ -656,7 +667,7 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_calibrate(args) -> int:
-    cfg = load(args.config, strict_secrets=False)
+    cfg = _load(args)
     if not args.yes:
         print(
             f"About to issue up to {args.count} real requests to Google Flights at "
@@ -805,7 +816,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="flighttrack", description="Self-hosted daily flight price sensor."
     )
     p.add_argument(
-        "--config", default=DEFAULT_CONFIG, help=f"config file (default {DEFAULT_CONFIG})"
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help="the watch file: home, routes, trips, patterns, deal watches "
+        "(default: config.yaml at the repository root). Tunables are read from "
+        "<CONFIG_DIR>/flighttrack.yaml",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -880,8 +895,8 @@ def build_parser() -> argparse.ArgumentParser:
     cp.set_defaults(func=cmd_compact)
 
     dm = sub.add_parser("demo", help="seed synthetic history and render the report (no network)")
-    dm.add_argument("--db", default="data/demo.db")
-    dm.add_argument("--out", default="out/demo.html")
+    dm.add_argument("--db", default=None, help="default: <DATA_DIR>/demo.db")
+    dm.add_argument("--out", default=None, help="default: <DATA_DIR>/out/demo.html")
     dm.add_argument("--days", type=int, default=45)
     dm.add_argument("--force", action="store_true")
     dm.set_defaults(func=cmd_demo)
@@ -956,6 +971,9 @@ def _default_dates(args) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.settings = Settings()
+    # JSON lines for the long-running process; plain text for a person at a terminal.
+    setup_logging(json_lines=args.cmd == "serve")
     if args.cmd in ("doctor", "calibrate"):
         _default_dates(args)
     try:

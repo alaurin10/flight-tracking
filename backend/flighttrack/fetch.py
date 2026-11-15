@@ -20,6 +20,7 @@ warning in the README:
 
 from __future__ import annotations
 
+import logging
 import random
 import sqlite3
 import time
@@ -39,6 +40,8 @@ from .source import (
     price_is_plausible,
 )
 from .store.db import get_state, parse_ts, set_state, utcnow
+
+log = logging.getLogger(__name__)
 
 # How stale a query may get before it is due again, by route priority.
 PRIORITY_INTERVAL_DAYS = {1: 1, 2: 3, 3: 7}
@@ -307,7 +310,7 @@ def run(
         )
         conn.commit()
         if verbose:
-            print(
+            log.warning(
                 f"[fetch] run {stats.run_id}: skipped — cooldown until {until} (a previous run "
                 "was blocked)"
             )
@@ -315,7 +318,7 @@ def run(
 
     due = select_due(conn, cfg, now=now, limit=limit, query_ids=query_ids)
     if verbose:
-        print(
+        log.info(
             f"[fetch] run {stats.run_id}: {len(due)} queries due (cap "
             f"{limit or cfg.fetch.max_queries_per_run}) via {getattr(source, 'name', '?')}"
         )
@@ -377,8 +380,8 @@ def run(
                     retried = True
                     stats.retries += 1
                     if verbose:
-                        print(
-                            f"  [retry] {leg}: {exc} — retrying once in "
+                        log.warning(
+                            f"[retry] {leg}: {exc} — retrying once in "
                             f"{cfg.fetch.retry_sleep_seconds:.0f}s"
                         )
                     sleeper(cfg.fetch.retry_sleep_seconds)
@@ -396,7 +399,7 @@ def run(
             )
             conn.commit()
             if verbose:
-                print(f"  [empty] {leg}: {empty}")
+                log.info(f"[empty] {leg}: {empty}")
             continue
 
         if failure is not None:
@@ -406,7 +409,7 @@ def run(
             stats.errors.append(f"{leg}: {failure.kind}: {failure}")
             conn.commit()
             if verbose:
-                print(f"  [FAIL:{failure.kind}] {leg}: {failure}")
+                log.warning(f"[FAIL:{failure.kind}] {leg}: {failure}")
 
             # A blocked signal is explicit — stop on the first one. Anything
             # else needs `threshold` in a row before we give up on the run.
@@ -424,7 +427,7 @@ def run(
                     note += f"; cooldown until {stats.cooldown_until}"
                 note_bits.append(note)
                 if verbose:
-                    print(f"  [ABORT] {note}")
+                    log.warning(f"[ABORT] {note}")
                 break
             continue
 
@@ -445,7 +448,7 @@ def run(
             flag = "  ⚠ implausible price — check units" if implausible else ""
             if mismatch:
                 flag += f"  ⚠ page says cheapest is {offers[0].raw['page_min']} — parser check"
-            print(f"  [ok] {leg}: ${best / 100:,.0f} ({written} offers){flag}")
+            log.info(f"[ok] {leg}: ${best / 100:,.0f} ({written} offers){flag}")
 
     if stats.succeeded and not stats.blocked:
         clear_cooldown(conn)

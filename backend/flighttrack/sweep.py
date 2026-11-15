@@ -16,6 +16,7 @@ blocked, both wait.
 
 from __future__ import annotations
 
+import logging
 import random
 import sqlite3
 import statistics
@@ -40,6 +41,8 @@ from .gflights.calendar import (
 from .gflights.transport import Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
 from .store.db import get_state, set_state, utcnow
+
+log = logging.getLogger(__name__)
 
 STATE_CURSOR = "sweep_cursor"
 SOURCE_NAME = "google_calendar"
@@ -225,14 +228,14 @@ def run(
         )
         conn.commit()
         if verbose:
-            print(f"[sweep] skipped — cooldown until {until}")
+            log.warning(f"[sweep] skipped — cooldown until {until}")
         return stats
 
     jobs = plan(cfg, now.date())
     stats.planned = len(jobs)
     jobs = _rotate(jobs, conn, cfg.calendar.max_calls_per_run)
     if verbose:
-        print(f"[sweep] run {stats.run_id}: {len(jobs)} of {stats.planned} windows this run")
+        log.info(f"[sweep] run {stats.run_id}: {len(jobs)} of {stats.planned} windows this run")
 
     candidates: list[tuple[float, int, int, str]] = []  # (price/target ratio, cents, query_id, why)
     notes: list[str] = []
@@ -260,7 +263,7 @@ def run(
             )
             conn.commit()
             if verbose:
-                print(f"  [FAIL:network] {job.describe()}: {exc}")
+                log.warning(f"[FAIL:network] {job.describe()}: {exc}")
             continue
         latency = int((time.monotonic() - t0) * 1000)
 
@@ -275,7 +278,7 @@ def run(
             until = fetch_mod.enter_cooldown(conn, cfg, now)
             notes.append(f"aborted: blocked on calendar RPC; cooldown until {until}")
             if verbose:
-                print(f"  [ABORT] blocked — cooldown until {until}")
+                log.warning(f"[ABORT] blocked — cooldown until {until}")
             break
         if not prices:
             stats.failed += 1
@@ -285,9 +288,8 @@ def run(
             fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "layout", latency, msg)
             conn.commit()
             if verbose:
-                print(
-                    f"  [FAIL:layout] {job.describe()}: {msg}"
-                    + (f" — saved {path}" if path else "")
+                log.warning(
+                    f"[FAIL:layout] {job.describe()}: {msg}" + (f" — saved {path}" if path else "")
                 )
             continue
 
@@ -333,8 +335,8 @@ def run(
         conn.commit()
         if verbose:
             lo = min(prices, key=lambda d: d.price)
-            print(
-                f"  [ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} "
+            log.info(
+                f"[ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} "
                 f"${lo.price:,.0f}"
             )
 
@@ -354,7 +356,9 @@ def run(
             if len(stats.confirm_ids) >= cfg.calendar.confirm_budget:
                 break
         if verbose:
-            print(f"[sweep] confirming {len(stats.confirm_ids)} candidate(s) with detail fetches")
+            log.info(
+                f"[sweep] confirming {len(stats.confirm_ids)} candidate(s) with detail fetches"
+            )
         stats.confirm_stats = fetch_mod.run(
             conn,
             cfg,

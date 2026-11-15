@@ -15,6 +15,7 @@ Phase 1 is expected to be QUIET. That is the system accumulating, not failing.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,8 @@ from .expand import trip_targets
 from .notify import NotifyError, notify
 from .report import fmt_date, fmt_money
 from .store.db import utcnow
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -284,7 +287,7 @@ def run(
     stats = AlertStats()
     if not cfg.alerts.enabled:
         if verbose:
-            print("[alert] disabled in config")
+            log.info("[alert] disabled in config")
         return stats
 
     candidates, considered = find_candidates(conn, cfg)
@@ -299,10 +302,10 @@ def run(
             stats.suppressed_dedup += 1
 
     if verbose:
-        print(f"[alert] {stats.summary()}")
+        log.info(f"[alert] {stats.summary()}")
     if not passing:
         if verbose:
-            print("[alert] nothing to send")
+            log.info("[alert] nothing to send")
         return stats
 
     try:
@@ -337,7 +340,7 @@ def run(
         # window would suppress the retry on the next run.
         stats.delivery_error = str(exc)
         if verbose:
-            print(f"[alert] DELIVERY FAILED: {exc}")
+            log.warning(f"[alert] DELIVERY FAILED: {exc}")
         return stats
 
     if not dry_run:

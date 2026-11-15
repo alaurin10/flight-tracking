@@ -1,0 +1,136 @@
+# Flight Watch tunables. Committed; nothing personal belongs here.
+#
+# What is tracked (home airport, routes, trips, patterns, deal watches) is in
+# the watch file given with --config (config.yaml at the repository root until
+# milestone 3). Secrets and per-install values are in .env (see .env.example).
+# Every key has a default in code, so a missing key or a missing file is fine.
+
+# ---------------------------------------------------------------------------
+# Deal feeds (the watches that match against them are in the watch file).
+# ---------------------------------------------------------------------------
+deals:
+  # Checked 2026-11-14: both return 16 items. The same post can appear in
+  # both; it is stored and alerted once. (secretflying.com's feed now
+  # redirects to its home page; fly4free.com lists Europe-origin fares.)
+  feeds:
+    - https://www.theflightdeal.com/feed/
+    - https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/
+  max_alerts_per_run: 5
+  lookback_days: 3
+
+# ---------------------------------------------------------------------------
+# Horizon for patterns without a window. Below ~21 days fares are last-minute
+# and not comparable to advance pricing; beyond ~8 months Google often has no
+# inventory.
+# ---------------------------------------------------------------------------
+horizon:
+  min_days_ahead: 21
+  max_days_ahead: 240
+
+# ---------------------------------------------------------------------------
+# Search parameters applied to every query. carry_on_bags and
+# exclude_basic_economy make the recorded number mean one consistent thing;
+# set both off to record the true headline minimum.
+# ---------------------------------------------------------------------------
+search:
+  seat: economy              # economy | premium-economy | business | first
+  currency: USD
+  adults: 1
+  carry_on_bags: 1
+  exclude_basic_economy: true
+  hide_separate_and_self_transfer: false
+
+# ---------------------------------------------------------------------------
+# Fetch pacing and sources.
+#
+# sources     tried in order per query. google_html is our own client (no
+#             third-party scraper). fast_flights is an optional independent
+#             parser of the same page, used only when ours cannot read it.
+#             serpapi is a paid JSON API on someone else's IP — the escape
+#             hatch; it is skipped unless serpapi.api_key is set.
+# transport   auto = primp (browser TLS fingerprint) if installed, else urllib
+# cooldown_hours  after a blocked run: 1st → 1h, 2nd → 4h, 3rd → 12h, then 24h.
+#             The next scheduled run skips itself while a cooldown is active.
+# ---------------------------------------------------------------------------
+fetch:
+  sources: [google_html, fast_flights, serpapi]
+  transport: auto
+  serpapi:
+    api_key: ${SERPAPI_KEY}   # leave unset to disable; ~$50/mo for daily use
+  max_queries_per_run: 25    # until the home address's limit has been measured (`calibrate`)
+  min_sleep_seconds: 4.0
+  max_sleep_seconds: 8.0
+  abort_after_consecutive_failures: 2
+  retry_network_once: true
+  retry_sleep_seconds: 30
+  cooldown_hours: [1, 4, 12, 24]
+  keep_failure_artifacts: 20
+  request_timeout_seconds: 30
+  offers_per_fetch: 5        # store the cheapest N offers, not just the minimum
+
+# ---------------------------------------------------------------------------
+# Calendar sweep (EXPERIMENTAL). One RPC prices ~2 months of departure dates
+# for a route/pattern, so the whole grid is refreshed daily and the most
+# promising dates are confirmed with a real fetch. Verify on your host first:
+#   flighttrack doctor --calendar
+# and enable only if the printed prices match the price graph in a browser.
+# ---------------------------------------------------------------------------
+calendar:
+  enabled: false
+  max_calls_per_run: 12
+  confirm_budget: 6
+  priority_boost_pct: 10
+
+# ---------------------------------------------------------------------------
+# Alerting. Expect phase 1 to be QUIET for the first few weeks — that is the
+# system accumulating, not failing.
+# ---------------------------------------------------------------------------
+alerts:
+  enabled: true
+  max_per_run: 3             # beyond this, send one digest instead
+  dedup_days: 7              # do not re-alert a query within this window...
+  dedup_further_drop_pct: 10 # ...unless it dropped a further N%
+  min_observations_for_all_time_low: 5
+  consider_observations_within_hours: 48
+  percentile_phase2_enabled: false   # flip on once ≥30 days of history exists
+  percentile: 20
+  percentile_window_days: 60
+  history_days_required: 30
+
+# ---------------------------------------------------------------------------
+# Health watchdog. `flighttrack run` and `flighttrack health --notify` send a
+# notification when nothing has succeeded for max_hours_without_success, when
+# every request is failing, or when the page layout appears to have changed.
+# ---------------------------------------------------------------------------
+health:
+  max_hours_without_success: 36
+  notify: true
+  renotify_hours: 24
+  stale_fraction_warn: 0.5
+
+# ---------------------------------------------------------------------------
+# Retention. Keeps the database small on a box with little disk. The
+# cheapest-offer price series (what alerts, lows and percentiles use) is
+# NEVER pruned; only the 2nd–5th cheapest offers per fetch, sweep context
+# rows and the per-request log age out. `flighttrack run` compacts weekly.
+# ---------------------------------------------------------------------------
+retention:
+  enabled: true
+  runner_up_days: 90
+  attempts_days: 180
+
+# ---------------------------------------------------------------------------
+# Notification. ${VAR} is expanded from the environment at load time.
+# `file` appends every alert to a Markdown digest (a relative path is under
+# DATA_DIR); `smtp` sends email. The web app replaces both with browser push.
+# ---------------------------------------------------------------------------
+notify:
+  channel: file              # file | smtp | none
+  smtp:
+    host: ${SMTP_HOST}
+    port: 587
+    username: ${SMTP_USER}
+    password: ${SMTP_PASS}
+    to: ${SMTP_TO}
+  file:
+    path: out/digest.md
