@@ -22,7 +22,7 @@ Update this table in the same pull request that finishes a milestone.
 | M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
 | B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
 | M6 | Frontend: read-only app | done | [#18](https://github.com/alaurin10/flight-tracking/pull/18) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
-| M7 | Manage | done | | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
+| M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
 | M9 | Hardening and 1.0 | not started | | |
