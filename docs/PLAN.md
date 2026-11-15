@@ -208,6 +208,10 @@ Decisions log (add a line when a milestone departs from this document, with the 
   plain `http://` is answered rather than redirected (Cloudflare's *Always Use HTTPS* is
   off; HSTS covers repeat visits). Home Assistant used 1.3 of its 8 GB inside the guest,
   which is what the VM split in `docs/deploy-notes-home.md` is based on.
+- 2026-11-15 (owner's choice): trips, searches and deal watches will be added through the
+  app's Manage page (M7), not `import-config` or the API by hand. Until then nothing is
+  tracked, so no price history accumulates and `/api/health` stays 503 `no_data`; the worker
+  still polls the deal feeds and runs the daily canary.
 
 ## How to work from this document
 
