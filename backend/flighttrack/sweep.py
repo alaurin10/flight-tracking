@@ -21,7 +21,7 @@ import sqlite3
 import statistics
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from . import fetch as fetch_mod
 from .config import Config, Pattern, Route
@@ -149,7 +149,8 @@ def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: floa
 
 
 def calendar_filters(cfg: Config) -> dict:
-    """What a stored calendar price means, so later readers do not compare it with the wrong thing."""
+    """What a stored calendar price means, so later readers do not compare it with the wrong
+    thing."""
     return {
         "bags": bool(cfg.search.carry_on_bags),
         "exclude_basic": EXCLUDE_BASIC_SLOT is not None and cfg.search.exclude_basic_economy,
@@ -174,12 +175,13 @@ def promising(
     """
     if target and sweep_cents <= target:
         return True, "under target"
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     since = (now - timedelta(days=MEDIAN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     prior = [
         r[0]
         for r in conn.execute(
-            "SELECT price_cents FROM observations WHERE query_id = ? AND source = ? AND observed_at >= ?",
+            "SELECT price_cents FROM observations WHERE query_id = ? AND source = ? AND "
+            "observed_at >= ?",
             (query_id, SOURCE_NAME, since),
         )
     ]
@@ -188,7 +190,8 @@ def promising(
         if sweep_cents <= median * (1 - cfg.calendar.priority_boost_pct / 100.0):
             return (
                 True,
-                f"{(median - sweep_cents) / median * 100:.0f}% under its {MEDIAN_DAYS}-day calendar median",
+                f"{(median - sweep_cents) / median * 100:.0f}% under its {MEDIAN_DAYS}-day "
+                "calendar median",
             )
     if cheapest_in_window:
         return True, f"one of the {CHEAPEST_PER_WINDOW} cheapest dates in its window"
@@ -205,7 +208,7 @@ def run(
     verbose: bool = True,
 ) -> SweepStats:
     stats = SweepStats()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     transport = transport or default_transport(cfg.fetch.transport)
     failures = FailureStore(cfg.failure_dir, keep=cfg.fetch.keep_failure_artifacts)
 
@@ -302,7 +305,7 @@ def run(
             )
             qid = lookup.get((dp.depart, ret))
             if qid is not None:
-                matched.append((qid, int(round(float(dp.price) * 100)), dp))
+                matched.append((qid, round(float(dp.price) * 100), dp))
         hit = len(matched)
         cheapest = {qid for qid, _, _ in sorted(matched, key=lambda m: m[1])[:CHEAPEST_PER_WINDOW]}
         filters = calendar_filters(cfg)
@@ -331,7 +334,8 @@ def run(
         if verbose:
             lo = min(prices, key=lambda d: d.price)
             print(
-                f"  [ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} ${lo.price:,.0f}"
+                f"  [ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} "
+                f"${lo.price:,.0f}"
             )
 
     # Confirm the best few with a real results fetch, through the normal chain.
@@ -364,7 +368,8 @@ def run(
         )
 
     conn.execute(
-        "UPDATE run_log SET finished_at = ?, attempted = ?, succeeded = ?, failed = ?, blocked = ?, notes = ? WHERE id = ?",
+        "UPDATE run_log SET finished_at = ?, attempted = ?, succeeded = ?, failed = ?, blocked = "
+        "?, notes = ? WHERE id = ?",
         (
             utcnow(),
             stats.calls,

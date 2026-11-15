@@ -246,7 +246,7 @@ def _iso(v: Any, where: str) -> str:
     try:
         date.fromisoformat(v)
     except ValueError:
-        raise ConfigError(f"{where}: {v} is not a valid date")
+        raise ConfigError(f"{where}: {v} is not a valid date") from None
     return v
 
 

@@ -105,7 +105,7 @@ def test_unset_env_for_required_secret_is_an_error(tmp_path, monkeypatch):
         "notify:\n  channel: none",
         "notify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
     )
-    with pytest.raises(ConfigError, match="smtp.host or notify.smtp.to is empty"):
+    with pytest.raises(ConfigError, match=r"smtp\.host or notify\.smtp\.to is empty"):
         load(write(tmp_path, text))
 
 
@@ -113,7 +113,8 @@ def test_secret_is_not_required_when_alerts_are_off(tmp_path, monkeypatch):
     monkeypatch.delenv("MY_TO", raising=False)
     text = BASE.replace(
         "notify:\n  channel: none",
-        "alerts:\n  enabled: false\nnotify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
+        "alerts:\n  enabled: false\nnotify:\n  channel: smtp\n  smtp:\n    host: mail.example\n  "
+        "  to: ${MY_TO}",
     )
     assert load(write(tmp_path, text)).alerts.enabled is False
 
@@ -134,7 +135,7 @@ def test_lenient_mode_allows_a_missing_secret(tmp_path, monkeypatch):
     cfg = load(write(tmp_path, text), strict_secrets=False)
     assert cfg.notify["smtp"]["to"] is None
 
-    with pytest.raises(ConfigError, match="smtp.host or notify.smtp.to is empty"):
+    with pytest.raises(ConfigError, match=r"smtp\.host or notify\.smtp\.to is empty"):
         load(write(tmp_path, text), strict_secrets=True)
 
 

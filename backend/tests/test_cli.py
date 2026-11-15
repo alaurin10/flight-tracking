@@ -71,7 +71,8 @@ def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
     )  # two bad lines → non-zero, but the good one lands
     conn = connect(tmp_path / "f.db")
     row = conn.execute(
-        "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = o.query_id"
+        "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = "
+        "o.query_id"
     ).fetchone()
     assert row["price_cents"] == 81250 and row["source"] == "expedia" and row["pattern"] == "manual"
     assert cli.main(["--config", c, "advise", "--pattern", "manual"]) == 0

@@ -77,5 +77,5 @@ def notify(config_notify: dict[str, Any], subject: str, body: str, url: str | No
         send(config_notify.get(channel) or {}, subject, body, url)
     except NotifyError:
         raise
-    except Exception as exc:  # noqa: BLE001 — see docstring
+    except Exception as exc:
         raise NotifyError(f"{channel} channel failed: {type(exc).__name__}: {exc}") from exc

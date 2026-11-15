@@ -1,16 +1,16 @@
 """Retention: the price series survives, everything else ages out, triggers come back."""
 
+import sqlite3
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-import sqlite3
+from helpers import make_config
 
 from flighttrack import compact, demo, jobs
 from flighttrack.config import Retention
 from flighttrack.db import connect, get_state
 from flighttrack.source import FakeSource
-from helpers import make_config
 
 
 def _seeded(tmp_path, **ret):
@@ -27,7 +27,7 @@ def test_compact_prunes_only_runner_ups_and_logs(tmp_path):
     best_before = conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0]
     old_runners = conn.execute(
         "SELECT COUNT(*) FROM observations WHERE is_best = 0 AND observed_at < ?",
-        ((datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
+        ((datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
     ).fetchone()[0]
     assert old_runners > 0
 
@@ -44,14 +44,14 @@ def test_compact_prunes_only_runner_ups_and_logs(tmp_path):
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM observations WHERE is_best = 0 AND observed_at < ?",
-            ((datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
+            ((datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
         ).fetchone()[0]
         == 0
     )
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM fetch_attempts WHERE at < ?",
-            ((datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
+            ((datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
         ).fetchone()[0]
         == 0
     )

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .config import Config
 from .db import get_state, parse_ts, set_state, utcnow
@@ -66,11 +66,12 @@ def _hours_since(ts: str | None, now: datetime) -> float | None:
 
 
 def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> HealthReport:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rep = HealthReport(checked_at=_iso(now))
 
     n_active = conn.execute(
-        "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1 AND r.active = 1"
+        "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1 "
+        "AND r.active = 1"
     ).fetchone()[0]
     n_runs = conn.execute(
         "SELECT COUNT(*) FROM run_log WHERE kind IN ('fetch', 'confirm')"
@@ -94,7 +95,8 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             rep.problems.append(
                 Problem(
                     "never_succeeded",
-                    f"{n_runs} run(s) recorded but no observation has ever been written — run `flighttrack doctor`",
+                    f"{n_runs} run(s) recorded but no observation has ever been written — run "
+                    "`flighttrack doctor`",
                 )
             )
         else:
@@ -105,7 +107,8 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             rep.problems.append(
                 Problem(
                     "stale_success",
-                    f"no successful fetch in {age:.0f}h (limit {cfg.health.max_hours_without_success}h)",
+                    f"no successful fetch in {age:.0f}h (limit "
+                    f"{cfg.health.max_hours_without_success}h)",
                 )
             )
 
@@ -203,7 +206,8 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             rep.problems.append(
                 Problem(
                     "coverage",
-                    f"{frac:.0%} of queries are overdue — raise the cap, narrow the horizon, or enable the calendar sweep",
+                    f"{frac:.0%} of queries are overdue — raise the cap, narrow the horizon, or "
+                    "enable the calendar sweep",
                     "warn",
                 )
             )
@@ -241,7 +245,8 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
                 rep.problems.append(
                     Problem(
                         "feed_empty_" + feed.split("//")[-1].split("/")[0],
-                        f"feed {feed} has returned no items for {FEED_EMPTY_DAYS} days — check the URL",
+                        f"feed {feed} has returned no items for {FEED_EMPTY_DAYS} days — check "
+                        "the URL",
                         "warn",
                     )
                 )
@@ -258,7 +263,8 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
         rep.problems.append(
             Problem(
                 "parser_mismatch",
-                f"{mismatches} fetches in 24h where the cheapest parsed price differed from the page's own "
+                f"{mismatches} fetches in 24h where the cheapest parsed price differed from the "
+                "page's own "
                 "cheapest — the page layout may have shifted; run `flighttrack doctor`",
                 "warn",
             )
@@ -275,7 +281,7 @@ def run(
     now: datetime | None = None,
 ) -> tuple[HealthReport, bool]:
     """Check, print, and notify once per problem-set per `renotify_hours`."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rep = check(conn, cfg, now)
     if verbose:
         print(rep.render())

@@ -14,10 +14,11 @@ between leaves the schema re-applied on the next connect (it is idempotent).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .config import Config
 from .db import SCHEMA_PATH, get_state, set_state, utcnow
@@ -52,10 +53,8 @@ def _iso_ago(now: datetime, days: int) -> str:
 
 def _db_size(conn: sqlite3.Connection) -> int:
     """On-disk size of the main file after folding the write-ahead log into it."""
-    try:
+    with contextlib.suppress(sqlite3.DatabaseError):
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except sqlite3.DatabaseError:
-        pass
     row = conn.execute("PRAGMA database_list").fetchone()
     path = row[2] if row else ""
     try:
@@ -67,7 +66,7 @@ def _db_size(conn: sqlite3.Connection) -> int:
 def compact(
     conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, dry_run: bool = False
 ) -> CompactStats:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     r = cfg.retention
     stats = CompactStats(dry_run=dry_run, size_before=_db_size(conn))
 
@@ -119,6 +118,6 @@ def due(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> b
     """Weekly, and only when retention is enabled."""
     if not cfg.retention.enabled:
         return False
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     last = get_state(conn, STATE_LAST_COMPACT)
     return last is None or last < _iso_ago(now, 7)

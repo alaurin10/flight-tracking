@@ -2,8 +2,9 @@
 
 from datetime import date, timedelta
 
-from flighttrack import expand
 from helpers import make_config, make_db
+
+from flighttrack import expand
 
 
 def test_expands_full_grid(tmp_path):

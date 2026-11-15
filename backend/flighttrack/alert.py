@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .config import Config
-from .expand import trip_targets
 from .db import utcnow
+from .expand import trip_targets
 from .notify import NotifyError, notify
 from .report import fmt_date, fmt_money
 
@@ -77,7 +77,7 @@ class AlertStats:
 
 
 def _iso_ago(**kw) -> str:
-    return (datetime.now(timezone.utc) - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (datetime.now(UTC) - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def percentile(values: list[int], p: float) -> int | None:
@@ -322,7 +322,10 @@ def run(
         else:
             # More than the cap qualified: one digest beats N notifications.
             body = "\n\n".join(c.line() for c in passing)
-            subject = f"✈ {len(passing)} fares worth a look (cheapest {fmt_money(passing[0].price_cents)})"
+            subject = (
+                f"✈ {len(passing)} fares worth a look (cheapest "
+                f"{fmt_money(passing[0].price_cents)})"
+            )
             if dry_run:
                 print(f"  [dry-run digest] {subject}\n{body}")
             else:

@@ -1,12 +1,13 @@
 """Calendar sweep: planning, storage as context rows, confirmation, blocking."""
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
+
+from helpers import FakeTransport, make_config, make_db
 
 from flighttrack import fetch, sweep
 from flighttrack.config import Calendar, Pattern
 from flighttrack.source import FakeSource
-from helpers import FakeTransport, make_config, make_db
 
 TODAY = date(2026, 9, 17)
 
@@ -47,16 +48,18 @@ def test_sweep_stores_context_rows_and_confirms_candidates(tmp_path):
         cfg,
         transport=t,
         confirm_source=fake,
-        now=datetime.combine(TODAY, datetime.min.time(), timezone.utc),
+        now=datetime.combine(TODAY, datetime.min.time(), UTC),
         sleeper=lambda s: None,
         verbose=False,
     )
     assert stats.ok == 1 and stats.dates_priced == 3 and stats.matched == 2 and stats.written == 2
     rows = conn.execute(
-        "SELECT price_cents, is_best, source FROM observations WHERE source = 'google_calendar' ORDER BY price_cents"
+        "SELECT price_cents, is_best, source FROM observations WHERE source = 'google_calendar' "
+        "ORDER BY price_cents"
     ).fetchall()
     assert [(r["price_cents"], r["is_best"]) for r in rows] == [(12000, 0), (26000, 0)]
-    # $120 is under the $140 SLC target → confirmed with a real (fake) fetch, which is the is_best series
+    # $120 is under the $140 SLC target → confirmed with a real (fake) fetch, which is the
+    # is_best series
     assert len(stats.confirm_ids) == 1 and stats.confirm_stats.succeeded == 1
     assert (
         conn.execute(
@@ -106,7 +109,7 @@ def test_rotation_across_runs(tmp_path):
 # calendar prices
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2026, 9, 17, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 17, 12, tzinfo=UTC)
 
 
 def _decoded(body):
@@ -128,7 +131,8 @@ def _add(conn, qid, cents, days_ago, source, is_best):
 
     at = (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute(
-        "INSERT INTO observations (query_id, observed_at, price_cents, currency, is_best, raw, source) "
+        "INSERT INTO observations (query_id, observed_at, price_cents, currency, is_best, raw, "
+        "source) "
         "VALUES (?, ?, ?, 'USD', ?, '{}', ?)",
         (qid, at, cents, is_best, source),
     )
@@ -202,7 +206,12 @@ def test_three_cheapest_dates_of_a_window_are_confirmed(tmp_path):
             (
                 200,
                 None,
-                _batch([(r["depart_date"], r["return_date"], p) for r, p in zip(rows, prices)]),
+                _batch(
+                    [
+                        (r["depart_date"], r["return_date"], p)
+                        for r, p in zip(rows, prices, strict=True)
+                    ]
+                ),
             )
         ]
     )

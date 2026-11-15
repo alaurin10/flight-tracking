@@ -8,7 +8,7 @@ migration story: additive only, never destructive, safe to run every time.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -23,14 +23,14 @@ COLUMN_MIGRATIONS = [
 
 def utcnow() -> str:
     """ISO8601 UTC timestamp, second resolution, always suffixed 'Z'."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_ts(text: str | None) -> datetime | None:
     if not text:
         return None
     try:
-        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -84,7 +84,8 @@ def set_state(conn: sqlite3.Connection, key: str, value: str | None) -> None:
         conn.execute("DELETE FROM state WHERE key = ?", (key,))
     else:
         conn.execute(
-            "INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = "
+            "excluded.value",
             (key, value),
         )
     conn.commit()

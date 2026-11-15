@@ -5,11 +5,11 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from helpers import make_config, make_db
 
 from flighttrack import demo, html
 from flighttrack.config import Trip
 from flighttrack.db import connect
-from helpers import make_config, make_db
 
 TODAY = date(2026, 11, 14)
 
@@ -26,7 +26,7 @@ def _demo(tmp_path):
 
 
 def test_demo_seed_populates_everything(tmp_path):
-    conn, cfg = _demo(tmp_path)
+    conn, _cfg = _demo(tmp_path)
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM observations WHERE source = 'demo' AND is_best = 1"
@@ -75,7 +75,9 @@ def test_page_escapes_hostile_strings(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     conn.execute("UPDATE routes SET label = '<script>alert(1)</script>'")
     conn.execute(
-        "INSERT INTO deal_posts (guid, feed, title, link, seen_at, price_cents, watch) VALUES ('g','f','<img src=x onerror=alert(1)>','javascript:alert(1)','2026-01-01T00:00:00Z',100,'<b>w</b>')"
+        "INSERT INTO deal_posts (guid, feed, title, link, seen_at, price_cents, watch) VALUES "
+        "('g','f','<img src=x onerror=alert(1)>','javascript:alert(1)',"
+        "'2026-01-01T00:00:00Z',100,'<b>w</b>')"
     )
     conn.commit()
     page = html.render(conn, cfg=cfg)

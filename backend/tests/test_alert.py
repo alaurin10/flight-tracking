@@ -2,8 +2,9 @@
 
 from dataclasses import replace
 
-from flighttrack import alert
 from helpers import add_obs, first_query_id, make_config, make_db
+
+from flighttrack import alert
 
 
 def _cfg(**over):
@@ -41,7 +42,7 @@ def test_all_time_low_needs_enough_priors(tmp_path):
     add_obs(conn, qid, 98000, days_ago=1)  # a new low, but only 2 priors
     assert alert.run(conn, cfg, verbose=False).qualified == 0
 
-    for i, p in enumerate([97000, 96000, 95000]):
+    for _i, p in enumerate([97000, 96000, 95000]):
         add_obs(conn, qid, p, days_ago=0)
     add_obs(conn, qid, 90000, days_ago=0)  # now 6 priors exist
     stats = alert.run(conn, cfg, verbose=False)
@@ -131,7 +132,7 @@ def test_phase2_needs_enough_history(tmp_path):
     for i in range(10):  # only 10 days of history
         add_obs(conn, qid, 100000, days_ago=10 - i)
     add_obs(conn, qid, 80000, days_ago=0)
-    stats = alert.run(conn, cfg, verbose=False)
+    alert.run(conn, cfg, verbose=False)
     assert all(r[0] != "percentile" for r in conn.execute("SELECT reason FROM alerts_sent"))
 
 

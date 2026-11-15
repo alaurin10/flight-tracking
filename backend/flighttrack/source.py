@@ -23,7 +23,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from .config import Config, Route
 from .gflights import PageKind, classify, itineraries
@@ -210,7 +210,10 @@ class FailureStore:
             stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
             safe = re.sub(r"[^A-Za-z0-9_-]+", "_", label)[:60]
             path = self.dir / f"{stamp}-{self._n:03d}-{kind}-{safe}.html"
-            header = f"<!-- flighttrack failure artifact\nkind={kind}\nstatus={resp.status}\nurl={resp.url}\ntransport={resp.transport}\n-->\n"
+            header = (
+                "<!-- flighttrack failure "
+                f"artifact\nkind={kind}\nstatus={resp.status}\nurl={resp.url}\ntransport={resp.transport}\n-->\n"
+            )
             path.write_text(header + (resp.text or ""), encoding="utf-8")
             # Rotate: oldest first by name (timestamps sort lexically).
             files = sorted(self.dir.glob("*.html"))
@@ -442,7 +445,12 @@ class SerpApiSource:
 
     name = "serpapi"
     DEFAULT_URL = "https://serpapi.com/search.json"
-    TRAVEL_CLASS = {"economy": 1, "premium-economy": 2, "business": 3, "first": 4}
+    TRAVEL_CLASS: ClassVar[dict[str, int]] = {
+        "economy": 1,
+        "premium-economy": 2,
+        "business": 3,
+        "first": 4,
+    }
 
     def __init__(
         self,
@@ -512,7 +520,9 @@ def offers_from_serpapi(data: dict, currency: str, source: str, limit: int) -> l
             if not isinstance(price, (int, float)) or price <= 0:
                 continue
             legs = it.get("flights") or []
-            airlines = list(dict.fromkeys(str(l.get("airline")) for l in legs if l.get("airline")))
+            airlines = list(
+                dict.fromkeys(str(leg.get("airline")) for leg in legs if leg.get("airline"))
+            )
             offers.append(
                 Offer(
                     price_cents=normalize_price(price),
@@ -528,13 +538,13 @@ def offers_from_serpapi(data: dict, currency: str, source: str, limit: int) -> l
                         "bucket": bucket.split("_")[0],
                         "segments": [
                             {
-                                "from": (l.get("departure_airport") or {}).get("id"),
-                                "to": (l.get("arrival_airport") or {}).get("id"),
-                                "flight": l.get("flight_number"),
-                                "min": l.get("duration"),
-                                "aircraft": l.get("airplane"),
+                                "from": (leg.get("departure_airport") or {}).get("id"),
+                                "to": (leg.get("arrival_airport") or {}).get("id"),
+                                "flight": leg.get("flight_number"),
+                                "min": leg.get("duration"),
+                                "aircraft": leg.get("airplane"),
                             }
-                            for l in legs
+                            for leg in legs
                         ],
                     },
                 )

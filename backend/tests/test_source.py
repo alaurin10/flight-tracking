@@ -1,9 +1,8 @@
 """Source layer: our client end to end against scripted pages, and chain failover."""
 
-import pytest
+from datetime import UTC
 
-from flighttrack import source as src
-from flighttrack.gflights.transport import TransportError
+import pytest
 from helpers import (
     NO_RESULTS_HTML,
     FakeTransport,
@@ -12,6 +11,9 @@ from helpers import (
     make_payload,
     make_results_html,
 )
+
+from flighttrack import source as src
+from flighttrack.gflights.transport import TransportError
 
 
 def _cfg():
@@ -295,10 +297,11 @@ def test_page_min_is_recorded_only_on_a_mismatch():
 
 
 def test_parser_mismatch_is_counted_and_warned(tmp_path):
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from helpers import make_db
 
     from flighttrack import fetch, health
-    from helpers import make_db
 
     conn, cfg = make_db(tmp_path, make_config())
     pages = [(200, None, _page_with_min(599))] * 3 + [(200, None, _page_with_min(640))]
@@ -308,5 +311,5 @@ def test_parser_mismatch_is_counted_and_warned(tmp_path):
     assert "PARSER_MISMATCH=3" in stats.summary()
     assert "page's own cheapest" in conn.execute("SELECT notes FROM run_log").fetchone()[0]
 
-    rep = health.check(conn, cfg, now=datetime.now(timezone.utc))
+    rep = health.check(conn, cfg, now=datetime.now(UTC))
     assert any(p.code == "parser_mismatch" and p.severity == "warn" for p in rep.problems)

@@ -171,7 +171,7 @@ class PrimpTransport:
     name = "primp"
 
     def __init__(self, impersonate: str = IMPERSONATE, impersonate_os: str = "macos") -> None:
-        import primp  # noqa: F401  (ImportError propagates to the chooser)
+        import primp
 
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
         self._client = primp.Client(
@@ -240,7 +240,7 @@ def default_transport(prefer: str = "auto") -> Transport:
             if prefer == "primp":
                 raise
             return UrllibTransport()
-        except Exception as exc:  # noqa: BLE001 — any primp failure must not stop collection
+        except Exception as exc:
             if prefer == "primp":
                 raise
             print(

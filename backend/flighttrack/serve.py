@@ -18,13 +18,12 @@ from __future__ import annotations
 import json
 import random
 import threading
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable
 
 from . import fetch as fetch_mod
 from . import health as health_mod
@@ -41,7 +40,7 @@ def needs_catchup(
     conn, now: datetime | None = None, hours: float = CATCHUP_HOURS
 ) -> tuple[bool, str]:
     """(run now?, why) from `last_success_at` in the state table."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     last = parse_ts(get_state(conn, fetch_mod.STATE_LAST_SUCCESS))
     if last is None:
         return True, "no successful fetch recorded yet"
@@ -93,7 +92,7 @@ class Scheduler:
         try:
             self.job()
             self.last_rc = 0
-        except Exception as exc:  # noqa: BLE001 — the loop must survive anything
+        except Exception as exc:
             self.last_rc = 1
             self.log(f"[serve] run crashed: {type(exc).__name__}: {exc}")
         finally:
@@ -129,7 +128,9 @@ def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
         cheapest = conn.execute(
             """
             WITH latest AS (
-                SELECT query_id, price_cents, ROW_NUMBER() OVER (PARTITION BY query_id ORDER BY observed_at DESC, id DESC) rn
+                SELECT query_id, price_cents, ROW_NUMBER() OVER (
+                    PARTITION BY query_id ORDER BY observed_at DESC, id DESC
+                ) rn
                 FROM observations WHERE is_best = 1
             )
             SELECT r.label, r.destination, q.depart_date, q.return_date, l.price_cents, q.deep_link
@@ -245,7 +246,8 @@ def serve(
     t.start()
     httpd = ThreadingHTTPServer((host, port), make_handler(cfg, sched, log))
     log(
-        f"[serve] report at http://{host}:{httpd.server_address[1]}/  ·  status at /status.json  ·  POST /run to run now"
+        f"[serve] report at http://{host}:{httpd.server_address[1]}/  ·  status at /status.json  "
+        "·  POST /run to run now"
     )
     if ready is not None:
         ready.set()

@@ -1,14 +1,12 @@
 """The three use cases from the brief, end to end through config → expand → alert."""
 
-from dataclasses import replace
 from datetime import date
 
 import pytest
-import yaml
+from helpers import add_obs, make_config, make_db
 
 from flighttrack import alert, expand
 from flighttrack.config import ConfigError, Pattern, Trip, load
-from helpers import add_obs, make_config, make_db
 
 TODAY = date(2026, 9, 17)
 
@@ -30,7 +28,8 @@ def test_ski_weekends_window_and_multiple_weekdays(tmp_path):
     conn.commit()
     expand.expand(conn, cfg, today=TODAY, build_links=False)
     rows = conn.execute(
-        "SELECT r.destination, q.depart_date, q.return_date FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1"
+        "SELECT r.destination, q.depart_date, q.return_date FROM queries q JOIN routes r ON r.id "
+        "= q.route_id WHERE q.active = 1"
     ).fetchall()
     assert {r["destination"] for r in rows} == {"SLC"}
     deps = sorted(r["depart_date"] for r in rows)
@@ -161,11 +160,13 @@ fetch:
             "not in routes",
         ),
         (
-            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    window: {start: 2027-02-01, end: 2027-01-01}\n",
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    window: "
+            "{start: 2027-02-01, end: 2027-01-01}\n",
             "start is after end",
         ),
         (
-            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\nfetch:\n  sources: [kayak]\n",
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\nfetch:\n  sources: "
+            "[kayak]\n",
             "unknown source",
         ),
         (

@@ -2,12 +2,13 @@
 
 from datetime import date, timedelta
 
-from flighttrack import report
 from helpers import add_obs, first_query_id, make_config, make_db
+
+from flighttrack import report
 
 
 def test_book_when_under_target_at_low_and_cheap_for_route(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     for i, p in enumerate([20000, 19500, 19000, 18500, 18000, 17500]):
         add_obs(conn, qid, p, days_ago=10 - i)
@@ -24,7 +25,8 @@ def test_wait_when_above_median_and_far_out(tmp_path):
     cfg = make_config(max_days_ahead=200)
     conn, cfg = make_db(tmp_path, cfg)
     far = conn.execute(
-        "SELECT q.id FROM queries q JOIN routes r ON r.id = q.route_id WHERE r.destination = 'HND' AND q.depart_date > ? ORDER BY q.depart_date DESC LIMIT 1",
+        "SELECT q.id FROM queries q JOIN routes r ON r.id = q.route_id WHERE r.destination = "
+        "'HND' AND q.depart_date > ? ORDER BY q.depart_date DESC LIMIT 1",
         ((date.today() + timedelta(days=150)).isoformat(),),
     ).fetchone()[0]
     near = first_query_id(conn, "HND")
@@ -37,12 +39,13 @@ def test_wait_when_above_median_and_far_out(tmp_path):
 
 
 def test_grid_sort_by_price_and_sweep_column(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     a, b = first_query_id(conn, "SLC"), first_query_id(conn, "HND")
     add_obs(conn, a, 30000)
     add_obs(conn, b, 20000)
     conn.execute(
-        "INSERT INTO observations (query_id, observed_at, price_cents, is_best, source) VALUES (?, '2026-09-17T00:00:00Z', 18000, 0, 'google_calendar')",
+        "INSERT INTO observations (query_id, observed_at, price_cents, is_best, source) VALUES "
+        "(?, '2026-09-17T00:00:00Z', 18000, 0, 'google_calendar')",
         (b,),
     )
     conn.commit()

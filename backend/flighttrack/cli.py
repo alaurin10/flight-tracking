@@ -14,7 +14,7 @@ import sqlite3
 import statistics
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from . import alert as alert_mod
@@ -36,7 +36,7 @@ def _load(args, strict_secrets: bool = False) -> Config:
         return load(args.config, strict_secrets=strict_secrets)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
 
 
 def _db(cfg: Config) -> sqlite3.Connection:
@@ -91,7 +91,8 @@ def cmd_fetch(args) -> int:
             ret = d.return_date or "one-way"
             age = d.last_fetch_at or "never"
             print(
-                f"  {cfg.home}→{d.route.dest}  {d.depart_date} / {ret}  [{d.pattern}, prio {d.route.priority}, last {age}]"
+                f"  {cfg.home}→{d.route.dest}  {d.depart_date} / {ret}  [{d.pattern}, prio "
+                f"{d.route.priority}, last {age}]"
             )
         return 0
 
@@ -114,9 +115,11 @@ def _fetch_exit(stats: fetch_mod.FetchStats) -> int:
         print(
             f"[fetch] run aborted ({stats.abort_reason}). "
             + (
-                "A cooldown is now in effect; the next scheduled run will skip itself until it expires."
+                "A cooldown is now in effect; the next scheduled run will skip itself until it "
+                "expires."
                 if stats.cooldown_until
-                else "No cooldown set (layout failures are not helped by waiting) — run `flighttrack doctor`."
+                else "No cooldown set (layout failures are not helped by waiting) — run "
+                "`flighttrack doctor`."
             ),
             file=sys.stderr,
         )
@@ -132,7 +135,8 @@ def cmd_sweep(args) -> int:
     conn = _db(cfg)
     if not cfg.calendar.enabled and not args.force:
         print(
-            "[sweep] calendar.enabled is false — verify with `flighttrack doctor --calendar`, then enable it, or pass --force"
+            "[sweep] calendar.enabled is false — verify with `flighttrack doctor --calendar`, "
+            "then enable it, or pass --force"
         )
         return 2
     if args.dry_run:
@@ -266,7 +270,8 @@ def cmd_demo(args) -> int:
     stats = demo_mod.seed(conn, cfg, days=args.days)
     out = html_mod.write(conn, args.out, cfg=cfg)
     print(
-        f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over {stats['days']} days"
+        f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over "
+        f"{stats['days']} days"
     )
     print(f"[demo] database {db_path}\n[demo] report   {out}")
     print("[demo] open the report in a browser; every number in it is synthetic (source='demo').")
@@ -345,7 +350,8 @@ def cmd_status(args) -> int:
     conn = _db(cfg)
 
     active = conn.execute(
-        "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1 AND r.active = 1"
+        "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1 "
+        "AND r.active = 1"
     ).fetchone()[0]
     obs = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
     span = conn.execute("SELECT MIN(observed_at), MAX(observed_at) FROM observations").fetchone()
@@ -377,13 +383,15 @@ def cmd_status(args) -> int:
     for r in rows:
         flag = "YES" if r["blocked"] else ("skip" if r["skipped"] else "")
         print(
-            f"{r['id']:>4}  {r['kind']:<8}{r['started_at']:<21}{r['attempted']:>4}{r['succeeded']:>4}"
+            f"{r['id']:>4}  {r['kind']:<8}{r['started_at']:<21}"
+            f"{r['attempted']:>4}{r['succeeded']:>4}"
             f"{r['failed']:>5}{flag:>6}  {r['notes'] or ''}"
         )
 
-    since = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     att = conn.execute(
-        "SELECT outcome, COUNT(*) AS n, AVG(latency_ms) AS ms FROM fetch_attempts WHERE at >= ? GROUP BY outcome ORDER BY n DESC",
+        "SELECT outcome, COUNT(*) AS n, AVG(latency_ms) AS ms FROM fetch_attempts WHERE at >= ? "
+        "GROUP BY outcome ORDER BY n DESC",
         (since,),
     ).fetchall()
     if att:
@@ -410,7 +418,8 @@ def cmd_doctor(args) -> int:
     try:
         cfg = load(args.config, strict_secrets=False)
         print(
-            f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, {len(cfg.trips)} trips"
+            f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, "
+            f"{len(cfg.trips)} trips"
         )
     except ConfigError as exc:
         print(f"[FAIL] config          : {exc}")
@@ -423,7 +432,8 @@ def cmd_doctor(args) -> int:
         (cfg.notify.get("smtp") or {}).get("host") and (cfg.notify.get("smtp") or {}).get("to")
     ):
         print(
-            "[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST and $SMTP_TO"
+            "[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST "
+            "and $SMTP_TO"
         )
     else:
         print(f"[ok]   notifications   : {channel}")
@@ -445,14 +455,16 @@ def cmd_doctor(args) -> int:
         print(f"[FAIL] transport       : {exc}")
         return 1
     try:
-        import fast_flights  # noqa: F401
         from importlib.metadata import version
+
+        import fast_flights  # noqa: F401
 
         print(f"[ok]   fast-flights    : {version('fast-flights')} (fallback source available)")
         have_ff = True
     except Exception:
         print(
-            "[info] fast-flights    : not installed (optional fallback; `pip install 'flighttrack[fallback]'`)"
+            "[info] fast-flights    : not installed (optional fallback; `pip install "
+            "'flighttrack[fallback]'`)"
         )
         have_ff = False
 
@@ -496,7 +508,12 @@ def cmd_doctor(args) -> int:
         ).to_bytes()
         same = theirs == q.encode()
         print(
-            f"[{'ok' if same else 'FAIL'}]   tfs cross-check : {'byte-identical to fast-flights' if same else 'DIFFERS from fast-flights — report this'}"
+            f"[{'ok' if same else 'FAIL'}]   tfs cross-check : "
+            + (
+                "byte-identical to fast-flights"
+                if same
+                else "DIFFERS from fast-flights — report this"
+            )
         )
         ok &= same
 
@@ -505,10 +522,11 @@ def cmd_doctor(args) -> int:
         return 0 if ok else 1
 
     # --- live: our own client ------------------------------------------------
-    from .source import FailureStore, GoogleHtmlSource, LayoutError, NoResults, SourceError
+    from .source import FailureStore, GoogleHtmlSource, NoResults, SourceError
 
     print(
-        f"\n--- live fetch ({cfg.home}→{route.dest} {depart}{' / ' + ret if ret else ''}) via google_html/{transport.name} ---"
+        f"\n--- live fetch ({cfg.home}→{route.dest} {depart}{' / ' + ret if ret else ''}) via "
+        f"google_html/{transport.name} ---"
     )
     src = GoogleHtmlSource(
         transport=transport,
@@ -521,7 +539,8 @@ def cmd_doctor(args) -> int:
         print(f"[ok]   live fetch      : {len(offers)} itineraries in {time.monotonic() - t0:.1f}s")
     except NoResults as exc:
         print(
-            f"[warn] live fetch      : reached Google, no itineraries ({exc}) — try a nearer date with --depart"
+            f"[warn] live fetch      : reached Google, no itineraries ({exc}) — try a nearer date "
+            "with --depart"
         )
     except SourceError as exc:
         print(f"[FAIL] live fetch      : {exc.kind}: {exc}")
@@ -529,7 +548,8 @@ def cmd_doctor(args) -> int:
     page = src.last_page
     if page is not None:
         print(
-            f"       page            : {page.kind.value} — {page.detail} (HTTP {page.status}, {page.size:,} bytes)"
+            f"       page            : {page.kind.value} — {page.detail} (HTTP {page.status}, "
+            f"{page.size:,} bytes)"
         )
     if args.dump and src.last_response is not None:
         Path(args.dump).write_text(src.last_response.text, encoding="utf-8")
@@ -541,25 +561,32 @@ def cmd_doctor(args) -> int:
         print("\n--- prices (confirm the dollar amounts against google.com/travel/flights) ---")
         for o in offers[:5]:
             print(
-                f"  raw={o.raw.get('price_raw')!r} → {o.price_cents} cents = ${o.price_cents / 100:,.2f}   "
-                f"{o.airline or '?'}  stops={o.stops}  {o.duration_min or '?'} min  [{o.raw.get('bucket')}]   plausible={price_is_plausible(o.price_cents)}"
+                f"  raw={o.raw.get('price_raw')!r} → {o.price_cents} cents = "
+                f"${o.price_cents / 100:,.2f}   "
+                f"{o.airline or '?'}  stops={o.stops}  {o.duration_min or '?'} min  "
+                f"[{o.raw.get('bucket')}]   plausible={price_is_plausible(o.price_cents)}"
             )
         buckets = {o.raw.get("bucket") for o in offers}
         if len(buckets) < 2:
             print(
-                "  note: these offers all came from one of the page's two lists ('best' = Top departing flights,\n"
-                "        'other' = Other departing flights). The cheapest fare is often in 'other'; check the page dump."
+                "  note: these offers all came from one of the page's two lists ('best' = Top "
+                "departing flights,\n"
+                "        'other' = Other departing flights). The cheapest fare is often in "
+                "'other'; check the page dump."
             )
         if "page_min" in offers[0].raw:
             ok = False
             print(
-                f"\n  ⚠ The page says its cheapest price is {offers[0].raw['page_min']}, but the lowest parsed price is "
-                f"${offers[0].price_cents / 100:,.0f}. The layout may have shifted; save the page with --dump."
+                f"\n  ⚠ The page says its cheapest price is {offers[0].raw['page_min']}, but the "
+                "lowest parsed price is "
+                f"${offers[0].price_cents / 100:,.0f}. The layout may have shifted; save the page "
+                "with --dump."
             )
         if not all(price_is_plausible(o.price_cents) for o in offers):
             ok = False
             print(
-                "\n  ⚠ Some prices are outside the plausible band — units may have changed upstream."
+                "\n  ⚠ Some prices are outside the plausible band — units may have changed "
+                "upstream."
             )
 
     # fallback comparison when the primary failed on layout
@@ -570,11 +597,14 @@ def cmd_doctor(args) -> int:
         try:
             fo = FastFlightsSource().fetch(cfg, route, depart, ret, 5)
             print(
-                f"[ok]   fast-flights    : {len(fo)} itineraries, cheapest ${fo[0].price_cents / 100:,.0f} — our parser is what broke; see {cfg.failure_dir}"
+                f"[ok]   fast-flights    : {len(fo)} itineraries, cheapest "
+                f"${fo[0].price_cents / 100:,.0f} — our parser is what broke; see "
+                f"{cfg.failure_dir}"
             )
         except Exception as exc:
             print(
-                f"[FAIL] fast-flights    : {exc} — both parsers fail; Google's page changed for everyone"
+                f"[FAIL] fast-flights    : {exc} — both parsers fail; Google's page changed for "
+                "everyone"
             )
 
     # --- live: calendar RPC (experimental) ------------------------------------
@@ -603,12 +633,14 @@ def cmd_doctor(args) -> int:
                     )
                 )
                 print(
-                    "       if these match the price graph on google.com/travel/flights, set calendar.enabled: true"
+                    "       if these match the price graph on google.com/travel/flights, set "
+                    "calendar.enabled: true"
                 )
             else:
                 ok = False
                 print(
-                    "[FAIL] calendar        : no (date, price) tuples found — do not enable; save the dump and inspect"
+                    "[FAIL] calendar        : no (date, price) tuples found — do not enable; "
+                    "save the dump and inspect"
                 )
         except TransportError as exc:
             ok = False
@@ -627,7 +659,8 @@ def cmd_calibrate(args) -> int:
     cfg = load(args.config, strict_secrets=False)
     if not args.yes:
         print(
-            f"About to issue up to {args.count} real requests to Google Flights at {args.interval}s intervals.\n"
+            f"About to issue up to {args.count} real requests to Google Flights at "
+            f"{args.interval}s intervals.\n"
             f"Re-run with --yes to proceed."
         )
         return 2
@@ -640,7 +673,8 @@ def cmd_calibrate(args) -> int:
     results: list[tuple[int, str, float]] = []
     first_failure_at: int | None = None
     print(
-        f"\n[calibrate] {args.count} requests @ {args.interval}s, {cfg.home}→{route.dest} via {getattr(source, 'name', '?')}\n"
+        f"\n[calibrate] {args.count} requests @ {args.interval}s, {cfg.home}→{route.dest} via "
+        f"{getattr(source, 'name', '?')}\n"
     )
 
     for i in range(args.count):
@@ -670,11 +704,13 @@ def cmd_calibrate(args) -> int:
     print(f"\n[calibrate] {len(oks)} ok, {fails} failed, {len(results) - len(oks) - fails} empty")
     if oks:
         print(
-            f"[calibrate] latency: min {min(oks):.1f}s median {statistics.median(oks):.1f}s max {max(oks):.1f}s"
+            f"[calibrate] latency: min {min(oks):.1f}s median {statistics.median(oks):.1f}s max "
+            f"{max(oks):.1f}s"
         )
     if first_failure_at:
         print(
-            f"[calibrate] FIRST FAILURE at request #{first_failure_at} — set fetch.max_queries_per_run well below it"
+            f"[calibrate] FIRST FAILURE at request #{first_failure_at} — set "
+            "fetch.max_queries_per_run well below it"
         )
     else:
         print(f"[calibrate] no failures at {args.interval}s spacing across {len(results)} requests")
@@ -703,9 +739,13 @@ def cmd_ingest(args) -> int:
 
     cfg = _load(args)
     conn = _db(cfg)
-    stream = open(args.file, encoding="utf-8") if args.file else sys.stdin
+    if args.file:
+        with open(args.file, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    else:
+        lines = sys.stdin.readlines()
     written = skipped = 0
-    for n, line in enumerate(stream, 1):
+    for n, line in enumerate(lines, 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -731,7 +771,8 @@ def cmd_ingest(args) -> int:
                 "SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)
             ).fetchone()
         conn.execute(
-            "INSERT INTO queries (route_id, depart_date, return_date, pattern, active) VALUES (?, ?, ?, 'manual', 1) "
+            "INSERT INTO queries (route_id, depart_date, return_date, pattern, active) VALUES "
+            "(?, ?, ?, 'manual', 1) "
             "ON CONFLICT(route_id, depart_date, return_date) DO NOTHING",
             (row["id"], depart, ret),
         )

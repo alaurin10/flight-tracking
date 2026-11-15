@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 SPARK = "▁▂▃▄▅▆▇█"
 DOW_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -50,7 +50,7 @@ class GridRow:
 
 
 def _cutoff(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fmt_money(cents: int | None) -> str:
@@ -106,7 +106,9 @@ def grid(
     sql = f"""
         WITH latest AS (
             SELECT query_id, price_cents, observed_at, airline, stops, duration_min,
-                   ROW_NUMBER() OVER (PARTITION BY query_id ORDER BY observed_at DESC, id DESC) AS rn
+                   ROW_NUMBER() OVER (
+                       PARTITION BY query_id ORDER BY observed_at DESC, id DESC
+                   ) AS rn
             FROM observations
             WHERE is_best = 1
         ),
@@ -118,7 +120,9 @@ def grid(
         ),
         sweeps AS (
             SELECT query_id, price_cents, observed_at,
-                   ROW_NUMBER() OVER (PARTITION BY query_id ORDER BY observed_at DESC, id DESC) AS rn
+                   ROW_NUMBER() OVER (
+                       PARTITION BY query_id ORDER BY observed_at DESC, id DESC
+                   ) AS rn
             FROM observations
             WHERE source = 'google_calendar'
         )
@@ -208,7 +212,7 @@ def sparkline(values: list[int]) -> str:
 
 def render_grid(rows: list[GridRow], title: str, window_days: int = 30) -> str:
     """The table from plan §9."""
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     out: list[str] = ["", f"{title}        (as of {today})", ""]
 
     if not rows:
@@ -246,7 +250,8 @@ def render_grid(rows: list[GridRow], title: str, window_days: int = 30) -> str:
     if show_sweep:
         out.append("")
         out.append(
-            "  SWEEP = latest calendar-sweep price (indicative; confirmed prices appear under CURRENT)"
+            "  SWEEP = latest calendar-sweep price (indicative; confirmed prices appear under "
+            "CURRENT)"
         )
 
     out.append("")
@@ -254,7 +259,7 @@ def render_grid(rows: list[GridRow], title: str, window_days: int = 30) -> str:
 
 
 def render_cheapest(rows: list[GridRow], window_days: int = 30) -> str:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     out = ["", f"Cheapest current fares across all tracked routes        (as of {today})", ""]
     if not rows:
         out += ["  No observations yet. Run `flighttrack fetch` first.", ""]
@@ -342,7 +347,7 @@ def advise(
     forecast; it is the arithmetic you would do by hand with the history in
     front of you, done consistently every day.
     """
-    now = today or datetime.now(timezone.utc)
+    now = today or datetime.now(UTC)
     rows = grid(conn, dest=dest, label=label, pattern=pattern, month=month, window_days=window_days)
     out: list[Advice] = []
     route_cache: dict[str, tuple[int | None, int | None]] = {}
@@ -388,7 +393,8 @@ def advise(
             points += 2
         if p20 is not None and r.current_cents <= p20:
             reasons.append(
-                f"in the cheapest 20% of {r.dest} fares seen in {route_window_days}d (p20 {fmt_money(p20)})"
+                f"in the cheapest 20% of {r.dest} fares seen in {route_window_days}d (p20 "
+                f"{fmt_money(p20)})"
             )
             points += 2
         elif p50 is not None and r.current_cents > p50:
@@ -430,7 +436,7 @@ def advise(
 
 
 def render_advice(items: list[Advice], title: str) -> str:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     out = ["", f"{title}        (as of {today})", ""]
     if not items:
         out += ["  Nothing priced yet for this slice.", ""]
@@ -439,7 +445,8 @@ def render_advice(items: list[Advice], title: str) -> str:
         r = a.row
         out.append(
             f"  {a.verdict:<9} {r.dest} {fmt_date(r.depart_date)} → {fmt_date(r.return_date)}  "
-            f"{fmt_money(r.current_cents)}  (low {fmt_money(a.all_time_low)}, n={a.n_obs}, {a.days_to_departure}d out)"
+            f"{fmt_money(r.current_cents)}  (low {fmt_money(a.all_time_low)}, n={a.n_obs}, "
+            f"{a.days_to_departure}d out)"
         )
         for why in a.reasons:
             out.append(f"             · {why}")
@@ -447,7 +454,8 @@ def render_advice(items: list[Advice], title: str) -> str:
             out.append(f"             {r.deep_link}")
         out.append("")
     out.append(
-        "  Heuristic only: it compares today's price with what this tracker has seen. It does not predict fares."
+        "  Heuristic only: it compares today's price with what this tracker has seen. It does "
+        "not predict fares."
     )
     out.append("")
     return "\n".join(out)

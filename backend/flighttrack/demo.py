@@ -8,14 +8,13 @@ the real database path unless you point it there.
 from __future__ import annotations
 
 import json
-import math
 import random
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from . import expand as expand_mod
 from .config import Config
-from .db import set_state, utcnow
+from .db import set_state
 
 BASE_PRICE = {"HND": 92000, "NRT": 84000, "SLC": 21000}
 AIRLINES = {
@@ -46,7 +45,7 @@ def seed(
         "FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1"
     ).fetchall()
 
-    now = datetime.combine(today, datetime.min.time(), timezone.utc).replace(hour=10)
+    now = datetime.combine(today, datetime.min.time(), UTC).replace(hour=10)
     written = 0
     for q in rows:
         dest = q["destination"]
@@ -72,12 +71,13 @@ def seed(
             last_minute = 1.0 + max(0.0, (21 - days_out)) * 0.012
             noise = 1.0 + rng.gauss(0, 0.035)
             factor = (1 + drift) ** (days - d) * last_minute * noise * dips.get(d, 1.0)
-            price = int(round(level * factor / 100.0)) * 100
+            price = round(level * factor / 100.0) * 100
             airline = rng.choice(AIRLINES.get(dest, ["Alaska"]))
             stops = 0 if rng.random() < 0.6 else 1
             for i, extra in enumerate((0, rng.randint(1500, 6000), rng.randint(6000, 14000))):
                 conn.execute(
-                    "INSERT INTO observations (query_id, observed_at, price_cents, currency, airline, stops, duration_min, is_best, raw, source) "
+                    "INSERT INTO observations (query_id, observed_at, price_cents, currency, "
+                    "airline, stops, duration_min, is_best, raw, source) "
                     "VALUES (?, ?, ?, 'USD', ?, ?, ?, ?, ?, 'demo')",
                     (
                         q["id"],
@@ -96,7 +96,8 @@ def seed(
     # A few calendar-sweep context rows so the sweep column shows.
     for q in rows[: max(1, len(rows) // 4)]:
         conn.execute(
-            "INSERT INTO observations (query_id, observed_at, price_cents, currency, is_best, raw, source) "
+            "INSERT INTO observations (query_id, observed_at, price_cents, currency, is_best, "
+            "raw, source) "
             "VALUES (?, ?, ?, 'USD', 0, '{}', 'google_calendar')",
             (
                 q["id"],
@@ -111,7 +112,8 @@ def seed(
         attempted = 60
         failed = rng.choice([0, 0, 0, 1, 2])
         conn.execute(
-            "INSERT INTO run_log (started_at, finished_at, attempted, succeeded, failed, blocked, notes, kind) VALUES (?, ?, ?, ?, ?, 0, NULL, 'fetch')",
+            "INSERT INTO run_log (started_at, finished_at, attempted, succeeded, failed, "
+            "blocked, notes, kind) VALUES (?, ?, ?, ?, ?, 0, NULL, 'fetch')",
             (
                 _iso(started),
                 _iso(started + timedelta(minutes=7)),
@@ -123,7 +125,8 @@ def seed(
         for i in range(attempted):
             outcome = "ok" if i >= failed else rng.choice(["network", "layout"])
             conn.execute(
-                "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, error) VALUES (NULL, NULL, ?, 'google_html', ?, ?, NULL)",
+                "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, "
+                "error) VALUES (NULL, NULL, ?, 'google_html', ?, ?, NULL)",
                 (_iso(started + timedelta(seconds=6 * i)), outcome, rng.randint(900, 2600)),
             )
     set_state(conn, "last_success_at", _iso(now))
@@ -151,7 +154,8 @@ def seed(
     ]
     for i, (title, watch, cents, link) in enumerate(posts):
         conn.execute(
-            "INSERT OR IGNORE INTO deal_posts (guid, feed, title, link, published_at, seen_at, price_cents, watch, alerted_at) "
+            "INSERT OR IGNORE INTO deal_posts (guid, feed, title, link, published_at, seen_at, "
+            "price_cents, watch, alerted_at) "
             "VALUES (?, 'demo', ?, ?, ?, ?, ?, ?, ?)",
             (
                 f"demo-{i}",

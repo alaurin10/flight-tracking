@@ -48,7 +48,8 @@ def sync_routes(conn: sqlite3.Connection, cfg: Config) -> tuple[int, int]:
         configured.add((cfg.home, r.dest))
         conn.execute(
             """
-            INSERT INTO routes (origin, destination, label, target_price, priority, max_stops, active)
+            INSERT INTO routes
+                (origin, destination, label, target_price, priority, max_stops, active)
             VALUES (?, ?, ?, ?, ?, ?, 1)
             ON CONFLICT(origin, destination) DO UPDATE SET
                 label        = excluded.label,
@@ -123,7 +124,8 @@ def _upsert_query(conn, result, route_id, depart_s, ret_s, pattern_name, link) -
     upd = conn.execute(
         """
         UPDATE queries SET active = 1
-        WHERE route_id = ? AND depart_date = ? AND return_date IS ? AND active = 0 AND depart_date >= ?
+        WHERE route_id = ? AND depart_date = ? AND return_date IS ? AND active = 0
+          AND depart_date >= ?
         """,
         (route_id, depart_s, ret_s, depart_s),
     )
@@ -216,7 +218,8 @@ def expand(
         # A trip's own target overrides the route's for alerting; store it on the row.
         if trip.target_price is not None:
             conn.execute(
-                "UPDATE queries SET pattern = ? WHERE route_id = ? AND depart_date = ? AND return_date IS ?",
+                "UPDATE queries SET pattern = ? WHERE route_id = ? AND depart_date = ? AND "
+                "return_date IS ?",
                 (trip.name, route_id, trip.depart, trip.ret),
             )
 

@@ -1,5 +1,7 @@
 """Itinerary extraction: both lists, defensive indices, round-trip stops."""
 
+from helpers import make_itinerary, make_payload, make_segment
+
 from flighttrack.gflights.results import (
     Layover,
     airline_directory,
@@ -7,7 +9,6 @@ from flighttrack.gflights.results import (
     itineraries,
     page_min_price,
 )
-from helpers import make_itinerary, make_payload, make_segment
 
 
 def test_reads_best_and_other_and_sorts_cheapest_first():

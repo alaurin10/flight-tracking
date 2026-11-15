@@ -1,10 +1,11 @@
 """Fetcher: pacing, the query cap, rotation, and abort-on-block."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
+from helpers import make_config, make_db
 
 from flighttrack import fetch
 from flighttrack.source import FakeSource, NoResults, SourceError
-from helpers import make_config, make_db
 
 
 class Boom:
@@ -86,7 +87,7 @@ def test_priority_interval_gates_refetch(tmp_path):
     assert fetched == 5
 
     # A day later, the priority-1 rows are due again.
-    later = datetime.now(timezone.utc) + timedelta(days=1, minutes=1)
+    later = datetime.now(UTC) + timedelta(days=1, minutes=1)
     due = fetch.select_due(conn, cfg, now=later, limit=100)
     assert any(d.last_fetch_at is not None for d in due)
 
@@ -180,7 +181,10 @@ def test_error_text_is_collapsed_for_the_log(tmp_path):
     """A multi-line proxy/HTTP failure must not turn run_log into a wall of headers."""
     from flighttrack.source import tidy_error
 
-    messy = "proxy CONNECT failed: HTTP/1.1 403 Forbidden\nContent-Type: text/plain\n\nConnection: close"
+    messy = (
+        "proxy CONNECT failed: HTTP/1.1 403 Forbidden\nContent-Type: text/plain\n\nConnection: "
+        "close"
+    )
     tidied = tidy_error(messy)
     assert "\n" not in tidied
     assert tidied.startswith("proxy CONNECT failed: HTTP/1.1 403 Forbidden Content-Type")

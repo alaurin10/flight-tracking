@@ -1,16 +1,18 @@
 """Deal feeds: parsing, matching, polling, alerting."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from helpers import FakeTransport, make_config, make_db
 
 from flighttrack import deals
-from flighttrack.config import DealWatch, Deals
-from helpers import FakeTransport, make_config, make_db
+from flighttrack.config import Deals, DealWatch
 
 RSS = """<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Deals</title>
 <item><title>Seattle to Paris, France for only $412 roundtrip</title><link>https://d/1</link>
-<guid>d1</guid><pubDate>Wed, 16 Sep 2026 10:00:00 +0000</pubDate><description>&lt;p&gt;Nonstop on Air France&lt;/p&gt;</description></item>
+<guid>d1</guid><pubDate>Wed, 16 Sep 2026 10:00:00 +0000</pubDate>
+<description>&lt;p&gt;Nonstop on Air France&lt;/p&gt;</description></item>
 <item><title>Many US cities to Tokyo, Japan from $598 roundtrip</title><link>https://d/2</link><guid>d2</guid>
 <pubDate>Wed, 16 Sep 2026 11:00:00 +0000</pubDate></item>
 <item><title>Chicago to Lisbon from $455</title><link>https://d/3</link><guid>d3</guid>
@@ -26,7 +28,7 @@ ATOM = """<?xml version="1.0"?>
 </feed>"""
 
 # The fixtures above are dated 16 Sep 2026; poll() drops posts older than its lookback.
-NOW = datetime(2026, 9, 17, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 17, tzinfo=UTC)
 
 
 def _cfg(tmp_path, **over):
@@ -143,13 +145,15 @@ def test_disabled_deals_is_a_noop(tmp_path):
 # ---------------------------------------------------------------------------
 
 TFD_TITLE = (
-    "Alaska Air: Seattle – San Diego (and vice versa). $127 (Basic Economy) / $237 (Regular Economy). "
+    "Alaska Air: Seattle – San Diego (and vice versa). $127 (Basic Economy) / $237 (Regular "
+    "Economy). "
     "Roundtrip, including all Taxes"
 )
 TFD_RSS = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>The Flight Deal</title>
 <item><title>{TFD_TITLE}</title><link>https://www.theflightdeal.com/2026/11/14/sea-san/</link>
-<guid isPermaLink="false">https://www.theflightdeal.com/?p=1</guid><pubDate>Sat, 14 Nov 2026 09:00:00 +0000</pubDate></item>
+<guid isPermaLink="false">https://www.theflightdeal.com/?p=1</guid>
+<pubDate>Sat, 14 Nov 2026 09:00:00 +0000</pubDate></item>
 </channel></rss>"""
 
 
@@ -167,7 +171,10 @@ def test_flight_deal_headline_takes_the_first_price():
 def test_html_body_is_a_failure_not_an_empty_feed(tmp_path):
     cfg = _cfg(tmp_path)
     conn, cfg = make_db(tmp_path, cfg)
-    home_page = "\n  <!DOCTYPE html>\n<html lang='en'><head><title>Secret Flying</title></head><body></body></html>"
+    home_page = (
+        "\n  <!DOCTYPE html>\n<html lang='en'><head><title>Secret "
+        "Flying</title></head><body></body></html>"
+    )
     t = FakeTransport(
         [
             (200, "https://www.secretflying.com/", home_page),

@@ -1,17 +1,18 @@
 """Reporting and the static HTML page."""
 
-from flighttrack import html, report
 from helpers import add_obs, first_query_id, make_config, make_db
+
+from flighttrack import html, report
 
 
 def test_grid_shows_current_and_trailing_low(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     add_obs(conn, qid, 25000, days_ago=20)
     add_obs(conn, qid, 18000, days_ago=10)  # the 30-day low
     add_obs(conn, qid, 21000, days_ago=0)  # current
 
-    row = [r for r in report.grid(conn, dest="SLC") if r.query_id == qid][0]
+    row = next(r for r in report.grid(conn, dest="SLC") if r.query_id == qid)
     assert row.current_cents == 21000
     assert row.low_cents == 18000
     assert round(row.vs_low_pct) == 17
@@ -19,18 +20,18 @@ def test_grid_shows_current_and_trailing_low(tmp_path):
 
 
 def test_trailing_window_excludes_older_lows(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     add_obs(conn, qid, 9000, days_ago=90)  # ancient bargain, outside the window
     add_obs(conn, qid, 21000, days_ago=0)
 
-    row = [r for r in report.grid(conn, dest="SLC", window_days=30) if r.query_id == qid][0]
+    row = next(r for r in report.grid(conn, dest="SLC", window_days=30) if r.query_id == qid)
     assert row.low_cents == 21000
     assert row.is_at_low
 
 
 def test_only_best_offers_form_the_series(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     add_obs(conn, qid, 20000, is_best=1)
     add_obs(conn, qid, 26000, is_best=0)  # a runner-up from the same fetch
@@ -39,13 +40,13 @@ def test_only_best_offers_form_the_series(tmp_path):
 
 
 def test_unpriced_pairs_are_hidden_by_default(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     assert report.grid(conn) == []
     assert len(report.grid(conn, include_unpriced=True)) > 0
 
 
 def test_cheapest_sorts_across_routes(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     add_obs(conn, first_query_id(conn, "HND"), 80000)
     add_obs(conn, first_query_id(conn, "SLC"), 15000)
     add_obs(conn, first_query_id(conn, "NRT"), 70000)
@@ -66,7 +67,7 @@ def test_sparkline_shapes():
 
 
 def test_render_grid_marks_low_and_target(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     add_obs(conn, qid, 13000)  # under the $140 target and at its own low
 
@@ -77,7 +78,7 @@ def test_render_grid_marks_low_and_target(tmp_path):
 
 
 def test_render_grid_adds_dest_column_for_shared_labels(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     add_obs(conn, first_query_id(conn, "HND"), 80000)
     add_obs(conn, first_query_id(conn, "NRT"), 70000)
 
@@ -86,13 +87,13 @@ def test_render_grid_adds_dest_column_for_shared_labels(tmp_path):
 
 
 def test_empty_grid_renders_without_crashing(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    _conn, _cfg = make_db(tmp_path, make_config())
     assert "No observations yet" in report.render_grid([], "SEA → nowhere")
     assert "No observations yet" in report.render_cheapest([])
 
 
 def test_html_page_is_written(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     add_obs(conn, first_query_id(conn, "SLC"), 15000)
 
     out = html.write(conn, tmp_path / "sub" / "index.html")
@@ -105,7 +106,7 @@ def test_html_page_is_written(tmp_path):
 
 def test_html_escapes_hostile_text(tmp_path):
     """Airline and label strings come from upstream; never trust them in HTML."""
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     conn.execute("UPDATE routes SET label='<script>alert(1)</script>' WHERE destination='SLC'")
     conn.commit()
     add_obs(conn, first_query_id(conn, "SLC"), 15000, airline="<img onerror=x>")
@@ -117,5 +118,5 @@ def test_html_escapes_hostile_text(tmp_path):
 
 
 def test_html_renders_with_no_data(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    conn, _cfg = make_db(tmp_path, make_config())
     assert "No observations yet" in html.render(conn)

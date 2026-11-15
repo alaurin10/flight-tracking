@@ -166,7 +166,7 @@ class Query:
     # -- construction helpers ------------------------------------------------
 
     @classmethod
-    def round_trip(cls, origin: str, dest: str, depart: str, ret: str, **kw) -> "Query":
+    def round_trip(cls, origin: str, dest: str, depart: str, ret: str, **kw) -> Query:
         ms = kw.pop("max_stops", None)
         return cls(
             legs=(Leg(depart, origin, dest, max_stops=ms), Leg(ret, dest, origin, max_stops=ms)),
@@ -174,7 +174,7 @@ class Query:
         )
 
     @classmethod
-    def one_way(cls, origin: str, dest: str, depart: str, **kw) -> "Query":
+    def one_way(cls, origin: str, dest: str, depart: str, **kw) -> Query:
         ms = kw.pop("max_stops", None)
         return cls(legs=(Leg(depart, origin, dest, max_stops=ms),), **kw)
 
@@ -220,7 +220,7 @@ class Query:
         return f"{BASE_URL}?tfs={self.tfs()}&hl={self.language}&curr={self.currency}"
 
     def describe(self) -> str:
-        legs = " / ".join(f"{l.origin}→{l.dest} {l.date}" for l in self.legs)
+        legs = " / ".join(f"{leg.origin}→{leg.dest} {leg.date}" for leg in self.legs)
         return f"{legs} [{self.trip}, {self.seat}, {self.adults} adult(s)]"
 
 

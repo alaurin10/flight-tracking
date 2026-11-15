@@ -1,12 +1,13 @@
 """Watchdog: silent failure must become a notification."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
+from helpers import make_config, make_db
 
 from flighttrack import fetch, health
 from flighttrack.db import set_state, utcnow
 from flighttrack.source import BlockedError, FakeSource
-from helpers import make_config, make_db
 
 
 def _file_cfg(tmp_path, **health_over):
@@ -35,7 +36,7 @@ def test_stale_success_and_no_recent_run(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     fetch.run(conn, cfg, FakeSource(), sleeper=lambda s: None, verbose=False)
     fetch.run(conn, cfg, FakeSource(), sleeper=lambda s: None, verbose=False)
-    later = datetime.now(timezone.utc) + timedelta(hours=72)
+    later = datetime.now(UTC) + timedelta(hours=72)
     rep = health.check(conn, cfg, now=later)
     codes = {p.code for p in rep.problems}
     assert "stale_success" in codes and "no_recent_run" in codes
@@ -93,7 +94,7 @@ def test_notification_is_deduped_and_resent_on_change(tmp_path):
     set_state(
         conn,
         fetch.STATE_COOLDOWN_UNTIL,
-        (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        (datetime.now(UTC) + timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
     set_state(conn, fetch.STATE_BLOCKED_STREAK, "3")
     rep, sent = health.run(conn, cfg, verbose=False)
@@ -106,7 +107,7 @@ def test_warnings_alone_do_not_notify(tmp_path):
     set_state(
         conn,
         fetch.STATE_COOLDOWN_UNTIL,
-        (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
     set_state(conn, fetch.STATE_BLOCKED_STREAK, "1")
     rep, sent = health.run(conn, cfg, verbose=False)
@@ -114,7 +115,7 @@ def test_warnings_alone_do_not_notify(tmp_path):
 
 
 def test_dead_feed_is_a_warning(tmp_path):
-    from flighttrack.config import DealWatch, Deals
+    from flighttrack.config import Deals, DealWatch
 
     cfg = make_config()
     cfg = replace(
@@ -125,7 +126,8 @@ def test_dead_feed_is_a_warning(tmp_path):
     )
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute(
-        "INSERT INTO feed_log (feed, at, ok, items, error) VALUES ('https://x/feed', ?, 0, 0, 'boom')",
+        "INSERT INTO feed_log (feed, at, ok, items, error) VALUES ('https://x/feed', ?, 0, 0, "
+        "'boom')",
         (utcnow(),),
     )
     conn.commit()

@@ -20,7 +20,7 @@ import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 
 from .config import Config, DealWatch
@@ -272,7 +272,7 @@ class FeedError(Exception):
 
 
 def _iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def looks_like_html(text: str) -> bool:
@@ -302,7 +302,10 @@ class DealStats:
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        s = f"feeds={self.feeds_ok}/{self.feeds} items={self.items} new={self.new} matched={self.matched} alerted={self.alerted}"
+        s = (
+            f"feeds={self.feeds_ok}/{self.feeds} items={self.items} new={self.new} "
+            f"matched={self.matched} alerted={self.alerted}"
+        )
         if self.delivery_error:
             s += f" DELIVERY_ERROR={self.delivery_error}"
         return s
@@ -340,8 +343,8 @@ def _to_iso(text: str | None) -> str | None:
         except ValueError:
             return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _strip_html(text: str) -> str:
@@ -435,7 +438,7 @@ def poll(
     sleeper=time.sleep,
 ) -> DealStats:
     stats = DealStats()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     stamp = _iso(now)
     transport = transport or default_transport("urllib")
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
@@ -476,7 +479,8 @@ def poll(
             watch = first_match(it, cfg.deals.watches)
             cur = conn.execute(
                 """
-                INSERT INTO deal_posts (guid, feed, title, link, published_at, seen_at, price_cents, watch)
+                INSERT INTO deal_posts
+                    (guid, feed, title, link, published_at, seen_at, price_cents, watch)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(guid) DO NOTHING
                 """,
                 (
@@ -504,7 +508,7 @@ def poll(
 def pending_alerts(
     conn: sqlite3.Connection, cfg: Config, now: datetime | None = None
 ) -> list[sqlite3.Row]:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
     return conn.execute(
         """
@@ -529,7 +533,7 @@ def alert(
     now: datetime | None = None,
 ) -> DealStats:
     stats = DealStats()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rows = pending_alerts(conn, cfg, now)
     if not rows:
         return stats
@@ -582,7 +586,7 @@ def run(
         if verbose:
             print("[deals] disabled in config")
         return DealStats()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     stats = poll(conn, cfg, transport, now=now, verbose=verbose, sleeper=sleeper)
     a = alert(conn, cfg, dry_run=dry_run, verbose=verbose, now=now)
     stats.alerted, stats.delivery_error = a.alerted, a.delivery_error

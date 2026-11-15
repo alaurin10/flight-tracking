@@ -23,8 +23,9 @@ covers the outbound leg only and `stops = len(segments) - 1`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 
 def _at(obj: Any, *idx: int) -> Any:

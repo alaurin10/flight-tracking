@@ -2,19 +2,23 @@
 and nothing a channel does may crash the stage that called it."""
 
 from dataclasses import replace
+from datetime import UTC
 from email import message_from_bytes, policy
+from typing import ClassVar
 
 import pytest
+from helpers import add_obs, first_query_id, make_config, make_db
 
-from flighttrack import alert, deals, health, notify as notify_mod
+from flighttrack import alert, deals, health
+from flighttrack import notify as notify_mod
 from flighttrack.config import Alerts, Deals, DealWatch
 from flighttrack.notify import NotifyError, notify
-from helpers import add_obs, first_query_id, make_config, make_db
 
 # The subjects the real callers send (alert.run, deals.alert, health.run).
 SUBJECTS = [
     "✈ $612 Tokyo · Apr 10",
-    "✈ deal: Alaska Air: Seattle – San Diego (and vice versa). $127 (Basic Economy) / $237 (Regular Economy)",
+    "✈ deal: Alaska Air: Seattle – San Diego (and vice versa). $127 (Basic Economy) / $237 "
+    "(Regular Economy)",
     "⚠ flighttrack is not collecting prices",
 ]
 
@@ -54,7 +58,7 @@ def test_file_channel_keeps_real_subjects(tmp_path, subject):
 class FakeSMTP:
     """Stands in for smtplib.SMTP; keeps the message exactly as it would go on the wire."""
 
-    sent: list[bytes] = []
+    sent: ClassVar[list[bytes]] = []
 
     def __init__(self, host, port, timeout=None):
         self.host, self.port = host, port
@@ -147,26 +151,25 @@ def test_deals_alert_reports_delivery_error(tmp_path, broken_file_channel):
     )
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute(
-        "INSERT INTO deal_posts (guid, feed, title, seen_at, price_cents, watch) VALUES ('g', 'f', ?, ?, 12700, 'Anything')",
+        "INSERT INTO deal_posts (guid, feed, title, seen_at, price_cents, watch) VALUES ('g', "
+        "'f', ?, ?, 12700, 'Anything')",
         ("Seattle – San Diego $127", "2026-11-14T00:00:00Z"),
     )
     conn.commit()
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    stats = deals.alert(
-        conn, cfg, verbose=False, now=datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
-    )
+    stats = deals.alert(conn, cfg, verbose=False, now=datetime(2026, 11, 14, 12, tzinfo=UTC))
     assert "synthetic channel failure" in stats.delivery_error
     assert conn.execute("SELECT alerted_at FROM deal_posts").fetchone()[0] is None
 
 
 def test_health_run_returns_false(tmp_path, broken_file_channel):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from flighttrack.db import set_state
 
-    now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+    now = datetime(2026, 11, 14, 12, tzinfo=UTC)
     conn, cfg = make_db(tmp_path, make_config(notify=broken_file_channel))
     set_state(conn, "last_success_at", (now - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
 

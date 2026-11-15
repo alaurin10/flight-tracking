@@ -16,7 +16,8 @@ def test_varint_vectors():
 
 
 def test_known_round_trip_vector():
-    """Hex captured from fast-flights 3.1.0 for SEA→HND 2027-01-07/11, 1 adult, carry-on, no basic economy."""
+    """Hex captured from fast-flights 3.1.0 for SEA→HND 2027-01-07/11, 1 adult, carry-on, no
+    basic economy."""
     q = Query.round_trip(
         "SEA", "HND", "2027-01-07", "2027-01-11", carry_on_bags=1, exclude_basic_economy=True
     )
@@ -25,8 +26,8 @@ def test_known_round_trip_vector():
         "1a1a120a323032372d30312d31316a051203484e447205120353454142010148016a0410011800980101c80101"
     )
     assert (
-        q.tfs()
-        == "GhoSCjIwMjctMDEtMDdqBRIDU0VBcgUSA0hORBoaEgoyMDI3LTAxLTExagUSA0hORHIFEgNTRUFCAQFIAWoEEAEYAJgBAcgBAQ"
+        q.tfs() == "GhoSCjIwMjctMDEtMDdqBRIDU0VBcgUSA0hORBoaEgoyMDI3LTAxLTExagUSA0hORHIFEgNTRUFC"
+        "AQFIAWoEEAEYAJgBAcgBAQ"
     )
     assert q.url().startswith("https://www.google.com/travel/flights/search?tfs=")
     assert "&hl=en&curr=USD" in q.url()
@@ -43,7 +44,10 @@ def test_one_way_vector_and_decode_roundtrip():
 
 def test_real_google_url_shares_the_layout():
     """A tfs copied from a live Google Flights URL uses the same field numbers."""
-    real = "CBwQAhoeEgoyMDI0LTA2LTAxagcIARIDU0ZPcgcIARIDSkZLGh4SCjIwMjQtMDYtMDhqBwgBEgNKRktyBwgBEgNTRk9AAUgBcAGCAQsI____________AZgBAQ"
+    real = (
+        "CBwQAhoeEgoyMDI0LTA2LTAxagcIARIDU0ZPcgcIARIDSkZLGh4SCjIwMjQtMDYtMDhqBwgBEgNKRktyBwgB"
+        "EgNTRk9AAUgBcAGCAQsI____________AZgBAQ"
+    )
     raw = decode_tfs(real)
     assert b"\x12\x0a2024-06-01" in raw  # FlightData.date = field 2
     assert b"\x12\x03SFO" in raw and b"\x12\x03JFK" in raw  # Airport.airport = field 2
@@ -65,7 +69,7 @@ def test_rejects_invalid_queries(bad):
 
 
 def test_byte_identical_to_fast_flights_across_options():
-    ff = pytest.importorskip("fast_flights")
+    pytest.importorskip("fast_flights")
     from fast_flights import FlightQuery, Passengers, create_query
 
     def theirs(rt, seat, bags, checked, ebe, hs, ms, adults, children):

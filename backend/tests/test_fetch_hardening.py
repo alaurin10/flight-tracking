@@ -1,12 +1,13 @@
 """Fetcher: typed failures, cooldown state, retry, attempt log."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
+from helpers import make_config, make_db
 
 from flighttrack import fetch
 from flighttrack.db import get_state
 from flighttrack.source import BlockedError, FakeSource, LayoutError, NetworkError, Offer
-from helpers import make_config, make_db
 
 
 class Sequenced:
@@ -51,8 +52,10 @@ def test_cooldown_escalates_then_clears_on_success(tmp_path):
     cfg = make_config()
     cfg = replace(cfg, fetch=replace(cfg.fetch, cooldown_hours=(1.0, 4.0, 12.0)))
     conn, cfg = make_db(tmp_path, cfg)
-    t0 = datetime.now(timezone.utc).replace(microsecond=0)
-    iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
+    t0 = datetime.now(UTC).replace(microsecond=0)
+
+    def iso(t):
+        return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     fetch.run(
         conn, cfg, Sequenced([BlockedError("x")]), now=t0, sleeper=lambda s: None, verbose=False

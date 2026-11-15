@@ -3,7 +3,6 @@
 import sqlite3
 
 import pytest
-
 from helpers import add_obs, first_query_id, make_db
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from flighttrack import db, expand
 from flighttrack.config import Alerts, Config, Fetch, Pattern, Route, Search
@@ -41,10 +41,11 @@ def make_db(tmp_path, cfg=None, build_links=False, today=None):
 
 
 def add_obs(conn, query_id, price_cents, days_ago=0, is_best=1, airline="Alaska", stops=0):
-    ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = (datetime.now(UTC) - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     cur = conn.execute(
         """INSERT INTO observations
-           (query_id, observed_at, price_cents, currency, airline, stops, duration_min, is_best, raw)
+           (query_id, observed_at, price_cents, currency, airline, stops, duration_min,
+            is_best, raw)
            VALUES (?, ?, ?, 'USD', ?, ?, 600, ?, '{}')""",
         (query_id, ts, price_cents, airline, stops, is_best),
     )
@@ -112,7 +113,10 @@ def make_results_html(payload, wrap="script"):
         + ", sideChannel: {}});"
     )
     if wrap == "script":
-        return f'<html><head><title>Flights</title></head><body><script class="ds:1" nonce="abc">{js}</script></body></html>'
+        return (
+            "<html><head><title>Flights</title></head><body>"
+            f'<script class="ds:1" nonce="abc">{js}</script></body></html>'
+        )
     return f"<html><body><script>{js}</script></body></html>"
 
 

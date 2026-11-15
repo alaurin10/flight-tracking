@@ -3,11 +3,12 @@
 import json
 import threading
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+
+from helpers import make_config, make_db
 
 from flighttrack import serve
 from flighttrack.db import connect
-from helpers import make_config, make_db
 
 
 def test_compute_next_is_tomorrow_when_time_has_passed():
@@ -118,11 +119,10 @@ def test_http_serves_report_status_and_run(tmp_path):
 
 
 def test_needs_catchup_from_last_success(tmp_path):
-    from datetime import timezone
 
     from flighttrack.db import set_state
 
-    now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+    now = datetime(2026, 11, 14, 12, tzinfo=UTC)
     conn, _ = make_db(tmp_path)
     assert serve.needs_catchup(conn, now) == (True, "no successful fetch recorded yet")
     set_state(conn, "last_success_at", "2026-11-13T18:00:00Z")  # 18 h ago
@@ -138,8 +138,10 @@ def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys)
 
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
-        "home: SEA\nroutes:\n  - dest: SLC\n    label: Salt Lake City\npatterns:\n  - name: fri\n    depart_dow: FRI\n"
-        f"    nights: 3\nnotify:\n  channel: none\noutput:\n  db_path: {tmp_path / 'f.db'}\n  html_path: {tmp_path / 'i.html'}\n"
+        "home: SEA\nroutes:\n  - dest: SLC\n    label: Salt Lake City\npatterns:\n  - name: "
+        "fri\n    depart_dow: FRI\n"
+        f"    nights: 3\nnotify:\n  channel: none\noutput:\n  db_path: {tmp_path / 'f.db'}\n  "
+        f"html_path: {tmp_path / 'i.html'}\n"
     )
     seen = []
     monkeypatch.setattr(serve, "serve", lambda cfg, job, **kw: seen.append(kw["run_on_start"]))

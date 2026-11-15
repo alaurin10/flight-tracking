@@ -25,7 +25,7 @@ import sqlite3
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .config import Config, Route
 from .db import get_state, parse_ts, set_state, utcnow
@@ -116,14 +116,14 @@ class FetchStats:
 
 def cooldown_active(conn: sqlite3.Connection, now: datetime | None = None) -> str | None:
     """The ISO time the current cooldown ends, or None if we are clear to run."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     until = parse_ts(get_state(conn, STATE_COOLDOWN_UNTIL))
     return until.strftime("%Y-%m-%dT%H:%M:%SZ") if until and until > now else None
 
 
 def enter_cooldown(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> str:
     """Escalate: 1st blocked run → cooldown_hours[0], 2nd → [1], … capped at the last."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     streak = int(get_state(conn, STATE_BLOCKED_STREAK, "0") or 0) + 1
     hours = cfg.fetch.cooldown_hours[min(streak, len(cfg.fetch.cooldown_hours)) - 1]
     until = (now + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -165,7 +165,7 @@ def select_due(
       3. the run takes the first `max_queries_per_run` of those.
     `query_ids` bypasses the due test — used to confirm sweep candidates.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     limit = limit or cfg.fetch.max_queries_per_run
     cutoffs = _due_cutoffs(now)
     today = now.date().isoformat()
@@ -264,7 +264,8 @@ def store(
 
 def log_attempt(conn, run_id, query_id, source, outcome, latency_ms, error=None) -> None:
     conn.execute(
-        "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (run_id, query_id, utcnow(), source, outcome, latency_ms, error),
     )
 
@@ -292,7 +293,7 @@ def run(
 ) -> FetchStats:
     """Execute one fetch run, recording it in `run_log` whatever happens."""
     stats = FetchStats()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cur = conn.execute("INSERT INTO run_log (started_at, kind) VALUES (?, ?)", (utcnow(), kind))
     stats.run_id = cur.lastrowid
     conn.commit()
@@ -307,14 +308,16 @@ def run(
         conn.commit()
         if verbose:
             print(
-                f"[fetch] run {stats.run_id}: skipped — cooldown until {until} (a previous run was blocked)"
+                f"[fetch] run {stats.run_id}: skipped — cooldown until {until} (a previous run "
+                "was blocked)"
             )
         return stats
 
     due = select_due(conn, cfg, now=now, limit=limit, query_ids=query_ids)
     if verbose:
         print(
-            f"[fetch] run {stats.run_id}: {len(due)} queries due (cap {limit or cfg.fetch.max_queries_per_run}) via {getattr(source, 'name', '?')}"
+            f"[fetch] run {stats.run_id}: {len(due)} queries due (cap "
+            f"{limit or cfg.fetch.max_queries_per_run}) via {getattr(source, 'name', '?')}"
         )
 
     consecutive_failures = 0
@@ -375,7 +378,8 @@ def run(
                     stats.retries += 1
                     if verbose:
                         print(
-                            f"  [retry] {leg}: {exc} — retrying once in {cfg.fetch.retry_sleep_seconds:.0f}s"
+                            f"  [retry] {leg}: {exc} — retrying once in "
+                            f"{cfg.fetch.retry_sleep_seconds:.0f}s"
                         )
                     sleeper(cfg.fetch.retry_sleep_seconds)
                     continue
@@ -409,7 +413,10 @@ def run(
             if isinstance(failure, BlockedError) or consecutive_failures >= threshold:
                 stats.blocked = True
                 stats.abort_reason = failure.kind
-                note = f"aborted after {consecutive_failures} consecutive failures [{failure.kind}]: {failure}"
+                note = (
+                    f"aborted after {consecutive_failures} consecutive failures [{failure.kind}]: "
+                    f"{failure}"
+                )
                 if not isinstance(failure, LayoutError):
                     # Rate limit or network: back off, escalating. A layout
                     # change is not helped by waiting, so no cooldown for it.
@@ -453,7 +460,8 @@ def run(
         )
     if stats.parser_mismatch:
         note_bits.append(
-            f"{stats.parser_mismatch} fetch(es) where the page's own cheapest price differed from the "
+            f"{stats.parser_mismatch} fetch(es) where the page's own cheapest price differed from "
+            "the "
             "lowest parsed price — see raw.page_min"
         )
     if stats.by_kind.get("layout"):

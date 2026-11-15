@@ -1,8 +1,9 @@
 """Page classification: the four outcomes the fetcher must tell apart."""
 
+from helpers import NO_RESULTS_HTML, make_itinerary, make_payload, make_results_html
+
 from flighttrack.gflights.page import PageKind, classify, extract_ds1
 from flighttrack.gflights.transport import Response
-from helpers import NO_RESULTS_HTML, make_itinerary, make_payload, make_results_html
 
 
 def _resp(text, status=200, url="https://www.google.com/travel/flights/search?tfs=x"):
@@ -32,7 +33,8 @@ def test_blocked_by_status_and_by_text_and_by_url():
     assert (
         classify(
             _resp(
-                "<html><title>Sorry</title>Our systems have detected unusual traffic from your computer network</html>"
+                "<html><title>Sorry</title>Our systems have detected unusual traffic from your "
+                "computer network</html>"
             )
         ).kind
         is PageKind.BLOCKED
@@ -75,5 +77,8 @@ def test_server_error_and_layout_change():
 
 
 def test_undecodable_blob_is_layout_not_crash():
-    html = "<script class=\"ds:1\">AF_initDataCallback({key: 'ds:1', data:[1,2,, sideChannel: {}});</script>"
+    html = (
+        "<script class=\"ds:1\">AF_initDataCallback({key: 'ds:1', data:[1,2,, "
+        "sideChannel: {}});</script>"
+    )
     assert classify(_resp(html)).kind is PageKind.LAYOUT_UNKNOWN

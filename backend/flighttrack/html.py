@@ -15,12 +15,11 @@ from __future__ import annotations
 import html as _html
 import json
 import sqlite3
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from .health import check as health_check
-from .report import Advice, GridRow, advise, cheapest, fmt_date, fmt_money, grid, history
+from .report import Advice, GridRow, advise, fmt_date, fmt_money, grid, history
 
 # ---------------------------------------------------------------------------
 # Tokens. The chart colours are the validated reference palette (blue
@@ -354,7 +353,7 @@ def line_chart(
     def Y(v):
         return pad_t + (hi - v) / (hi - lo) * h
 
-    pts = [(round(X(t), 1), round(Y(v), 1)) for t, v in zip(ts, ys)]
+    pts = [(round(X(t), 1), round(Y(v), 1)) for t, v in zip(ts, ys, strict=True)]
     path = "M" + " L".join(f"{x},{y}" for x, y in pts)
     area = (
         f"M{pts[0][0]},{pad_t + h} L"
@@ -389,7 +388,7 @@ def line_chart(
     out.append(
         f'<line class="x" y1="{pad_t}" y2="{pad_t + h}"/><circle class="m" r="5"/></svg><div class="tip"></div>'
     )
-    data = [[x, y, f"{t:%a %b %d}", f"${v:,.0f}"] for (x, y), t, v in zip(pts, ts, ys)]
+    data = [[x, y, f"{t:%a %b %d}", f"${v:,.0f}"] for (x, y), t, v in zip(pts, ts, ys, strict=True)]
     return (
         f'<div class="chart" data-points="{e(json.dumps(data, separators=(",", ":")))}">'
         + "".join(out)
@@ -479,7 +478,7 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
                 if r.deep_link
                 else ""
             )
-            + f"</div></div>"
+            + "</div></div>"
         )
     return (
         '<h2>Your trips<span class="meta">fixed dates · should you book?</span></h2><div class="trips">'
@@ -653,7 +652,7 @@ def deals_section(conn: sqlite3.Connection) -> str:
 def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
     last = conn.execute("SELECT * FROM run_log ORDER BY id DESC LIMIT 1").fetchone()
     obs = conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0]
-    since = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (datetime.now(UTC) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
     per_day: dict[str, dict[str, int]] = {}
     for r in conn.execute(
         "SELECT substr(at,1,10) AS d, outcome, COUNT(*) AS n FROM fetch_attempts WHERE at >= ? GROUP BY d, outcome",
@@ -721,7 +720,7 @@ def render(
 ) -> str:
     """Build the whole page. `fragment=True` omits the document skeleton
     (for hosts that wrap the page themselves)."""
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     rep = None
     if cfg is not None:
         try:
@@ -758,8 +757,8 @@ def render(
     chips = (
         '<button class="chip" type="button" data-filter="all" aria-pressed="true">All destinations</button>'
         + "".join(
-            f'<button class="chip" type="button" data-filter="{e(l)}" aria-pressed="false">{e(l)}</button>'
-            for l in labels
+            f'<button class="chip" type="button" data-filter="{e(lb)}" aria-pressed="false">{e(lb)}</button>'
+            for lb in labels
         )
     )
     demo_note = ""

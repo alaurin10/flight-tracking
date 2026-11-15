@@ -7,13 +7,13 @@ and was checked against the page rendered in Chromium at capture time.
 from pathlib import Path
 
 import pytest
+from helpers import FakeTransport, make_config
 
 from flighttrack import source as src
 from flighttrack.gflights.calendar import DatePrice, parse_calendar
 from flighttrack.gflights.page import PageKind, classify
 from flighttrack.gflights.results import itineraries, page_min_price
 from flighttrack.gflights.transport import Response
-from helpers import FakeTransport, make_config
 
 FIXTURES = Path(__file__).parent / "fixtures" / "live-20261114"
 RESULTS_URL = "https://www.google.com/travel/flights/search?tfs=x"

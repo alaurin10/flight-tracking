@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlite3
 import sys
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from . import alert as alert_mod
 from . import compact as compact_mod
@@ -83,7 +83,7 @@ def run_daily(
             sr.rc, sr.summary = fn()
         except KeyboardInterrupt:
             raise
-        except Exception as exc:  # noqa: BLE001 — isolation is the point
+        except Exception as exc:
             sr.rc, sr.error = 1, f"{type(exc).__name__}: {exc}"
             log(f"[{name}] crashed: {sr.error}", file=sys.stderr) if log is print else log(
                 f"[{name}] crashed: {sr.error}"

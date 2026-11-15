@@ -13,22 +13,22 @@ Nothing here imports the rest of flighttrack; it is a self-contained client
 that `source.py` adapts to the system's `Offer` type.
 """
 
-from .tfs import Leg, Query
 from .page import Page, PageKind, classify
 from .results import Itinerary, Segment, itineraries
+from .tfs import Leg, Query
 from .transport import Response, Transport, TransportError, default_transport
 
 __all__ = [
+    "Itinerary",
     "Leg",
-    "Query",
     "Page",
     "PageKind",
-    "classify",
-    "Itinerary",
-    "Segment",
-    "itineraries",
+    "Query",
     "Response",
+    "Segment",
     "Transport",
     "TransportError",
+    "classify",
     "default_transport",
+    "itineraries",
 ]
