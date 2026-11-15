@@ -1,0 +1,11 @@
+[Unit]
+Description=Flight Watch: pull main and redeploy if the app changed
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Change the path if the repo lives elsewhere. Runs as your user (in the docker group).
+User=REPLACE_WITH_YOUR_USER
+ExecStart=/opt/flight-tracking/deploy/deploy.sh
