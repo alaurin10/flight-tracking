@@ -1,0 +1,90 @@
+[project]
+name = "flighttrack"
+version = "0.3.0"
+description = "Flight Watch: self-hosted flight price tracker (fixed trips, date grids, deal feeds)"
+requires-python = ">=3.12"
+dependencies = [
+    "primp>=2,<3", # browser TLS fingerprint for the Google Flights client
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# An independent second parser of the same Google page, used only when ours
+# cannot read it. Pinned: an upgrade could change the response shape. The image
+# installs it; the test suite passes with and without it.
+fallback = ["fast-flights==3.1.0", "typing_extensions>=4.7"]
+
+[project.scripts]
+flighttrack = "flighttrack.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "ruff>=0.6",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# The static page: embedded CSS, JS and HTML templates. Replaced by the app in M6.
+"flighttrack/html.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["fast_flights.*", "primp.*"]
+ignore_missing_imports = true
+
+# Modules from before the restructure. New modules are never added here; a
+# milestone that changes one of these for its own work removes it from the list
+# and makes it pass.
+[[tool.mypy.overrides]]
+module = [
+    "flighttrack.alert",
+    "flighttrack.cli",
+    "flighttrack.compact",
+    "flighttrack.config",
+    "flighttrack.deals",
+    "flighttrack.demo",
+    "flighttrack.expand",
+    "flighttrack.fetch",
+    "flighttrack.gflights",
+    "flighttrack.gflights.calendar",
+    "flighttrack.gflights.page",
+    "flighttrack.gflights.results",
+    "flighttrack.gflights.tfs",
+    "flighttrack.gflights.transport",
+    "flighttrack.health",
+    "flighttrack.html",
+    "flighttrack.jobs",
+    "flighttrack.notify",
+    "flighttrack.report",
+    "flighttrack.serve",
+    "flighttrack.source",
+    "flighttrack.sweep",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
