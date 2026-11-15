@@ -18,7 +18,7 @@ Update this table in the same pull request that finishes a milestone.
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | done | [#6](https://github.com/alaurin10/flight-tracking/pull/6) | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
 | M3 | Database as the source of truth | done | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
-| M4 | The worker | done | PR_LINK | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
+| M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
 | M5 | API and deploy kit | not started | | |
 | B | Owner: go live at flights.andrewlaurin.com | not started | | |
 | M6 | Frontend: read-only app | not started | | |
