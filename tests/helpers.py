@@ -32,10 +32,11 @@ def make_config(**over) -> Config:
     return Config(**base)
 
 
-def make_db(tmp_path, cfg=None, build_links=False):
+def make_db(tmp_path, cfg=None, build_links=False, today=None):
+    """`today` pins the date the grid is expanded from, for tests that name specific dates."""
     cfg = cfg or make_config()
     conn = db.connect(tmp_path / "t.db")
-    expand.expand(conn, cfg, build_links=build_links)
+    expand.expand(conn, cfg, today=today, build_links=build_links)
     return conn, cfg
 
 

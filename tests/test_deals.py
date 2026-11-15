@@ -1,6 +1,7 @@
 """Deal feeds: parsing, matching, polling, alerting."""
 
 from dataclasses import replace
+from datetime import datetime, timezone
 
 from flighttrack import deals
 from flighttrack.config import DealWatch, Deals
@@ -23,6 +24,9 @@ ATOM = """<?xml version="1.0"?>
 <entry><title>West Coast to Rome from $489</title><id>a1</id><link href="https://a/1"/>
 <updated>2026-09-16T09:00:00Z</updated><summary>via Norse</summary></entry>
 </feed>"""
+
+# The fixtures above are dated 16 Sep 2026; poll() drops posts older than its lookback.
+NOW = datetime(2026, 9, 17, tzinfo=timezone.utc)
 
 
 def _cfg(tmp_path, **over):
@@ -64,7 +68,7 @@ def test_poll_stores_matches_and_isolates_feed_failures(tmp_path):
     cfg = _cfg(tmp_path)
     conn, cfg = make_db(tmp_path, cfg)
     t = FakeTransport([(200, None, RSS), (500, None, "boom")])
-    stats = deals.poll(conn, cfg, transport=t, verbose=False, sleeper=lambda s: None)
+    stats = deals.poll(conn, cfg, transport=t, now=NOW, verbose=False, sleeper=lambda s: None)
     assert stats.feeds == 2 and stats.feeds_ok == 1 and stats.new == 3 and stats.matched == 2   # d4 too old
     rows = {r["guid"]: r for r in conn.execute("SELECT * FROM deal_posts")}
     assert rows["d1"]["watch"] == "Europe" and rows["d1"]["price_cents"] == 41200
@@ -73,14 +77,14 @@ def test_poll_stores_matches_and_isolates_feed_failures(tmp_path):
     assert [(r["feed"], r["ok"]) for r in log] == [("https://rss/feed", 1), ("https://atom/feed", 0)]
 
     # Second poll: nothing new, no duplicate rows.
-    stats = deals.poll(conn, cfg, transport=FakeTransport([(200, None, RSS), (200, None, ATOM)]), verbose=False, sleeper=lambda s: None)
+    stats = deals.poll(conn, cfg, transport=FakeTransport([(200, None, RSS), (200, None, ATOM)]), now=NOW, verbose=False, sleeper=lambda s: None)
     assert stats.new == 1 and conn.execute("SELECT COUNT(*) FROM deal_posts").fetchone()[0] == 4
 
 
 def test_alert_sends_once_and_digests_over_cap(tmp_path):
     cfg = _cfg(tmp_path, max_alerts_per_run=1)
     conn, cfg = make_db(tmp_path, cfg)
-    deals.poll(conn, cfg, transport=FakeTransport([(200, None, RSS), (200, None, ATOM)]), verbose=False, sleeper=lambda s: None)
+    deals.poll(conn, cfg, transport=FakeTransport([(200, None, RSS), (200, None, ATOM)]), now=NOW, verbose=False, sleeper=lambda s: None)
     stats = deals.alert(conn, cfg, verbose=False)
     assert stats.alerted == 3
     text = (tmp_path / "digest.md").read_text()

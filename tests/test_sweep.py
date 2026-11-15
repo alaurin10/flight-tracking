@@ -31,7 +31,8 @@ def test_plan_covers_each_route_pattern_window():
 
 def test_sweep_stores_context_rows_and_confirms_candidates(tmp_path):
     cfg = _cfg(confirm_budget=1)
-    conn, cfg = make_db(tmp_path, cfg)
+    # Pinned: the feed row for 2026-12-25 must stay outside the grid whatever the real date is.
+    conn, cfg = make_db(tmp_path, cfg, today=TODAY)
     q = conn.execute("SELECT depart_date, return_date FROM queries WHERE active = 1 ORDER BY depart_date").fetchall()
     d0, r0 = q[0]["depart_date"], q[0]["return_date"]
     d1, r1 = q[1]["depart_date"], q[1]["return_date"]
