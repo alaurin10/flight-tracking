@@ -298,8 +298,10 @@ JS = r"""
 })();
 """
 
-PLANE = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
-         'stroke-linejoin="round" aria-hidden="true"><path d="M2 16l20-8-6 9-3-4-4 2-2-2 4-2-9 5z"/></svg>')
+PLANE = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+    'stroke-linejoin="round" aria-hidden="true"><path d="M2 16l20-8-6 9-3-4-4 2-2-2 4-2-9 5z"/></svg>'
+)
 
 
 def e(text) -> str:
@@ -309,6 +311,7 @@ def e(text) -> str:
 # ---------------------------------------------------------------------------
 # Charts (SVG drawn to scale; hover layer wired by JS through data-points)
 # ---------------------------------------------------------------------------
+
 
 def _nice_ticks(lo: float, hi: float, n: int = 3) -> list[int]:
     if hi <= lo:
@@ -326,7 +329,9 @@ def _nice_ticks(lo: float, hi: float, n: int = 3) -> list[int]:
     return ticks
 
 
-def line_chart(series: list[tuple[str, int]], target: int | None = None, width: int = 480, height: int = 150) -> str:
+def line_chart(
+    series: list[tuple[str, int]], target: int | None = None, width: int = 480, height: int = 150
+) -> str:
     """Price history: 2px line, 10% area wash, end marker with a surface ring,
     three hairline gridlines, clean tick values, and a hover readout."""
     if len(series) < 2:
@@ -351,35 +356,58 @@ def line_chart(series: list[tuple[str, int]], target: int | None = None, width: 
 
     pts = [(round(X(t), 1), round(Y(v), 1)) for t, v in zip(ts, ys)]
     path = "M" + " L".join(f"{x},{y}" for x, y in pts)
-    area = f"M{pts[0][0]},{pad_t + h} L" + " L".join(f"{x},{y}" for x, y in pts) + f" L{pts[-1][0]},{pad_t + h} Z"
+    area = (
+        f"M{pts[0][0]},{pad_t + h} L"
+        + " L".join(f"{x},{y}" for x, y in pts)
+        + f" L{pts[-1][0]},{pad_t + h} Z"
+    )
     ticks = [t for t in _nice_ticks(lo, hi, 3) if lo <= t <= hi]
     out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="price history">']
     for t in ticks:
         y = Y(t)
-        out.append(f'<line class="grid-l" x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}"/>')
-        out.append(f'<text class="axis-t" x="{pad_l - 6}" y="{y + 4:.1f}" text-anchor="end">${t:,}</text>')
+        out.append(
+            f'<line class="grid-l" x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}"/>'
+        )
+        out.append(
+            f'<text class="axis-t" x="{pad_l - 6}" y="{y + 4:.1f}" text-anchor="end">${t:,}</text>'
+        )
     if target:
         y = Y(target / 100)
-        out.append(f'<line class="tgt" x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}"/>')
-        out.append(f'<text class="tgt-t" x="{width - pad_r}" y="{y - 4:.1f}" text-anchor="end">target ${target // 100:,}</text>')
+        out.append(
+            f'<line class="tgt" x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}"/>'
+        )
+        out.append(
+            f'<text class="tgt-t" x="{width - pad_r}" y="{y - 4:.1f}" text-anchor="end">target ${target // 100:,}</text>'
+        )
     out.append(f'<path class="ar" d="{area}"/><path class="ln" d="{path}"/>')
     for i in (0, len(ts) // 2, len(ts) - 1):
         anchor = "start" if i == 0 else "end" if i == len(ts) - 1 else "middle"
-        out.append(f'<text class="axis-t" x="{pts[i][0]}" y="{height - 8}" text-anchor="{anchor}">{ts[i]:%b %d}</text>')
+        out.append(
+            f'<text class="axis-t" x="{pts[i][0]}" y="{height - 8}" text-anchor="{anchor}">{ts[i]:%b %d}</text>'
+        )
     out.append(f'<circle class="end" cx="{pts[-1][0]}" cy="{pts[-1][1]}" r="4.5"/>')
-    out.append(f'<line class="x" y1="{pad_t}" y2="{pad_t + h}"/><circle class="m" r="5"/></svg><div class="tip"></div>')
+    out.append(
+        f'<line class="x" y1="{pad_t}" y2="{pad_t + h}"/><circle class="m" r="5"/></svg><div class="tip"></div>'
+    )
     data = [[x, y, f"{t:%a %b %d}", f"${v:,.0f}"] for (x, y), t, v in zip(pts, ts, ys)]
-    return f'<div class="chart" data-points="{e(json.dumps(data, separators=(",", ":")))}">' + "".join(out) + "</div>"
+    return (
+        f'<div class="chart" data-points="{e(json.dumps(data, separators=(",", ":")))}">'
+        + "".join(out)
+        + "</div>"
+    )
 
 
 def history_table(series: list[tuple[str, int]]) -> str:
-    rows = "".join(f"<tr><td>{e(t[:10])}</td><td class='num'>{fmt_money(p)}</td></tr>" for t, p in series[-30:])
+    rows = "".join(
+        f"<tr><td>{e(t[:10])}</td><td class='num'>{fmt_money(p)}</td></tr>" for t, p in series[-30:]
+    )
     return f'<details class="tbl"><summary>History as a table (last {min(30, len(series))} observations)</summary><div class="tw"><table><thead><tr><th>Observed</th><th class="num">Price</th></tr></thead><tbody>{rows}</tbody></table></div></details>'
 
 
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
+
 
 def _health_pill(rep) -> str:
     if rep is None:
@@ -402,8 +430,13 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
         return ""
     cards = []
     for trip in cfg.trips:
-        items = advise(conn, pattern=trip.name, window_days=window_days, route_window_days=cfg.alerts.percentile_window_days,
-                       targets={trip.name: trip.target_price} if trip.target_price else None)
+        items = advise(
+            conn,
+            pattern=trip.name,
+            window_days=window_days,
+            route_window_days=cfg.alerts.percentile_window_days,
+            targets={trip.name: trip.target_price} if trip.target_price else None,
+        )
         route = cfg.route(trip.dest)
         label = route.label if route else trip.dest
         if not items:
@@ -420,14 +453,16 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
         if a.trend_7d_pct is not None:
             cls = "down" if a.trend_7d_pct <= -0.5 else "up" if a.trend_7d_pct >= 0.5 else ""
             arrow = "↓" if cls == "down" else "↑" if cls == "up" else "→"
-            delta_html = f'<span class="delta {cls}">{arrow} {abs(a.trend_7d_pct):.0f}% vs a week ago</span>'
+            delta_html = (
+                f'<span class="delta {cls}">{arrow} {abs(a.trend_7d_pct):.0f}% vs a week ago</span>'
+            )
         reasons = "".join(f"<li>{e(x)}</li>" for x in a.reasons)
         target = trip.target_price or r.target_price
         cards.append(
             f'<div class="trip" data-label="{e(label)}">'
             f'<div class="head"><div><div class="name">{e(label)} · {e(trip.dest)}</div>'
             f'<div class="dates">{e(fmt_date(r.depart_date))} → {e(fmt_date(r.return_date))} · {a.days_to_departure} days out</div></div>'
-            f'{_verdict_pill(a.verdict)}</div>'
+            f"{_verdict_pill(a.verdict)}</div>"
             f'<div class="hero"><span class="price">{fmt_money(r.current_cents)}</span>{delta_html}</div>'
             f'<ul class="reasons">{reasons}</ul>'
             f'<div class="stats">'
@@ -435,14 +470,22 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
             f'<div class="stat"><div class="k">All-time low</div><div class="v">{fmt_money(a.all_time_low)}</div></div>'
             f'<div class="stat"><div class="k">{window_days}d low</div><div class="v">{fmt_money(r.low_cents)}</div></div>'
             f'<div class="stat"><div class="k">Observations</div><div class="v">{a.n_obs}</div></div>'
-            f'</div>'
-            f'{line_chart(series, target=target)}'
-            f'{history_table(series) if len(series) > 1 else ""}'
+            f"</div>"
+            f"{line_chart(series, target=target)}"
+            f"{history_table(series) if len(series) > 1 else ''}"
             f'<div class="actions">'
-            + (f'<a class="btn" href="{e(r.deep_link)}" target="_blank" rel="noopener">Open in Google Flights</a>' if r.deep_link else "")
-            + f'</div></div>'
+            + (
+                f'<a class="btn" href="{e(r.deep_link)}" target="_blank" rel="noopener">Open in Google Flights</a>'
+                if r.deep_link
+                else ""
+            )
+            + f"</div></div>"
         )
-    return '<h2>Your trips<span class="meta">fixed dates · should you book?</span></h2><div class="trips">' + "".join(cards) + "</div>"
+    return (
+        '<h2>Your trips<span class="meta">fixed dates · should you book?</span></h2><div class="trips">'
+        + "".join(cards)
+        + "</div>"
+    )
 
 
 def cheapest_tiles(conn: sqlite3.Connection, window_days: int, exclude_patterns: set[str]) -> str:
@@ -460,15 +503,30 @@ def cheapest_tiles(conn: sqlite3.Connection, window_days: int, exclude_patterns:
     tiles = []
     for r in rows:
         pct = r.vs_low_pct
-        d = f'<div class="d low">at the {window_days}-day low</div>' if r.is_at_low else (
-            f'<div class="d">{pct:+.0f}% vs {window_days}d low {fmt_money(r.low_cents)}</div>' if pct is not None else '<div class="d">first observation</div>')
-        inner = (f'<div class="k">{e(r.label)} · {e(r.pattern.replace("_", " "))}</div><div class="v">{fmt_money(r.current_cents)}</div>'
-                 f'<div class="d">{e(r.dest)} · {e(fmt_date(r.depart_date))} → {e(fmt_date(r.return_date))}</div>{d}')
+        d = (
+            f'<div class="d low">at the {window_days}-day low</div>'
+            if r.is_at_low
+            else (
+                f'<div class="d">{pct:+.0f}% vs {window_days}d low {fmt_money(r.low_cents)}</div>'
+                if pct is not None
+                else '<div class="d">first observation</div>'
+            )
+        )
+        inner = (
+            f'<div class="k">{e(r.label)} · {e(r.pattern.replace("_", " "))}</div><div class="v">{fmt_money(r.current_cents)}</div>'
+            f'<div class="d">{e(r.dest)} · {e(fmt_date(r.depart_date))} → {e(fmt_date(r.return_date))}</div>{d}'
+        )
         if r.deep_link:
-            tiles.append(f'<a class="tile" data-label="{e(r.label)}" href="{e(r.deep_link)}" target="_blank" rel="noopener">{inner}</a>')
+            tiles.append(
+                f'<a class="tile" data-label="{e(r.label)}" href="{e(r.deep_link)}" target="_blank" rel="noopener">{inner}</a>'
+            )
         else:
             tiles.append(f'<div class="tile" data-label="{e(r.label)}">{inner}</div>')
-    return '<h2>Best in each grid<span class="meta">the cheapest date of every pattern, right now</span></h2><div class="tiles">' + "".join(tiles) + "</div>"
+    return (
+        '<h2>Best in each grid<span class="meta">the cheapest date of every pattern, right now</span></h2><div class="tiles">'
+        + "".join(tiles)
+        + "</div>"
+    )
 
 
 def _heat_class(price: int, lo: int, hi: int) -> str:
@@ -485,7 +543,9 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
     groups: dict[tuple[str, str], list[GridRow]] = {}
     for r in rows:
         groups.setdefault((r.label, r.pattern), []).append(r)
-    out = ['<h2>Date grids<span class="meta">every tracked departure · shade is price, see each scale · outlined is cheapest</span></h2>']
+    out = [
+        '<h2>Date grids<span class="meta">every tracked departure · shade is price, see each scale · outlined is cheapest</span></h2>'
+    ]
     for (label, pattern), prows in sorted(groups.items()):
         priced = [r for r in prows if r.current_cents is not None]
         prices = [r.current_cents for r in priced]
@@ -496,8 +556,14 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
         dests = sorted({r.dest for r in prows})
         nights = None
         if prows[0].return_date:
-            nights = (date.fromisoformat(prows[0].return_date) - date.fromisoformat(prows[0].depart_date)).days
-        sub = f"{', '.join(dests)} · {len(priced)} dates · " + (f"{nights} nights" if nights else "one-way") + f" · {fmt_money(lo)} – {fmt_money(hi)}"
+            nights = (
+                date.fromisoformat(prows[0].return_date) - date.fromisoformat(prows[0].depart_date)
+            ).days
+        sub = (
+            f"{', '.join(dests)} · {len(priced)} dates · "
+            + (f"{nights} nights" if nights else "one-way")
+            + f" · {fmt_money(lo)} – {fmt_money(hi)}"
+        )
         cells = []
         for r in sorted(priced, key=lambda r: r.depart_date):
             cls = _heat_class(r.current_cents, lo, hi)
@@ -513,27 +579,47 @@ def grid_cards(conn: sqlite3.Connection, window_days: int, exclude_patterns: set
             tag = '<span class="tag">cheapest</span>' if r.query_id in best_ids else ""
             title = f"{fmt_date(r.depart_date)} → {fmt_date(r.return_date)} · {fmt_money(r.current_cents)} · {r.airline or '?'} · {'nonstop' if r.stops == 0 else str(r.stops) + ' stop(s)' if r.stops is not None else ''}"
             dest_prefix = f"{e(r.dest)} · " if len(dests) > 1 else ""
-            body = (f'{tag}<div class="d">{dest_prefix}{e(fmt_date(r.depart_date))}</div><div class="p">{fmt_money(r.current_cents)}</div>'
-                    f'<div class="s">{"".join(f"<span>{e(f)}</span>" for f in flags)}</div>')
+            body = (
+                f'{tag}<div class="d">{dest_prefix}{e(fmt_date(r.depart_date))}</div><div class="p">{fmt_money(r.current_cents)}</div>'
+                f'<div class="s">{"".join(f"<span>{e(f)}</span>" for f in flags)}</div>'
+            )
             best = " best" if r.query_id in best_ids else ""
             if r.deep_link:
-                cells.append(f'<a class="cell {cls}{best}" href="{e(r.deep_link)}" target="_blank" rel="noopener" title="{e(title)}">{body}</a>')
+                cells.append(
+                    f'<a class="cell {cls}{best}" href="{e(r.deep_link)}" target="_blank" rel="noopener" title="{e(title)}">{body}</a>'
+                )
             else:
                 cells.append(f'<div class="cell {cls}{best}" title="{e(title)}">{body}</div>')
         trs = []
         for r in sorted(priced, key=lambda r: r.current_cents):
-            vs = "—" if r.vs_low_pct is None else ('<span class="at-low">at low</span>' if r.is_at_low else f'<span class="up">+{r.vs_low_pct:.0f}%</span>')
+            vs = (
+                "—"
+                if r.vs_low_pct is None
+                else (
+                    '<span class="at-low">at low</span>'
+                    if r.is_at_low
+                    else f'<span class="up">+{r.vs_low_pct:.0f}%</span>'
+                )
+            )
             dep = e(fmt_date(r.depart_date))
             if r.deep_link:
                 dep = f'<a href="{e(r.deep_link)}" target="_blank" rel="noopener">{dep}</a>'
-            trs.append(f'<tr>{"<td>" + e(r.dest) + "</td>" if len(dests) > 1 else ""}<td>{dep}</td><td>{e(fmt_date(r.return_date))}</td>'
-                       f'<td class="num">{fmt_money(r.current_cents)}</td><td class="num">{fmt_money(r.low_cents)}</td><td class="num">{vs}</td>'
-                       f'<td>{e(r.airline or "—")}</td><td class="num">{"—" if r.stops is None else r.stops}</td></tr>')
-        table = ('<div class="tw" hidden><table><thead><tr>' + ("<th>Dest</th>" if len(dests) > 1 else "") +
-                 f'<th>Depart</th><th>Return</th><th class="num">Price</th><th class="num">{window_days}d low</th><th class="num">vs low</th><th>Airline</th><th class="num">Stops</th>'
-                 '</tr></thead><tbody>' + "".join(trs) + "</tbody></table></div>")
-        legend = (f'<div class="legend"><span>{fmt_money(lo)}</span><span class="ramp">' + "".join(f'<i style="background:var(--h{i})"></i>' for i in range(1, 7)) +
-                  f'</span><span>{fmt_money(hi)}</span><span>· outlined = cheapest · ★ = under target · tap a date to open the search</span></div>')
+            trs.append(
+                f"<tr>{'<td>' + e(r.dest) + '</td>' if len(dests) > 1 else ''}<td>{dep}</td><td>{e(fmt_date(r.return_date))}</td>"
+                f'<td class="num">{fmt_money(r.current_cents)}</td><td class="num">{fmt_money(r.low_cents)}</td><td class="num">{vs}</td>'
+                f'<td>{e(r.airline or "—")}</td><td class="num">{"—" if r.stops is None else r.stops}</td></tr>'
+            )
+        table = (
+            '<div class="tw" hidden><table><thead><tr>'
+            + ("<th>Dest</th>" if len(dests) > 1 else "")
+            + f'<th>Depart</th><th>Return</th><th class="num">Price</th><th class="num">{window_days}d low</th><th class="num">vs low</th><th>Airline</th><th class="num">Stops</th>'
+            "</tr></thead><tbody>" + "".join(trs) + "</tbody></table></div>"
+        )
+        legend = (
+            f'<div class="legend"><span>{fmt_money(lo)}</span><span class="ramp">'
+            + "".join(f'<i style="background:var(--h{i})"></i>' for i in range(1, 7))
+            + f"</span><span>{fmt_money(hi)}</span><span>· outlined = cheapest · ★ = under target · tap a date to open the search</span></div>"
+        )
         out.append(
             f'<div class="gridcard" data-label="{e(label)}"><div class="gh"><span class="t">{e(label)}</span><span class="s">{e(pattern.replace("_", " "))} · {e(sub)}</span>'
             f'<button class="chip sm toggle" type="button" data-toggle aria-pressed="false">Table</button></div>'
@@ -553,9 +639,15 @@ def deals_section(conn: sqlite3.Connection) -> str:
         title = e(d["title"])
         if d["link"]:
             title = f'<a href="{e(d["link"])}" target="_blank" rel="noopener">{title}</a>'
-        items.append(f'<div class="deal"><span class="price">{fmt_money(d["price_cents"]) if d["price_cents"] else "—"}</span>'
-                     f'<span class="title">{title}</span><span class="pill neutral">{e(d["watch"])}</span><span class="when">{e((d["seen_at"] or "")[:10])}</span></div>')
-    return '<h2>Announced deals<span class="meta">from your feeds, matched to your watches</span></h2><div class="collector">' + "".join(items) + "</div>"
+        items.append(
+            f'<div class="deal"><span class="price">{fmt_money(d["price_cents"]) if d["price_cents"] else "—"}</span>'
+            f'<span class="title">{title}</span><span class="pill neutral">{e(d["watch"])}</span><span class="when">{e((d["seen_at"] or "")[:10])}</span></div>'
+        )
+    return (
+        '<h2>Announced deals<span class="meta">from your feeds, matched to your watches</span></h2><div class="collector">'
+        + "".join(items)
+        + "</div>"
+    )
 
 
 def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
@@ -563,21 +655,37 @@ def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
     obs = conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0]
     since = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
     per_day: dict[str, dict[str, int]] = {}
-    for r in conn.execute("SELECT substr(at,1,10) AS d, outcome, COUNT(*) AS n FROM fetch_attempts WHERE at >= ? GROUP BY d, outcome", (since,)):
+    for r in conn.execute(
+        "SELECT substr(at,1,10) AS d, outcome, COUNT(*) AS n FROM fetch_attempts WHERE at >= ? GROUP BY d, outcome",
+        (since,),
+    ):
         per_day.setdefault(r["d"], {"ok": 0, "bad": 0})
         per_day[r["d"]]["ok" if r["outcome"] in ("ok", "empty") else "bad"] += r["n"]
     days = sorted(per_day)
     bars = ""
     if days:
         mx = max(v["ok"] + v["bad"] for v in per_day.values()) or 1
-        bars = '<div class="bars">' + "".join(
-            f'<div class="bar" title="{e(d)}: {per_day[d]["ok"]} ok, {per_day[d]["bad"]} failed">'
-            f'<i class="ok" style="height:{per_day[d]["ok"] / mx * 100:.0f}%"></i><i class="bad" style="height:{per_day[d]["bad"] / mx * 100:.0f}%"></i></div>'
-            for d in days) + f'</div><div class="bar-l"><span>{e(days[0][5:])}</span><span>{e(days[-1][5:])}</span></div>'
+        bars = (
+            '<div class="bars">'
+            + "".join(
+                f'<div class="bar" title="{e(d)}: {per_day[d]["ok"]} ok, {per_day[d]["bad"]} failed">'
+                f'<i class="ok" style="height:{per_day[d]["ok"] / mx * 100:.0f}%"></i><i class="bad" style="height:{per_day[d]["bad"] / mx * 100:.0f}%"></i></div>'
+                for d in days
+            )
+            + f'</div><div class="bar-l"><span>{e(days[0][5:])}</span><span>{e(days[-1][5:])}</span></div>'
+        )
         bars += '<div style="margin-top:6px"><span class="lg"><i style="background:var(--good)"></i>ok / empty</span><span class="lg"><i style="background:var(--crit)"></i>failed</span></div>'
     tiles = [
-        ("Last run", f'{e(last["started_at"][:16].replace("T", " "))}Z' if last else "never"),
-        ("Last run result", (f'{last["succeeded"]}/{last["attempted"]} ok' + (" · aborted" if last["blocked"] else "")) if last else "—"),
+        ("Last run", f"{e(last['started_at'][:16].replace('T', ' '))}Z" if last else "never"),
+        (
+            "Last run result",
+            (
+                f"{last['succeeded']}/{last['attempted']} ok"
+                + (" · aborted" if last["blocked"] else "")
+            )
+            if last
+            else "—",
+        ),
         ("Observations", f"{obs:,}"),
         ("Cooldown", "none"),
     ]
@@ -586,19 +694,31 @@ def collector_section(conn: sqlite3.Connection, rep, cfg) -> str:
     until = cooldown_active(conn)
     if until:
         tiles[3] = ("Cooldown", f"until {until[:16].replace('T', ' ')}Z")
-    krow = "".join(f'<div class="stat"><div class="k">{e(k)}</div><div class="v">{v}</div></div>' for k, v in tiles)
-    problems = "".join(
-        f'<div class="problem {p.severity}"><span class="sev">{p.severity.upper()}</span><span>{e(p.message)}</span></div>' for p in (rep.problems if rep else [])
-    ) or '<div class="problem"><span class="sev" style="color:var(--good-ink)">OK</span><span>All checks pass.</span></div>'
-    return ('<h2>Collector<span class="meta">is the tracker itself working?</span></h2>'
-            f'<div class="collector"><div class="krow">{krow}</div>{problems}<div style="margin-top:10px;font-size:12px;color:var(--muted)">Requests per day, last 14 days</div>{bars}</div>')
+    krow = "".join(
+        f'<div class="stat"><div class="k">{e(k)}</div><div class="v">{v}</div></div>'
+        for k, v in tiles
+    )
+    problems = (
+        "".join(
+            f'<div class="problem {p.severity}"><span class="sev">{p.severity.upper()}</span><span>{e(p.message)}</span></div>'
+            for p in (rep.problems if rep else [])
+        )
+        or '<div class="problem"><span class="sev" style="color:var(--good-ink)">OK</span><span>All checks pass.</span></div>'
+    )
+    return (
+        '<h2>Collector<span class="meta">is the tracker itself working?</span></h2>'
+        f'<div class="collector"><div class="krow">{krow}</div>{problems}<div style="margin-top:10px;font-size:12px;color:var(--muted)">Requests per day, last 14 days</div>{bars}</div>'
+    )
 
 
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
 
-def render(conn: sqlite3.Connection, window_days: int = 30, cfg=None, fragment: bool = False) -> str:
+
+def render(
+    conn: sqlite3.Connection, window_days: int = 30, cfg=None, fragment: bool = False
+) -> str:
     """Build the whole page. `fragment=True` omits the document skeleton
     (for hosts that wrap the page themselves)."""
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -610,8 +730,15 @@ def render(conn: sqlite3.Connection, window_days: int = 30, cfg=None, fragment: 
             rep = None
 
     trip_patterns = {t.name for t in cfg.trips} if cfg else set()
-    labels = [r["label"] for r in conn.execute("SELECT DISTINCT label FROM routes WHERE active = 1 ORDER BY label")]
-    home = cfg.home if cfg else (conn.execute("SELECT origin FROM routes LIMIT 1").fetchone() or ["—"])[0]
+    labels = [
+        r["label"]
+        for r in conn.execute("SELECT DISTINCT label FROM routes WHERE active = 1 ORDER BY label")
+    ]
+    home = (
+        cfg.home
+        if cfg
+        else (conn.execute("SELECT origin FROM routes LIMIT 1").fetchone() or ["—"])[0]
+    )
 
     sections = [
         trip_cards(conn, cfg, window_days),
@@ -623,36 +750,52 @@ def render(conn: sqlite3.Connection, window_days: int = 30, cfg=None, fragment: 
     body = "".join(s for s in sections if s)
     n_obs = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
     if n_obs == 0:
-        body = ('<p class="empty">No observations yet. Run <code>flighttrack run</code> (or wait for the scheduled run), '
-                'then reload. <code>flighttrack demo</code> renders this page with synthetic data if you want to see it now.</p>') + body
+        body = (
+            '<p class="empty">No observations yet. Run <code>flighttrack run</code> (or wait for the scheduled run), '
+            "then reload. <code>flighttrack demo</code> renders this page with synthetic data if you want to see it now.</p>"
+        ) + body
 
-    chips = '<button class="chip" type="button" data-filter="all" aria-pressed="true">All destinations</button>' + "".join(
-        f'<button class="chip" type="button" data-filter="{e(l)}" aria-pressed="false">{e(l)}</button>' for l in labels
+    chips = (
+        '<button class="chip" type="button" data-filter="all" aria-pressed="true">All destinations</button>'
+        + "".join(
+            f'<button class="chip" type="button" data-filter="{e(l)}" aria-pressed="false">{e(l)}</button>'
+            for l in labels
+        )
     )
     demo_note = ""
     if conn.execute("SELECT 1 FROM observations WHERE source = 'demo' LIMIT 1").fetchone():
-        demo_note = ' · <strong>synthetic demo data</strong>'
+        demo_note = " · <strong>synthetic demo data</strong>"
 
     head = f"<title>flighttrack</title><style>{CSS}</style>"
     content = (
         f'<div class="wrap"><header class="top"><div class="row"><span class="brand">{PLANE}flighttrack</span>'
         f'<span class="asof">{e(home)} · as of {e(generated)}{demo_note}</span><span class="spacer"></span>{_health_pill(rep)}</div></header>'
         f'<div class="filters">{chips}</div>'
-        f'{body}'
-        f'<footer>Prices are the cheapest itinerary Google Flights showed for each search, with your bag and fare-class settings. '
-        f'Verdicts compare today with this tracker\'s own history; they are arithmetic, not forecasts. Tap any date to open the exact search.</footer>'
-        f'</div><script>{JS}</script>'
+        f"{body}"
+        f"<footer>Prices are the cheapest itinerary Google Flights showed for each search, with your bag and fare-class settings. "
+        f"Verdicts compare today with this tracker's own history; they are arithmetic, not forecasts. Tap any date to open the exact search.</footer>"
+        f"</div><script>{JS}</script>"
     )
     if fragment:
         return head + content
-    return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-            f'{head}</head><body>{content}</body></html>')
+    return (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+        f"{head}</head><body>{content}</body></html>"
+    )
 
 
-def write(conn: sqlite3.Connection, path: str | Path, window_days: int = 30, cfg=None, fragment: bool = False) -> Path:
+def write(
+    conn: sqlite3.Connection,
+    path: str | Path,
+    window_days: int = 30,
+    cfg=None,
+    fragment: bool = False,
+) -> Path:
     """Render and write the page, creating parent directories as needed."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(conn, window_days=window_days, cfg=cfg, fragment=fragment), encoding="utf-8")
+    path.write_text(
+        render(conn, window_days=window_days, cfg=cfg, fragment=fragment), encoding="utf-8"
+    )
     return path

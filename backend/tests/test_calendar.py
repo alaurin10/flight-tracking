@@ -4,12 +4,18 @@ import json
 import urllib.parse
 from datetime import date
 
-from flighttrack.gflights.calendar import DatePrice, build_body, parse_calendar, unwrap_batchexecute, windows
+from flighttrack.gflights.calendar import (
+    DatePrice,
+    build_body,
+    parse_calendar,
+    unwrap_batchexecute,
+    windows,
+)
 
 
 def _decode_body(body):
     assert body.startswith("f.req=") and body.endswith("&")
-    outer = json.loads(urllib.parse.unquote(body[len("f.req="):-1]))
+    outer = json.loads(urllib.parse.unquote(body[len("f.req=") : -1]))
     assert outer[0] is None
     return json.loads(outer[1])
 
@@ -17,13 +23,15 @@ def _decode_body(body):
 def test_round_trip_body_layout():
     inner = _decode_body(build_body("SEA", "SLC", "2027-01-01", "2027-03-31", 3, max_stops=1))
     opts = inner[1]
-    assert opts[2] == 1                    # round trip
-    assert opts[5] == 1                    # economy
-    assert opts[6] == [1, 0, 0, 0]         # one adult
+    assert opts[2] == 1  # round trip
+    assert opts[5] == 1  # economy
+    assert opts[6] == [1, 0, 0, 0]  # one adult
     segs = opts[13]
-    assert segs[0][0] == [[["SEA", 0]]] and segs[0][1] == [[["SLC", 0]]] and segs[0][6] == "2027-01-01"
+    assert (
+        segs[0][0] == [[["SEA", 0]]] and segs[0][1] == [[["SLC", 0]]] and segs[0][6] == "2027-01-01"
+    )
     assert segs[1][0] == [[["SLC", 0]]] and segs[1][6] == "2027-01-04"
-    assert segs[0][3] == 2                 # ≤1 stop
+    assert segs[0][3] == 2  # ≤1 stop
     assert inner[2] == ["2027-01-01", "2027-03-31"]
     assert inner[4] == [3, 3]
 
@@ -43,13 +51,16 @@ BATCH = (
     ")]}'\n\n1234\n"
     '[["wrb.fr",null,"[null,[[\\"2027-01-08\\",\\"2027-01-11\\",[[null,142]],1],[\\"2027-01-15\\",\\"2027-01-18\\",[[null,98]],1],'
     '[\\"2027-01-22\\",\\"2027-01-25\\",null,0]],[2027,1]]",null,null,null,"generic"]]\n'
-    "25\n[[\"di\",59],[\"af.httprm\",59,\"123\",7]]\n"
+    '25\n[["di",59],["af.httprm",59,"123",7]]\n'
 )
 
 
 def test_parse_walks_to_dated_prices_and_ignores_years():
     prices = parse_calendar(BATCH)
-    assert prices == [DatePrice("2027-01-08", "2027-01-11", 142), DatePrice("2027-01-15", "2027-01-18", 98)]
+    assert prices == [
+        DatePrice("2027-01-08", "2027-01-11", 142),
+        DatePrice("2027-01-15", "2027-01-18", 98),
+    ]
 
 
 def test_unwrap_tolerates_garbage_lines():
@@ -58,15 +69,17 @@ def test_unwrap_tolerates_garbage_lines():
 
 
 def test_one_way_style_rows_without_return_date():
-    text = ")]}'\n[[\"wrb.fr\",null,\"[[\\\"2027-02-01\\\",[[null,77]]]]\"]]\n"
+    text = ')]}\'\n[["wrb.fr",null,"[[\\"2027-02-01\\",[[null,77]]]]"]]\n'
     assert parse_calendar(text) == [DatePrice("2027-02-01", None, 77)]
 
 
 def test_bags_go_in_filter_slot_10():
     inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3, carry_on_bags=1))
     assert inner[1][10] == [1, 0]
-    inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3, carry_on_bags=0, checked_bags=2))
+    inner = _decode_body(
+        build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3, carry_on_bags=0, checked_bags=2)
+    )
     assert inner[1][10] == [0, 2]
     inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3))
-    assert inner[1][10] is None             # no bags: the unfiltered request captured on 2026-11-14
+    assert inner[1][10] is None  # no bags: the unfiltered request captured on 2026-11-14
     assert len(inner[1]) == 24 and inner[1][13][0][6] == "2027-01-15"

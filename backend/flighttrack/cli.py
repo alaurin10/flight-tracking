@@ -53,6 +53,7 @@ def _source(cfg: Config):
 # expand
 # ---------------------------------------------------------------------------
 
+
 def cmd_expand(args) -> int:
     cfg = _load(args)
     conn = _db(cfg)
@@ -75,6 +76,7 @@ def cmd_expand(args) -> int:
 # fetch / sweep
 # ---------------------------------------------------------------------------
 
+
 def cmd_fetch(args) -> int:
     cfg = _load(args)
     conn = _db(cfg)
@@ -88,10 +90,14 @@ def cmd_fetch(args) -> int:
         for d in due:
             ret = d.return_date or "one-way"
             age = d.last_fetch_at or "never"
-            print(f"  {cfg.home}→{d.route.dest}  {d.depart_date} / {ret}  [{d.pattern}, prio {d.route.priority}, last {age}]")
+            print(
+                f"  {cfg.home}→{d.route.dest}  {d.depart_date} / {ret}  [{d.pattern}, prio {d.route.priority}, last {age}]"
+            )
         return 0
 
-    stats = fetch_mod.run(conn, cfg, _source(cfg), limit=args.limit, respect_cooldown=not args.ignore_cooldown)
+    stats = fetch_mod.run(
+        conn, cfg, _source(cfg), limit=args.limit, respect_cooldown=not args.ignore_cooldown
+    )
     print(f"[fetch] {stats.summary()}")
 
     if not args.no_html:
@@ -107,8 +113,11 @@ def _fetch_exit(stats: fetch_mod.FetchStats) -> int:
     if stats.blocked:
         print(
             f"[fetch] run aborted ({stats.abort_reason}). "
-            + ("A cooldown is now in effect; the next scheduled run will skip itself until it expires."
-               if stats.cooldown_until else "No cooldown set (layout failures are not helped by waiting) — run `flighttrack doctor`."),
+            + (
+                "A cooldown is now in effect; the next scheduled run will skip itself until it expires."
+                if stats.cooldown_until
+                else "No cooldown set (layout failures are not helped by waiting) — run `flighttrack doctor`."
+            ),
             file=sys.stderr,
         )
         return 1
@@ -122,11 +131,15 @@ def cmd_sweep(args) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     if not cfg.calendar.enabled and not args.force:
-        print("[sweep] calendar.enabled is false — verify with `flighttrack doctor --calendar`, then enable it, or pass --force")
+        print(
+            "[sweep] calendar.enabled is false — verify with `flighttrack doctor --calendar`, then enable it, or pass --force"
+        )
         return 2
     if args.dry_run:
         jobs = sweep_mod.plan(cfg)
-        print(f"[sweep --dry-run] {len(jobs)} windows planned ({cfg.calendar.max_calls_per_run}/run):")
+        print(
+            f"[sweep --dry-run] {len(jobs)} windows planned ({cfg.calendar.max_calls_per_run}/run):"
+        )
         for j in jobs:
             print(f"  {j.describe()}")
         return 0
@@ -143,6 +156,7 @@ def cmd_sweep(args) -> int:
 # alert / deals / health
 # ---------------------------------------------------------------------------
 
+
 def cmd_alert(args) -> int:
     cfg = _load(args, strict_secrets=True)
     conn = _db(cfg)
@@ -156,7 +170,9 @@ def cmd_deals(args) -> int:
     if args.test_match:
         from .deals import FeedItem, first_match
 
-        item = FeedItem(guid="test", title=args.test_match, link=None, published=None, summary="", feed="test")
+        item = FeedItem(
+            guid="test", title=args.test_match, link=None, published=None, summary="", feed="test"
+        )
         w = first_match(item, cfg.deals.watches)
         print(f"{'MATCH ' + w.name if w else 'no match'}: {args.test_match}")
         return 0
@@ -177,6 +193,7 @@ def cmd_health(args) -> int:
 # run — the daily job, one line in cron
 # ---------------------------------------------------------------------------
 
+
 def cmd_run(args) -> int:
     """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
     from .jobs import run_daily
@@ -194,7 +211,7 @@ def cmd_serve(args) -> int:
     from .serve import needs_catchup, serve
 
     cfg = _load(args, strict_secrets=False)
-    conn = connect(cfg.db_path)    # apply schema up front so the first GET has tables
+    conn = connect(cfg.db_path)  # apply schema up front so the first GET has tables
     try:
         catchup, why = needs_catchup(conn)
     finally:
@@ -211,8 +228,15 @@ def cmd_serve(args) -> int:
         finally:
             conn.close()
 
-    serve(cfg, job, host=args.host, port=args.port, at=args.at, jitter_minutes=args.jitter,
-          run_on_start=run_on_start)
+    serve(
+        cfg,
+        job,
+        host=args.host,
+        port=args.port,
+        at=args.at,
+        jitter_minutes=args.jitter,
+        run_on_start=run_on_start,
+    )
     return 0
 
 
@@ -241,7 +265,9 @@ def cmd_demo(args) -> int:
     conn = connect(db_path)
     stats = demo_mod.seed(conn, cfg, days=args.days)
     out = html_mod.write(conn, args.out, cfg=cfg)
-    print(f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over {stats['days']} days")
+    print(
+        f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over {stats['days']} days"
+    )
     print(f"[demo] database {db_path}\n[demo] report   {out}")
     print("[demo] open the report in a browser; every number in it is synthetic (source='demo').")
     return 0
@@ -250,6 +276,7 @@ def cmd_demo(args) -> int:
 # ---------------------------------------------------------------------------
 # report / advise / html / status
 # ---------------------------------------------------------------------------
+
 
 def _title(cfg, args) -> str:
     scope = args.label or args.dest or "all routes"
@@ -271,8 +298,14 @@ def cmd_report(args) -> int:
         return 0
 
     rows = report_mod.grid(
-        conn, dest=args.dest, label=args.label, pattern=args.pattern, month=args.month,
-        window_days=args.window, include_unpriced=args.include_unpriced, sort=args.sort,
+        conn,
+        dest=args.dest,
+        label=args.label,
+        pattern=args.pattern,
+        month=args.month,
+        window_days=args.window,
+        include_unpriced=args.include_unpriced,
+        sort=args.sort,
     )
     title = _title(cfg, args)
     if args.sparkline:
@@ -286,8 +319,13 @@ def cmd_advise(args) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     items = report_mod.advise(
-        conn, dest=args.dest, label=args.label, pattern=args.pattern, month=args.month,
-        window_days=args.window, route_window_days=cfg.alerts.percentile_window_days,
+        conn,
+        dest=args.dest,
+        label=args.label,
+        pattern=args.pattern,
+        month=args.month,
+        window_days=args.window,
+        route_window_days=cfg.alerts.percentile_window_days,
         targets=expand_mod.trip_targets(cfg),
     )
     print(report_mod.render_advice(items, _title(cfg, args) + " — book or wait?"))
@@ -330,7 +368,9 @@ def cmd_status(args) -> int:
         print(f"cooldown       : ACTIVE until {until}")
     print()
 
-    print(f"{'RUN':>4}  {'KIND':<8}{'STARTED':<21}{'ATT':>4}{'OK':>4}{'FAIL':>5}{'BLOCK':>6}  NOTES")
+    print(
+        f"{'RUN':>4}  {'KIND':<8}{'STARTED':<21}{'ATT':>4}{'OK':>4}{'FAIL':>5}{'BLOCK':>6}  NOTES"
+    )
     rows = conn.execute("SELECT * FROM run_log ORDER BY id DESC LIMIT ?", (args.limit,)).fetchall()
     if not rows:
         print("  no runs recorded yet — has cron fired?")
@@ -362,13 +402,16 @@ def cmd_status(args) -> int:
 # doctor — verify the data path on the host that has network access
 # ---------------------------------------------------------------------------
 
+
 def cmd_doctor(args) -> int:
     print("\n=== flighttrack doctor ===\n")
     ok = True
 
     try:
         cfg = load(args.config, strict_secrets=False)
-        print(f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, {len(cfg.trips)} trips")
+        print(
+            f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, {len(cfg.trips)} trips"
+        )
     except ConfigError as exc:
         print(f"[FAIL] config          : {exc}")
         return 1
@@ -376,8 +419,12 @@ def cmd_doctor(args) -> int:
     channel = (cfg.notify or {}).get("channel", "none")
     if not cfg.alerts.enabled:
         print("[warn] notifications   : alerts are disabled in config")
-    elif channel == "smtp" and not ((cfg.notify.get("smtp") or {}).get("host") and (cfg.notify.get("smtp") or {}).get("to")):
-        print("[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST and $SMTP_TO")
+    elif channel == "smtp" and not (
+        (cfg.notify.get("smtp") or {}).get("host") and (cfg.notify.get("smtp") or {}).get("to")
+    ):
+        print(
+            "[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST and $SMTP_TO"
+        )
     else:
         print(f"[ok]   notifications   : {channel}")
 
@@ -386,7 +433,14 @@ def cmd_doctor(args) -> int:
 
     try:
         transport = default_transport(args.transport or cfg.fetch.transport)
-        print(f"[ok]   transport       : {transport.name}" + ("" if transport.name == "primp" else "  (install `primp` for browser TLS fingerprinting)"))
+        print(
+            f"[ok]   transport       : {transport.name}"
+            + (
+                ""
+                if transport.name == "primp"
+                else "  (install `primp` for browser TLS fingerprinting)"
+            )
+        )
     except Exception as exc:
         print(f"[FAIL] transport       : {exc}")
         return 1
@@ -397,7 +451,9 @@ def cmd_doctor(args) -> int:
         print(f"[ok]   fast-flights    : {version('fast-flights')} (fallback source available)")
         have_ff = True
     except Exception:
-        print("[info] fast-flights    : not installed (optional fallback; `pip install 'flighttrack[fallback]'`)")
+        print(
+            "[info] fast-flights    : not installed (optional fallback; `pip install 'flighttrack[fallback]'`)"
+        )
         have_ff = False
 
     # offline query construction, cross-checked against fast-flights when present
@@ -414,15 +470,34 @@ def cmd_doctor(args) -> int:
     if have_ff:
         from fast_flights import FlightQuery, Passengers, create_query
 
-        legs = [FlightQuery(date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops)]
+        legs = [
+            FlightQuery(
+                date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops
+            )
+        ]
         if ret:
-            legs.append(FlightQuery(date=ret, from_airport=route.dest, to_airport=cfg.home, max_stops=route.max_stops))
-        theirs = create_query(flights=legs, seat=cfg.search.seat, trip="round-trip" if ret else "one-way",
-                              passengers=Passengers(adults=cfg.search.adults), currency=cfg.search.currency,
-                              carry_on_bags=cfg.search.carry_on_bags, exclude_basic_economy=cfg.search.exclude_basic_economy,
-                              hide_separate_and_self_transfer=cfg.search.hide_separate_and_self_transfer).to_bytes()
+            legs.append(
+                FlightQuery(
+                    date=ret,
+                    from_airport=route.dest,
+                    to_airport=cfg.home,
+                    max_stops=route.max_stops,
+                )
+            )
+        theirs = create_query(
+            flights=legs,
+            seat=cfg.search.seat,
+            trip="round-trip" if ret else "one-way",
+            passengers=Passengers(adults=cfg.search.adults),
+            currency=cfg.search.currency,
+            carry_on_bags=cfg.search.carry_on_bags,
+            exclude_basic_economy=cfg.search.exclude_basic_economy,
+            hide_separate_and_self_transfer=cfg.search.hide_separate_and_self_transfer,
+        ).to_bytes()
         same = theirs == q.encode()
-        print(f"[{'ok' if same else 'FAIL'}]   tfs cross-check : {'byte-identical to fast-flights' if same else 'DIFFERS from fast-flights — report this'}")
+        print(
+            f"[{'ok' if same else 'FAIL'}]   tfs cross-check : {'byte-identical to fast-flights' if same else 'DIFFERS from fast-flights — report this'}"
+        )
         ok &= same
 
     if args.offline:
@@ -432,21 +507,30 @@ def cmd_doctor(args) -> int:
     # --- live: our own client ------------------------------------------------
     from .source import FailureStore, GoogleHtmlSource, LayoutError, NoResults, SourceError
 
-    print(f"\n--- live fetch ({cfg.home}→{route.dest} {depart}{' / ' + ret if ret else ''}) via google_html/{transport.name} ---")
-    src = GoogleHtmlSource(transport=transport, failures=FailureStore(cfg.failure_dir, cfg.fetch.keep_failure_artifacts))
+    print(
+        f"\n--- live fetch ({cfg.home}→{route.dest} {depart}{' / ' + ret if ret else ''}) via google_html/{transport.name} ---"
+    )
+    src = GoogleHtmlSource(
+        transport=transport,
+        failures=FailureStore(cfg.failure_dir, cfg.fetch.keep_failure_artifacts),
+    )
     t0 = time.monotonic()
     offers = []
     try:
         offers = src.fetch(cfg, route, depart, ret, 10)
         print(f"[ok]   live fetch      : {len(offers)} itineraries in {time.monotonic() - t0:.1f}s")
     except NoResults as exc:
-        print(f"[warn] live fetch      : reached Google, no itineraries ({exc}) — try a nearer date with --depart")
+        print(
+            f"[warn] live fetch      : reached Google, no itineraries ({exc}) — try a nearer date with --depart"
+        )
     except SourceError as exc:
         print(f"[FAIL] live fetch      : {exc.kind}: {exc}")
         ok = False
     page = src.last_page
     if page is not None:
-        print(f"       page            : {page.kind.value} — {page.detail} (HTTP {page.status}, {page.size:,} bytes)")
+        print(
+            f"       page            : {page.kind.value} — {page.detail} (HTTP {page.status}, {page.size:,} bytes)"
+        )
     if args.dump and src.last_response is not None:
         Path(args.dump).write_text(src.last_response.text, encoding="utf-8")
         print(f"       dumped          : {args.dump}")
@@ -456,19 +540,27 @@ def cmd_doctor(args) -> int:
 
         print("\n--- prices (confirm the dollar amounts against google.com/travel/flights) ---")
         for o in offers[:5]:
-            print(f"  raw={o.raw.get('price_raw')!r} → {o.price_cents} cents = ${o.price_cents/100:,.2f}   "
-                  f"{o.airline or '?'}  stops={o.stops}  {o.duration_min or '?'} min  [{o.raw.get('bucket')}]   plausible={price_is_plausible(o.price_cents)}")
+            print(
+                f"  raw={o.raw.get('price_raw')!r} → {o.price_cents} cents = ${o.price_cents / 100:,.2f}   "
+                f"{o.airline or '?'}  stops={o.stops}  {o.duration_min or '?'} min  [{o.raw.get('bucket')}]   plausible={price_is_plausible(o.price_cents)}"
+            )
         buckets = {o.raw.get("bucket") for o in offers}
         if len(buckets) < 2:
-            print("  note: these offers all came from one of the page's two lists ('best' = Top departing flights,\n"
-                  "        'other' = Other departing flights). The cheapest fare is often in 'other'; check the page dump.")
+            print(
+                "  note: these offers all came from one of the page's two lists ('best' = Top departing flights,\n"
+                "        'other' = Other departing flights). The cheapest fare is often in 'other'; check the page dump."
+            )
         if "page_min" in offers[0].raw:
             ok = False
-            print(f"\n  ⚠ The page says its cheapest price is {offers[0].raw['page_min']}, but the lowest parsed price is "
-                  f"${offers[0].price_cents/100:,.0f}. The layout may have shifted; save the page with --dump.")
+            print(
+                f"\n  ⚠ The page says its cheapest price is {offers[0].raw['page_min']}, but the lowest parsed price is "
+                f"${offers[0].price_cents / 100:,.0f}. The layout may have shifted; save the page with --dump."
+            )
         if not all(price_is_plausible(o.price_cents) for o in offers):
             ok = False
-            print("\n  ⚠ Some prices are outside the plausible band — units may have changed upstream.")
+            print(
+                "\n  ⚠ Some prices are outside the plausible band — units may have changed upstream."
+            )
 
     # fallback comparison when the primary failed on layout
     if have_ff and not offers and page is not None and page.kind.value == "layout":
@@ -477,9 +569,13 @@ def cmd_doctor(args) -> int:
         print("\n--- fallback: fast-flights on the same query ---")
         try:
             fo = FastFlightsSource().fetch(cfg, route, depart, ret, 5)
-            print(f"[ok]   fast-flights    : {len(fo)} itineraries, cheapest ${fo[0].price_cents/100:,.0f} — our parser is what broke; see {cfg.failure_dir}")
+            print(
+                f"[ok]   fast-flights    : {len(fo)} itineraries, cheapest ${fo[0].price_cents / 100:,.0f} — our parser is what broke; see {cfg.failure_dir}"
+            )
         except Exception as exc:
-            print(f"[FAIL] fast-flights    : {exc} — both parsers fail; Google's page changed for everyone")
+            print(
+                f"[FAIL] fast-flights    : {exc} — both parsers fail; Google's page changed for everyone"
+            )
 
     # --- live: calendar RPC (experimental) ------------------------------------
     if args.calendar:
@@ -489,7 +585,9 @@ def cmd_doctor(args) -> int:
 
         pat = cfg.patterns[0] if cfg.patterns else Pattern("doctor", "FRI", 3)
         start = date.fromisoformat(depart)
-        job = sweep_mod.SweepJob(route, pat, start.isoformat(), (start + timedelta(days=30)).isoformat())
+        job = sweep_mod.SweepJob(
+            route, pat, start.isoformat(), (start + timedelta(days=30)).isoformat()
+        )
         try:
             prices, resp = sweep_mod.fetch_window(transport, cfg, job)
             print(f"       response        : HTTP {resp.status}, {resp.size:,} bytes")
@@ -497,12 +595,21 @@ def cmd_doctor(args) -> int:
                 Path(args.dump + ".calendar.txt").write_text(resp.text, encoding="utf-8")
                 print(f"       dumped          : {args.dump}.calendar.txt")
             if prices:
-                print(f"[ok]   calendar        : {len(prices)} dated prices; first: " +
-                      ", ".join(f"{p.depart}{'→' + p.ret if p.ret else ''} ${p.price:,.0f}" for p in prices[:5]))
-                print("       if these match the price graph on google.com/travel/flights, set calendar.enabled: true")
+                print(
+                    f"[ok]   calendar        : {len(prices)} dated prices; first: "
+                    + ", ".join(
+                        f"{p.depart}{'→' + p.ret if p.ret else ''} ${p.price:,.0f}"
+                        for p in prices[:5]
+                    )
+                )
+                print(
+                    "       if these match the price graph on google.com/travel/flights, set calendar.enabled: true"
+                )
             else:
                 ok = False
-                print("[FAIL] calendar        : no (date, price) tuples found — do not enable; save the dump and inspect")
+                print(
+                    "[FAIL] calendar        : no (date, price) tuples found — do not enable; save the dump and inspect"
+                )
         except TransportError as exc:
             ok = False
             print(f"[FAIL] calendar        : network: {exc}")
@@ -515,11 +622,14 @@ def cmd_doctor(args) -> int:
 # calibrate — measure the rate limit; do not assume it
 # ---------------------------------------------------------------------------
 
+
 def cmd_calibrate(args) -> int:
     cfg = load(args.config, strict_secrets=False)
     if not args.yes:
-        print(f"About to issue up to {args.count} real requests to Google Flights at {args.interval}s intervals.\n"
-              f"Re-run with --yes to proceed.")
+        print(
+            f"About to issue up to {args.count} real requests to Google Flights at {args.interval}s intervals.\n"
+            f"Re-run with --yes to proceed."
+        )
         return 2
 
     from .source import NoResults, SourceError
@@ -529,7 +639,9 @@ def cmd_calibrate(args) -> int:
     base = datetime.strptime(args.depart, "%Y-%m-%d").date()
     results: list[tuple[int, str, float]] = []
     first_failure_at: int | None = None
-    print(f"\n[calibrate] {args.count} requests @ {args.interval}s, {cfg.home}→{route.dest} via {getattr(source, 'name', '?')}\n")
+    print(
+        f"\n[calibrate] {args.count} requests @ {args.interval}s, {cfg.home}→{route.dest} via {getattr(source, 'name', '?')}\n"
+    )
 
     for i in range(args.count):
         if i:
@@ -539,7 +651,7 @@ def cmd_calibrate(args) -> int:
         t0 = time.monotonic()
         try:
             offers = source.fetch(cfg, route, depart, ret, 1)
-            status = f"ok (${offers[0].price_cents/100:,.0f})"
+            status = f"ok (${offers[0].price_cents / 100:,.0f})"
         except NoResults as exc:
             status = f"empty: {exc}"
         except SourceError as exc:
@@ -548,7 +660,7 @@ def cmd_calibrate(args) -> int:
                 first_failure_at = i + 1
         dt = time.monotonic() - t0
         results.append((i + 1, status, dt))
-        print(f"  {i+1:>3}/{args.count}  {dt:5.1f}s  {status}")
+        print(f"  {i + 1:>3}/{args.count}  {dt:5.1f}s  {status}")
         if first_failure_at and args.stop_on_failure:
             print("\n  stopping at first failure (--stop-on-failure)")
             break
@@ -557,9 +669,13 @@ def cmd_calibrate(args) -> int:
     fails = sum(1 for _, s, _ in results if s.startswith("FAIL"))
     print(f"\n[calibrate] {len(oks)} ok, {fails} failed, {len(results) - len(oks) - fails} empty")
     if oks:
-        print(f"[calibrate] latency: min {min(oks):.1f}s median {statistics.median(oks):.1f}s max {max(oks):.1f}s")
+        print(
+            f"[calibrate] latency: min {min(oks):.1f}s median {statistics.median(oks):.1f}s max {max(oks):.1f}s"
+        )
     if first_failure_at:
-        print(f"[calibrate] FIRST FAILURE at request #{first_failure_at} — set fetch.max_queries_per_run well below it")
+        print(
+            f"[calibrate] FIRST FAILURE at request #{first_failure_at} — set fetch.max_queries_per_run well below it"
+        )
     else:
         print(f"[calibrate] no failures at {args.interval}s spacing across {len(results)} requests")
     if args.out:
@@ -573,6 +689,7 @@ def cmd_calibrate(args) -> int:
 # ---------------------------------------------------------------------------
 # ingest — observations from any other tool, one JSON object per line
 # ---------------------------------------------------------------------------
+
 
 def cmd_ingest(args) -> int:
     """Record prices found by something else (a browser session, another API).
@@ -605,21 +722,32 @@ def cmd_ingest(args) -> int:
             print(f"  line {n}: skipped ({exc})", file=sys.stderr)
             skipped += 1
             continue
-        row = conn.execute("SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)).fetchone()
+        row = conn.execute(
+            "SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)
+        ).fetchone()
         if row is None:
             expand_mod.sync_routes(conn, cfg)
-            row = conn.execute("SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)).fetchone()
+            row = conn.execute(
+                "SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)
+            ).fetchone()
         conn.execute(
             "INSERT INTO queries (route_id, depart_date, return_date, pattern, active) VALUES (?, ?, ?, 'manual', 1) "
             "ON CONFLICT(route_id, depart_date, return_date) DO NOTHING",
             (row["id"], depart, ret),
         )
         qid = conn.execute(
-            "SELECT id FROM queries WHERE route_id = ? AND depart_date = ? AND return_date IS ?", (row["id"], depart, ret)
+            "SELECT id FROM queries WHERE route_id = ? AND depart_date = ? AND return_date IS ?",
+            (row["id"], depart, ret),
         ).fetchone()["id"]
-        offer = Offer(price_cents=cents, currency=str(rec.get("currency", cfg.search.currency)), airline=rec.get("airline"),
-                      stops=rec.get("stops"), duration_min=rec.get("duration_min"), source=str(rec.get("source", "manual")),
-                      raw={"ingested": True, **rec})
+        offer = Offer(
+            price_cents=cents,
+            currency=str(rec.get("currency", cfg.search.currency)),
+            airline=rec.get("airline"),
+            stops=rec.get("stops"),
+            duration_min=rec.get("duration_min"),
+            source=str(rec.get("source", "manual")),
+            raw={"ingested": True, **rec},
+        )
         w, _ = fetch_mod.store(conn, qid, [offer])
         conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (fetch_mod.utcnow(), qid))
         conn.commit()
@@ -630,9 +758,14 @@ def cmd_ingest(args) -> int:
 
 # ---------------------------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="flighttrack", description="Self-hosted daily flight price sensor.")
-    p.add_argument("--config", default=DEFAULT_CONFIG, help=f"config file (default {DEFAULT_CONFIG})")
+    p = argparse.ArgumentParser(
+        prog="flighttrack", description="Self-hosted daily flight price sensor."
+    )
+    p.add_argument(
+        "--config", default=DEFAULT_CONFIG, help=f"config file (default {DEFAULT_CONFIG})"
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     e = sub.add_parser("expand", help="materialise date patterns and trips into the queries table")
@@ -643,10 +776,16 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--limit", type=int, default=None, help="override max queries this run")
     f.add_argument("--dry-run", action="store_true", help="show what would be fetched")
     f.add_argument("--no-html", action="store_true", help="skip regenerating the HTML report")
-    f.add_argument("--ignore-cooldown", action="store_true", help="run even if a previous run was blocked (not recommended)")
+    f.add_argument(
+        "--ignore-cooldown",
+        action="store_true",
+        help="run even if a previous run was blocked (not recommended)",
+    )
     f.set_defaults(func=cmd_fetch)
 
-    sw = sub.add_parser("sweep", help="EXPERIMENTAL calendar sweep: one RPC per route/pattern window")
+    sw = sub.add_parser(
+        "sweep", help="EXPERIMENTAL calendar sweep: one RPC per route/pattern window"
+    )
     sw.add_argument("--dry-run", action="store_true")
     sw.add_argument("--force", action="store_true", help="run even if calendar.enabled is false")
     sw.add_argument("--no-html", action="store_true")
@@ -658,31 +797,44 @@ def build_parser() -> argparse.ArgumentParser:
 
     dl = sub.add_parser("deals", help="poll deal feeds and notify on matches")
     dl.add_argument("--dry-run", action="store_true")
-    dl.add_argument("--test-match", metavar="TITLE", help="check a headline against your watches, no network")
+    dl.add_argument(
+        "--test-match", metavar="TITLE", help="check a headline against your watches, no network"
+    )
     dl.set_defaults(func=cmd_deals)
 
     hl = sub.add_parser("health", help="is the collector working? exit 1 if not")
-    hl.add_argument("--notify", action="store_true", help="send a notification if unhealthy (deduped)")
+    hl.add_argument(
+        "--notify", action="store_true", help="send a notification if unhealthy (deduped)"
+    )
     hl.add_argument("--dry-run", action="store_true")
     hl.set_defaults(func=cmd_health)
 
-    rn = sub.add_parser("run", help="the daily job: expand, sweep, fetch, deals, alert, health, html")
+    rn = sub.add_parser(
+        "run", help="the daily job: expand, sweep, fetch, deals, alert, health, html"
+    )
     rn.add_argument("--limit", type=int, default=None)
     rn.add_argument("--dry-run", action="store_true", help="print alerts instead of sending them")
     rn.set_defaults(func=cmd_run)
 
-    sv = sub.add_parser("serve", help="run the daily job on a schedule AND serve the report (one process)")
+    sv = sub.add_parser(
+        "serve", help="run the daily job on a schedule AND serve the report (one process)"
+    )
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=8080)
     sv.add_argument("--at", default="03:15", help="local time HH:MM for the daily run")
     sv.add_argument("--jitter", type=int, default=45, help="random delay after --at, minutes")
-    sv.add_argument("--run-on-start", action="store_true",
-                    help="run once immediately, then on schedule (automatic when nothing succeeded in 20h)")
+    sv.add_argument(
+        "--run-on-start",
+        action="store_true",
+        help="run once immediately, then on schedule (automatic when nothing succeeded in 20h)",
+    )
     sv.add_argument("--limit", type=int, default=None)
     sv.add_argument("--dry-run", action="store_true")
     sv.set_defaults(func=cmd_serve)
 
-    cp = sub.add_parser("compact", help="prune runner-up offers and old logs, then VACUUM (dry run unless --yes)")
+    cp = sub.add_parser(
+        "compact", help="prune runner-up offers and old logs, then VACUUM (dry run unless --yes)"
+    )
     cp.add_argument("--yes", action="store_true")
     cp.set_defaults(func=cmd_compact)
 
@@ -700,7 +852,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--month", help="filter departures to YYYY-MM")
     r.add_argument("--window", type=int, default=30, help="trailing-low window in days")
     r.add_argument("--sort", choices=["date", "price"], default="date")
-    r.add_argument("--cheapest", type=int, metavar="N", help="N best current fares across all routes")
+    r.add_argument(
+        "--cheapest", type=int, metavar="N", help="N best current fares across all routes"
+    )
     r.add_argument("--sparkline", action="store_true", help="show price history per date pair")
     r.add_argument("--include-unpriced", action="store_true", help="also show never-fetched pairs")
     r.set_defaults(func=cmd_report)
@@ -727,7 +881,9 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--ret", default=None, help="return date YYYY-MM-DD")
     d.add_argument("--dest", default=None, help="route to test (default: first configured)")
     d.add_argument("--offline", action="store_true", help="skip live calls")
-    d.add_argument("--calendar", action="store_true", help="also test the experimental calendar RPC")
+    d.add_argument(
+        "--calendar", action="store_true", help="also test the experimental calendar RPC"
+    )
     d.add_argument("--transport", choices=["auto", "primp", "urllib"], default=None)
     d.add_argument("--dump", metavar="PATH", help="save the raw response(s) here")
     d.set_defaults(func=cmd_doctor)
@@ -752,7 +908,9 @@ def _default_dates(args) -> None:
     if getattr(args, "depart", None) is None:
         args.depart = (date.today() + timedelta(days=60)).isoformat()
     if getattr(args, "ret", None) is None and args.cmd == "doctor":
-        args.ret = (datetime.strptime(args.depart, "%Y-%m-%d").date() + timedelta(days=4)).isoformat()
+        args.ret = (
+            datetime.strptime(args.depart, "%Y-%m-%d").date() + timedelta(days=4)
+        ).isoformat()
 
 
 def main(argv: list[str] | None = None) -> int:

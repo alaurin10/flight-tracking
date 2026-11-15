@@ -44,13 +44,13 @@ class Pattern:
     """A recurring shape: 'every THU (or FRI) inside this window, N nights'."""
 
     name: str
-    depart_dow: str                         # first weekday, kept for backwards compatibility
+    depart_dow: str  # first weekday, kept for backwards compatibility
     nights: int
-    depart_dows: tuple[str, ...] = ()       # all weekdays; defaults to (depart_dow,)
-    routes: tuple[str, ...] = ()            # empty = every route
-    window_start: str | None = None         # ISO date; None = horizon
+    depart_dows: tuple[str, ...] = ()  # all weekdays; defaults to (depart_dow,)
+    routes: tuple[str, ...] = ()  # empty = every route
+    window_start: str | None = None  # ISO date; None = horizon
     window_end: str | None = None
-    min_days_ahead: int | None = None       # per-pattern override
+    min_days_ahead: int | None = None  # per-pattern override
 
     def __post_init__(self) -> None:
         if not self.depart_dows:
@@ -111,17 +111,17 @@ class Fetch:
 class Calendar:
     enabled: bool = False
     max_calls_per_run: int = 12
-    confirm_budget: int = 6              # detail fetches spent confirming sweep candidates
-    priority_boost_pct: float = 10.0     # a sweep price this far under the 30d low earns a confirm
+    confirm_budget: int = 6  # detail fetches spent confirming sweep candidates
+    priority_boost_pct: float = 10.0  # a sweep price this far under the 30d low earns a confirm
 
 
 @dataclass(frozen=True)
 class DealWatch:
     name: str
-    origins: tuple[str, ...]             # words that must appear (any), e.g. Seattle, SEA, "West Coast"
-    destinations: tuple[str, ...]        # region names or words (any); empty = anywhere
-    max_price: int | None = None         # cents
-    keywords: tuple[str, ...] = ()       # extra words that must ALL appear (rare)
+    origins: tuple[str, ...]  # words that must appear (any), e.g. Seattle, SEA, "West Coast"
+    destinations: tuple[str, ...]  # region names or words (any); empty = anywhere
+    max_price: int | None = None  # cents
+    keywords: tuple[str, ...] = ()  # extra words that must ALL appear (rare)
 
 
 @dataclass(frozen=True)
@@ -138,8 +138,8 @@ class Retention:
     """What `compact` may remove. The is_best price series is never touched."""
 
     enabled: bool = True
-    runner_up_days: int = 90      # 2nd–5th cheapest offers per fetch, and sweep context rows
-    attempts_days: int = 180      # per-request log and feed poll log; 0 = keep forever
+    runner_up_days: int = 90  # 2nd–5th cheapest offers per fetch, and sweep context rows
+    attempts_days: int = 180  # per-request log and feed poll log; 0 = keep forever
 
 
 @dataclass(frozen=True)
@@ -193,6 +193,7 @@ class Config:
 
 # ---------------------------------------------------------------------------
 
+
 def _expand_env(value: Any) -> Any:
     """Replace a whole-string ``${VAR}`` with its environment value."""
     if isinstance(value, dict):
@@ -232,12 +233,15 @@ def _int(v: Any, where: str, lo: int | None = None, hi: int | None = None) -> in
 def _cents(v: Any, where: str) -> int | None:
     if v is None:
         return None
-    _require(isinstance(v, int) and not isinstance(v, bool) and v > 0, f"{where} must be a positive integer in CENTS")
+    _require(
+        isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        f"{where} must be a positive integer in CENTS",
+    )
     return v
 
 
 def _iso(v: Any, where: str) -> str:
-    v = v.isoformat() if isinstance(v, date) else v   # YAML parses bare dates
+    v = v.isoformat() if isinstance(v, date) else v  # YAML parses bare dates
     _require(isinstance(v, str) and bool(_ISO.match(v)), f"{where} must be a date YYYY-MM-DD")
     try:
         date.fromisoformat(v)
@@ -251,7 +255,10 @@ def _str_list(v: Any, where: str) -> tuple[str, ...]:
         return ()
     if isinstance(v, str):
         v = [v]
-    _require(isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v), f"{where} must be a list of strings")
+    _require(
+        isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v),
+        f"{where} must be a list of strings",
+    )
     return tuple(x.strip() for x in v)
 
 
@@ -285,7 +292,9 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         _require(dest not in seen, f"{where}: duplicate destination {dest}")
         seen.add(dest)
         label = r.get("label") or dest
-        _require(isinstance(label, str) and label.strip(), f"{where}: label must be a non-empty string")
+        _require(
+            isinstance(label, str) and label.strip(), f"{where}: label must be a non-empty string"
+        )
         target = _cents(r.get("target_price"), f"{where}.target_price")
         priority = r.get("priority", 2)
         _require(priority in (1, 2, 3), f"{where}: priority must be 1, 2 or 3")
@@ -303,22 +312,35 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         where = f"patterns[{i}]"
         _require(isinstance(p, dict), f"{where}: must be a mapping")
         name = p.get("name")
-        _require(isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string")
+        _require(
+            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+        )
         _require(name not in pat_names, f"{where}: duplicate pattern name {name!r}")
         pat_names.add(name)
 
         dows_raw = p.get("depart_dow")
-        dows = tuple(str(d).strip().upper() for d in (dows_raw if isinstance(dows_raw, list) else [dows_raw]))
-        _require(bool(dows) and all(d in DOW for d in dows), f"{where}: depart_dow must be one or more of {sorted(DOW)}")
+        dows = tuple(
+            str(d).strip().upper() for d in (dows_raw if isinstance(dows_raw, list) else [dows_raw])
+        )
+        _require(
+            bool(dows) and all(d in DOW for d in dows),
+            f"{where}: depart_dow must be one or more of {sorted(DOW)}",
+        )
 
         nights = _int(p.get("nights"), f"{where}.nights", lo=0)
-        pat_routes = tuple(_airport(d, f"{where}.routes") for d in _str_list(p.get("routes"), f"{where}.routes"))
+        pat_routes = tuple(
+            _airport(d, f"{where}.routes") for d in _str_list(p.get("routes"), f"{where}.routes")
+        )
         for d in pat_routes:
             _require(d in seen, f"{where}.routes: {d} is not in routes")
 
         window = p.get("window") or {}
         _require(isinstance(window, dict), f"{where}.window must be a mapping with start/end")
-        ws = _iso(window["start"], f"{where}.window.start") if window.get("start") is not None else None
+        ws = (
+            _iso(window["start"], f"{where}.window.start")
+            if window.get("start") is not None
+            else None
+        )
         we = _iso(window["end"], f"{where}.window.end") if window.get("end") is not None else None
         if ws and we:
             _require(ws <= we, f"{where}.window: start is after end")
@@ -336,16 +358,23 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         where = f"trips[{i}]"
         _require(isinstance(t, dict), f"{where}: must be a mapping")
         name = t.get("name")
-        _require(isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string")
+        _require(
+            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+        )
         _require(name not in pat_names, f"{where}: name {name!r} collides with a pattern")
         pat_names.add(name)
         dest = _airport(t.get("dest"), where)
-        _require(dest in seen, f"{where}: {dest} must also be listed under routes (it carries the label and priority)")
+        _require(
+            dest in seen,
+            f"{where}: {dest} must also be listed under routes (it carries the label and priority)",
+        )
         dep = _iso(t.get("depart"), f"{where}.depart")
         ret = _iso(t.get("return"), f"{where}.return") if t.get("return") is not None else None
         if ret:
             _require(ret > dep, f"{where}: return must be after depart")
-        trips.append(Trip(name, dest, dep, ret, _cents(t.get("target_price"), f"{where}.target_price")))
+        trips.append(
+            Trip(name, dest, dep, ret, _cents(t.get("target_price"), f"{where}.target_price"))
+        )
 
     _require(bool(patterns or trips), "config needs at least one pattern or trip")
 
@@ -354,8 +383,13 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
     _require(isinstance(horizon, dict), "horizon: must be a mapping")
     lo = horizon.get("min_days_ahead", 21)
     hi = horizon.get("max_days_ahead", 240)
-    _require(isinstance(lo, int) and lo >= 0, "horizon.min_days_ahead must be a non-negative integer")
-    _require(isinstance(hi, int) and hi > lo, "horizon.max_days_ahead must be greater than min_days_ahead")
+    _require(
+        isinstance(lo, int) and lo >= 0, "horizon.min_days_ahead must be a non-negative integer"
+    )
+    _require(
+        isinstance(hi, int) and hi > lo,
+        "horizon.max_days_ahead must be greater than min_days_ahead",
+    )
 
     # --- search -----------------------------------------------------------
     s = raw.get("search") or {}
@@ -378,12 +412,18 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
     _require(isinstance(f, dict), "fetch: must be a mapping")
     sources = _str_list(f.get("sources"), "fetch.sources") or Fetch.sources
     for name in sources:
-        _require(name in SOURCES, f"fetch.sources: unknown source {name!r}; one of {sorted(SOURCES)}")
+        _require(
+            name in SOURCES, f"fetch.sources: unknown source {name!r}; one of {sorted(SOURCES)}"
+        )
     transport = str(f.get("transport", "auto"))
     _require(transport in TRANSPORTS, f"fetch.transport must be one of {sorted(TRANSPORTS)}")
     cooldown = f.get("cooldown_hours", list(Fetch.cooldown_hours))
-    _require(isinstance(cooldown, list) and cooldown and all(isinstance(x, (int, float)) and x > 0 for x in cooldown),
-             "fetch.cooldown_hours must be a non-empty list of positive numbers")
+    _require(
+        isinstance(cooldown, list)
+        and cooldown
+        and all(isinstance(x, (int, float)) and x > 0 for x in cooldown),
+        "fetch.cooldown_hours must be a non-empty list of positive numbers",
+    )
     fetch = Fetch(
         max_queries_per_run=int(f.get("max_queries_per_run", 60)),
         min_sleep_seconds=float(f.get("min_sleep_seconds", 4.0)),
@@ -401,9 +441,14 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         serpapi_url=(f.get("serpapi") or {}).get("base_url") or None,
     )
     _require(fetch.max_queries_per_run > 0, "fetch.max_queries_per_run must be positive")
-    _require(0 <= fetch.min_sleep_seconds <= fetch.max_sleep_seconds,
-             "fetch.min_sleep_seconds must be >= 0 and <= max_sleep_seconds")
-    _require(fetch.abort_after_consecutive_failures >= 1, "fetch.abort_after_consecutive_failures must be >= 1")
+    _require(
+        0 <= fetch.min_sleep_seconds <= fetch.max_sleep_seconds,
+        "fetch.min_sleep_seconds must be >= 0 and <= max_sleep_seconds",
+    )
+    _require(
+        fetch.abort_after_consecutive_failures >= 1,
+        "fetch.abort_after_consecutive_failures must be >= 1",
+    )
     _require(fetch.offers_per_fetch >= 1, "fetch.offers_per_fetch must be >= 1")
 
     # --- calendar (experimental sweep) -------------------------------------
@@ -442,7 +487,9 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
         where = f"deals.watches[{i}]"
         _require(isinstance(w, dict), f"{where}: must be a mapping")
         wname = w.get("name")
-        _require(isinstance(wname, str) and wname.strip(), f"{where}: name must be a non-empty string")
+        _require(
+            isinstance(wname, str) and wname.strip(), f"{where}: name must be a non-empty string"
+        )
         watches.append(
             DealWatch(
                 name=wname.strip(),
@@ -486,14 +533,19 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
     channel = str(n.get("channel", "none"))
-    _require(channel != "ntfy", "notify.channel ntfy has been removed — use file, smtp or none "
-                                "(alerts move to browser push in the web app)")
+    _require(
+        channel != "ntfy",
+        "notify.channel ntfy has been removed — use file, smtp or none "
+        "(alerts move to browser push in the web app)",
+    )
     _require(channel in CHANNELS, f"notify.channel must be one of {sorted(CHANNELS)}")
     if channel == "smtp" and alerts.enabled and strict_secrets:
         smtp = n.get("smtp") or {}
-        _require(bool(smtp.get("host")) and bool(smtp.get("to")),
-                 "notify.smtp.host or notify.smtp.to is empty — set SMTP_HOST and SMTP_TO "
-                 "(or hard-code them) before enabling alerts")
+        _require(
+            bool(smtp.get("host")) and bool(smtp.get("to")),
+            "notify.smtp.host or notify.smtp.to is empty — set SMTP_HOST and SMTP_TO "
+            "(or hard-code them) before enabling alerts",
+        )
 
     out = raw.get("output") or {}
     return Config(

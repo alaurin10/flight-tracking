@@ -54,14 +54,22 @@ def test_cooldown_escalates_then_clears_on_success(tmp_path):
     t0 = datetime.now(timezone.utc).replace(microsecond=0)
     iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    fetch.run(conn, cfg, Sequenced([BlockedError("x")]), now=t0, sleeper=lambda s: None, verbose=False)
+    fetch.run(
+        conn, cfg, Sequenced([BlockedError("x")]), now=t0, sleeper=lambda s: None, verbose=False
+    )
     assert get_state(conn, fetch.STATE_COOLDOWN_UNTIL) == iso(t0 + timedelta(hours=1))
     t1 = t0 + timedelta(hours=2)
-    fetch.run(conn, cfg, Sequenced([BlockedError("x")]), now=t1, sleeper=lambda s: None, verbose=False)
+    fetch.run(
+        conn, cfg, Sequenced([BlockedError("x")]), now=t1, sleeper=lambda s: None, verbose=False
+    )
     assert get_state(conn, fetch.STATE_COOLDOWN_UNTIL) == iso(t1 + timedelta(hours=4))
     t2 = t1 + timedelta(hours=8)
-    fetch.run(conn, cfg, Sequenced([BlockedError("x")]), now=t2, sleeper=lambda s: None, verbose=False)
-    assert get_state(conn, fetch.STATE_COOLDOWN_UNTIL) == iso(t2 + timedelta(hours=12))   # capped at the last entry
+    fetch.run(
+        conn, cfg, Sequenced([BlockedError("x")]), now=t2, sleeper=lambda s: None, verbose=False
+    )
+    assert get_state(conn, fetch.STATE_COOLDOWN_UNTIL) == iso(
+        t2 + timedelta(hours=12)
+    )  # capped at the last entry
     t3 = t2 + timedelta(hours=13)
     stats = fetch.run(conn, cfg, FakeSource(), now=t3, sleeper=lambda s: None, verbose=False)
     assert stats.succeeded and not fetch.cooldown_active(conn, t3)
@@ -71,11 +79,13 @@ def test_cooldown_escalates_then_clears_on_success(tmp_path):
 
 def test_network_error_is_retried_once_then_counts(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
-    s = Sequenced([NetworkError("timeout"), None])   # fails once, then ok
+    s = Sequenced([NetworkError("timeout"), None])  # fails once, then ok
     stats, sleeps = _run(conn, cfg, s, limit=1)
     assert stats.retries == 1 and stats.succeeded == 1 and stats.failed == 0
     assert cfg.fetch.retry_sleep_seconds in sleeps
-    outcomes = [r["outcome"] for r in conn.execute("SELECT outcome FROM fetch_attempts ORDER BY id")]
+    outcomes = [
+        r["outcome"] for r in conn.execute("SELECT outcome FROM fetch_attempts ORDER BY id")
+    ]
     assert outcomes == ["network", "ok"]
 
 
@@ -110,11 +120,15 @@ def test_query_ids_bypass_the_due_test(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     stats, _ = _run(conn, cfg, FakeSource(), limit=1)
     qid = conn.execute("SELECT query_id FROM observations LIMIT 1").fetchone()[0]
-    assert not [d for d in fetch.select_due(conn, cfg) if d.query_id == qid]        # just fetched → not due
+    assert not [
+        d for d in fetch.select_due(conn, cfg) if d.query_id == qid
+    ]  # just fetched → not due
     assert [d.query_id for d in fetch.select_due(conn, cfg, query_ids=[qid])] == [qid]
     stats, _ = _run(conn, cfg, FakeSource(), query_ids=[qid], limit=1, kind="confirm")
     assert stats.succeeded == 1
-    assert conn.execute("SELECT kind FROM run_log ORDER BY id DESC LIMIT 1").fetchone()[0] == "confirm"
+    assert (
+        conn.execute("SELECT kind FROM run_log ORDER BY id DESC LIMIT 1").fetchone()[0] == "confirm"
+    )
 
 
 def test_ignore_cooldown_flag(tmp_path):

@@ -29,24 +29,47 @@ def test_no_results_marker():
 
 def test_blocked_by_status_and_by_text_and_by_url():
     assert classify(_resp("<html>rate limited</html>", status=429)).kind is PageKind.BLOCKED
-    assert classify(_resp("<html><title>Sorry</title>Our systems have detected unusual traffic from your computer network</html>")).kind is PageKind.BLOCKED
-    assert classify(_resp("<html/>", url="https://www.google.com/sorry/index?continue=x")).kind is PageKind.BLOCKED
+    assert (
+        classify(
+            _resp(
+                "<html><title>Sorry</title>Our systems have detected unusual traffic from your computer network</html>"
+            )
+        ).kind
+        is PageKind.BLOCKED
+    )
+    assert (
+        classify(_resp("<html/>", url="https://www.google.com/sorry/index?continue=x")).kind
+        is PageKind.BLOCKED
+    )
 
 
 def test_data_blob_wins_over_scary_words():
     """A results page mentioning recaptcha in a script must never be a 'block'."""
-    html = make_results_html(make_payload(best=[make_itinerary(700)])).replace("</body>", "<script>recaptcha</script></body>")
+    html = make_results_html(make_payload(best=[make_itinerary(700)])).replace(
+        "</body>", "<script>recaptcha</script></body>"
+    )
     assert classify(_resp(html)).kind is PageKind.RESULTS
 
 
 def test_consent_interstitial():
-    assert classify(_resp("<html/>", url="https://consent.google.com/m?continue=x")).kind is PageKind.CONSENT
-    assert classify(_resp("<html><h1>Before you continue to Google</h1></html>")).kind is PageKind.CONSENT
+    assert (
+        classify(_resp("<html/>", url="https://consent.google.com/m?continue=x")).kind
+        is PageKind.CONSENT
+    )
+    assert (
+        classify(_resp("<html><h1>Before you continue to Google</h1></html>")).kind
+        is PageKind.CONSENT
+    )
 
 
 def test_server_error_and_layout_change():
-    assert classify(_resp("<html><title>Error 503</title></html>", status=503)).kind is PageKind.ERROR_STATUS
-    page = classify(_resp("<html><title>Google Flights</title><body>new shiny app shell</body></html>"))
+    assert (
+        classify(_resp("<html><title>Error 503</title></html>", status=503)).kind
+        is PageKind.ERROR_STATUS
+    )
+    page = classify(
+        _resp("<html><title>Google Flights</title><body>new shiny app shell</body></html>")
+    )
     assert page.kind is PageKind.LAYOUT_UNKNOWN
     assert "Google Flights" in page.detail
 

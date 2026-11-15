@@ -19,19 +19,19 @@ from .transport import Response
 
 
 class PageKind(Enum):
-    RESULTS = "results"            # ds:1 payload present and parsed
-    NO_RESULTS = "no_results"      # Google answered: no itineraries for this search
-    CONSENT = "consent"            # bounced to the EU consent interstitial
-    BLOCKED = "blocked"            # 429 / sorry page / unusual-traffic captcha
+    RESULTS = "results"  # ds:1 payload present and parsed
+    NO_RESULTS = "no_results"  # Google answered: no itineraries for this search
+    CONSENT = "consent"  # bounced to the EU consent interstitial
+    BLOCKED = "blocked"  # 429 / sorry page / unusual-traffic captcha
     ERROR_STATUS = "error_status"  # some other non-2xx
-    LAYOUT_UNKNOWN = "layout"      # 200 OK, but no data blob where it should be
+    LAYOUT_UNKNOWN = "layout"  # 200 OK, but no data blob where it should be
 
 
 @dataclass
 class Page:
     kind: PageKind
     detail: str = ""
-    payload: Any = None            # the decoded ds:1 JSON, for RESULTS only
+    payload: Any = None  # the decoded ds:1 JSON, for RESULTS only
     status: int = 0
     url: str = ""
     size: int = 0
@@ -120,9 +120,16 @@ def classify(resp: Response) -> Page:
         try:
             payload = parse_callback(js)
         except NoResultsMarker:
-            return Page(PageKind.NO_RESULTS, "Google reported no itineraries (errorHasStatus)", **base)
+            return Page(
+                PageKind.NO_RESULTS, "Google reported no itineraries (errorHasStatus)", **base
+            )
         except (ValueError, json.JSONDecodeError) as exc:
-            return Page(PageKind.LAYOUT_UNKNOWN, f"ds:1 blob found but not decodable: {exc}", signals=hits, **base)
+            return Page(
+                PageKind.LAYOUT_UNKNOWN,
+                f"ds:1 blob found but not decodable: {exc}",
+                signals=hits,
+                **base,
+            )
         return Page(PageKind.RESULTS, f"ds:1 via {hits[0]}", payload=payload, signals=hits, **base)
 
     if "consent.google.com" in url_low or any(s in low for s in CONSENT_SIGNALS):
@@ -130,10 +137,17 @@ def classify(resp: Response) -> Page:
 
     which = [s for s in BLOCK_SIGNALS if s in low]
     if resp.status == 429 or "/sorry/" in url_low or which:
-        return Page(PageKind.BLOCKED, f"HTTP {resp.status}; signals={which or ['status']}", signals=which, **base)
+        return Page(
+            PageKind.BLOCKED,
+            f"HTTP {resp.status}; signals={which or ['status']}",
+            signals=which,
+            **base,
+        )
 
     if resp.status >= 400:
-        return Page(PageKind.ERROR_STATUS, f"HTTP {resp.status}: {_title(html) or 'no title'}", **base)
+        return Page(
+            PageKind.ERROR_STATUS, f"HTTP {resp.status}: {_title(html) or 'no title'}", **base
+        )
 
     return Page(
         PageKind.LAYOUT_UNKNOWN,

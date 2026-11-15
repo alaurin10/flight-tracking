@@ -19,8 +19,16 @@ from .results import Itinerary, Segment, itineraries
 from .transport import Response, Transport, TransportError, default_transport
 
 __all__ = [
-    "Leg", "Query",
-    "Page", "PageKind", "classify",
-    "Itinerary", "Segment", "itineraries",
-    "Response", "Transport", "TransportError", "default_transport",
+    "Leg",
+    "Query",
+    "Page",
+    "PageKind",
+    "classify",
+    "Itinerary",
+    "Segment",
+    "itineraries",
+    "Response",
+    "Transport",
+    "TransportError",
+    "default_transport",
 ]

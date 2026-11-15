@@ -85,7 +85,9 @@ def run_daily(
             raise
         except Exception as exc:  # noqa: BLE001 — isolation is the point
             sr.rc, sr.error = 1, f"{type(exc).__name__}: {exc}"
-            log(f"[{name}] crashed: {sr.error}", file=sys.stderr) if log is print else log(f"[{name}] crashed: {sr.error}")
+            log(f"[{name}] crashed: {sr.error}", file=sys.stderr) if log is print else log(
+                f"[{name}] crashed: {sr.error}"
+            )
             if verbose:
                 traceback.print_exc()
         result.stages.append(sr)

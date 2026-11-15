@@ -43,8 +43,8 @@ from .source import FailureStore, Offer, Source, tidy_error
 
 STATE_CURSOR = "sweep_cursor"
 SOURCE_NAME = "google_calendar"
-CHEAPEST_PER_WINDOW = 3          # these many cheapest dates of each window earn a confirm
-MEDIAN_DAYS = 30                 # a date pair's own calendar history used for the median
+CHEAPEST_PER_WINDOW = 3  # these many cheapest dates of each window earn a confirm
+MEDIAN_DAYS = 30  # a date pair's own calendar history used for the median
 MEDIAN_MIN_POINTS = 3
 
 
@@ -78,9 +78,11 @@ class SweepStats:
     def summary(self) -> str:
         if self.skipped:
             return "SKIPPED (cooldown)"
-        s = (f"planned={self.planned} calls={self.calls} ok={self.ok} failed={self.failed} "
-             f"dates={self.dates_priced} matched={self.matched} written={self.written} "
-             f"confirm={len(self.confirm_ids)}")
+        s = (
+            f"planned={self.planned} calls={self.calls} ok={self.ok} failed={self.failed} "
+            f"dates={self.dates_priced} matched={self.matched} written={self.written} "
+            f"confirm={len(self.confirm_ids)}"
+        )
         if self.blocked:
             s += " ABORTED=blocked"
         return s
@@ -112,7 +114,9 @@ def _rotate(jobs: list[SweepJob], conn: sqlite3.Connection, cap: int) -> list[Sw
     return picked
 
 
-def _query_lookup(conn: sqlite3.Connection, cfg: Config, route: Route) -> dict[tuple[str, str | None], int]:
+def _query_lookup(
+    conn: sqlite3.Connection, cfg: Config, route: Route
+) -> dict[tuple[str, str | None], int]:
     rows = conn.execute(
         """
         SELECT q.id, q.depart_date, q.return_date FROM queries q
@@ -128,9 +132,16 @@ def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: floa
     """One RPC. Returns (list[DatePrice], response). Raises TransportError."""
     nights = job.pattern.nights or None
     body = build_body(
-        cfg.home, job.route.dest, job.start, job.end, nights,
-        seat=cfg.search.seat, adults=cfg.search.adults, max_stops=job.route.max_stops,
-        currency=cfg.search.currency, carry_on_bags=cfg.search.carry_on_bags,
+        cfg.home,
+        job.route.dest,
+        job.start,
+        job.end,
+        nights,
+        seat=cfg.search.seat,
+        adults=cfg.search.adults,
+        max_stops=job.route.max_stops,
+        currency=cfg.search.currency,
+        carry_on_bags=cfg.search.carry_on_bags,
     )
     params = {**RPC_PARAMS, "hl": "en", "curr": cfg.search.currency}
     resp = transport.post(RPC_URL, body, params=params, headers=RPC_HEADERS, timeout=timeout)
@@ -165,14 +176,20 @@ def promising(
         return True, "under target"
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=MEDIAN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    prior = [r[0] for r in conn.execute(
-        "SELECT price_cents FROM observations WHERE query_id = ? AND source = ? AND observed_at >= ?",
-        (query_id, SOURCE_NAME, since),
-    )]
+    prior = [
+        r[0]
+        for r in conn.execute(
+            "SELECT price_cents FROM observations WHERE query_id = ? AND source = ? AND observed_at >= ?",
+            (query_id, SOURCE_NAME, since),
+        )
+    ]
     if len(prior) >= MEDIAN_MIN_POINTS:
         median = statistics.median(prior)
         if sweep_cents <= median * (1 - cfg.calendar.priority_boost_pct / 100.0):
-            return True, f"{(median - sweep_cents) / median * 100:.0f}% under its {MEDIAN_DAYS}-day calendar median"
+            return (
+                True,
+                f"{(median - sweep_cents) / median * 100:.0f}% under its {MEDIAN_DAYS}-day calendar median",
+            )
     if cheapest_in_window:
         return True, f"one of the {CHEAPEST_PER_WINDOW} cheapest dates in its window"
     return False, "not notable"
@@ -199,8 +216,10 @@ def run(
     until = fetch_mod.cooldown_active(conn, now)
     if until:
         stats.skipped = True
-        conn.execute("UPDATE run_log SET finished_at = ?, skipped = 1, notes = ? WHERE id = ?",
-                     (utcnow(), f"skipped: in cooldown until {until}", stats.run_id))
+        conn.execute(
+            "UPDATE run_log SET finished_at = ?, skipped = 1, notes = ? WHERE id = ?",
+            (utcnow(), f"skipped: in cooldown until {until}", stats.run_id),
+        )
         conn.commit()
         if verbose:
             print(f"[sweep] skipped — cooldown until {until}")
@@ -212,7 +231,7 @@ def run(
     if verbose:
         print(f"[sweep] run {stats.run_id}: {len(jobs)} of {stats.planned} windows this run")
 
-    candidates: list[tuple[float, int, int, str]] = []   # (price/target ratio, cents, query_id, why)
+    candidates: list[tuple[float, int, int, str]] = []  # (price/target ratio, cents, query_id, why)
     notes: list[str] = []
 
     for i, job in enumerate(jobs):
@@ -221,11 +240,21 @@ def run(
         stats.calls += 1
         t0 = time.monotonic()
         try:
-            prices, resp = fetch_window(transport, cfg, job, timeout=cfg.fetch.request_timeout_seconds)
+            prices, resp = fetch_window(
+                transport, cfg, job, timeout=cfg.fetch.request_timeout_seconds
+            )
         except TransportError as exc:
             stats.failed += 1
             stats.errors.append(f"{job.describe()}: network: {exc}")
-            fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "network", int((time.monotonic() - t0) * 1000), tidy_error(str(exc)))
+            fetch_mod.log_attempt(
+                conn,
+                stats.run_id,
+                None,
+                SOURCE_NAME,
+                "network",
+                int((time.monotonic() - t0) * 1000),
+                tidy_error(str(exc)),
+            )
             conn.commit()
             if verbose:
                 print(f"  [FAIL:network] {job.describe()}: {exc}")
@@ -237,7 +266,9 @@ def run(
             stats.failed += 1
             stats.blocked = True
             failures.save("blocked", resp, "calendar-" + job.route.dest)
-            fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "blocked", latency, page.detail)
+            fetch_mod.log_attempt(
+                conn, stats.run_id, None, SOURCE_NAME, "blocked", latency, page.detail
+            )
             until = fetch_mod.enter_cooldown(conn, cfg, now)
             notes.append(f"aborted: blocked on calendar RPC; cooldown until {until}")
             if verbose:
@@ -251,7 +282,10 @@ def run(
             fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "layout", latency, msg)
             conn.commit()
             if verbose:
-                print(f"  [FAIL:layout] {job.describe()}: {msg}" + (f" — saved {path}" if path else ""))
+                print(
+                    f"  [FAIL:layout] {job.describe()}: {msg}"
+                    + (f" — saved {path}" if path else "")
+                )
             continue
 
         stats.ok += 1
@@ -261,7 +295,11 @@ def run(
         nights = job.pattern.nights
         matched: list[tuple[int, int, DatePrice]] = []
         for dp in prices:
-            ret = dp.ret or ((date.fromisoformat(dp.depart) + timedelta(days=nights)).isoformat() if nights else None)
+            ret = dp.ret or (
+                (date.fromisoformat(dp.depart) + timedelta(days=nights)).isoformat()
+                if nights
+                else None
+            )
             qid = lookup.get((dp.depart, ret))
             if qid is not None:
                 matched.append((qid, int(round(float(dp.price) * 100)), dp))
@@ -270,10 +308,20 @@ def run(
         filters = calendar_filters(cfg)
         target = job.route.target_price
         for qid, cents, dp in matched:
-            ok, why = promising(conn, cfg, qid, cents, target, now=now, cheapest_in_window=qid in cheapest)
-            offer = Offer(price_cents=cents, currency=cfg.search.currency, source=SOURCE_NAME,
-                          raw={"price_raw": dp.price, "calendar": True, "window": [job.start, job.end],
-                               "filters": filters})
+            ok, why = promising(
+                conn, cfg, qid, cents, target, now=now, cheapest_in_window=qid in cheapest
+            )
+            offer = Offer(
+                price_cents=cents,
+                currency=cfg.search.currency,
+                source=SOURCE_NAME,
+                raw={
+                    "price_raw": dp.price,
+                    "calendar": True,
+                    "window": [job.start, job.end],
+                    "filters": filters,
+                },
+            )
             w, _ = fetch_mod.store(conn, qid, [offer], is_best_series=False)
             stats.written += w
             if ok:
@@ -282,10 +330,17 @@ def run(
         conn.commit()
         if verbose:
             lo = min(prices, key=lambda d: d.price)
-            print(f"  [ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} ${lo.price:,.0f}")
+            print(
+                f"  [ok] {job.describe()}: {len(prices)} dates, {hit} matched, lowest {lo.depart} ${lo.price:,.0f}"
+            )
 
     # Confirm the best few with a real results fetch, through the normal chain.
-    if candidates and confirm_source is not None and cfg.calendar.confirm_budget > 0 and not stats.blocked:
+    if (
+        candidates
+        and confirm_source is not None
+        and cfg.calendar.confirm_budget > 0
+        and not stats.blocked
+    ):
         candidates.sort()
         seen: set[int] = set()
         for _, _, qid, _why in candidates:
@@ -297,14 +352,28 @@ def run(
         if verbose:
             print(f"[sweep] confirming {len(stats.confirm_ids)} candidate(s) with detail fetches")
         stats.confirm_stats = fetch_mod.run(
-            conn, cfg, confirm_source, now=now, sleeper=sleeper, verbose=verbose,
-            query_ids=stats.confirm_ids, limit=len(stats.confirm_ids), kind="confirm",
+            conn,
+            cfg,
+            confirm_source,
+            now=now,
+            sleeper=sleeper,
+            verbose=verbose,
+            query_ids=stats.confirm_ids,
+            limit=len(stats.confirm_ids),
+            kind="confirm",
         )
 
     conn.execute(
         "UPDATE run_log SET finished_at = ?, attempted = ?, succeeded = ?, failed = ?, blocked = ?, notes = ? WHERE id = ?",
-        (utcnow(), stats.calls, stats.ok, stats.failed, 1 if stats.blocked else 0,
-         "; ".join(notes) if notes else None, stats.run_id),
+        (
+            utcnow(),
+            stats.calls,
+            stats.ok,
+            stats.failed,
+            1 if stats.blocked else 0,
+            "; ".join(notes) if notes else None,
+            stats.run_id,
+        ),
     )
     conn.commit()
     return stats

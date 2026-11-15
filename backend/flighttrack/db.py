@@ -73,6 +73,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
 # state helpers
 # ---------------------------------------------------------------------------
 
+
 def get_state(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
     row = conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else default

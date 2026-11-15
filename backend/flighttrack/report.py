@@ -31,7 +31,7 @@ class GridRow:
     duration_min: int | None
     target_price: int | None
     deep_link: str | None
-    sweep_cents: int | None = None      # latest calendar-sweep price (context, not the series)
+    sweep_cents: int | None = None  # latest calendar-sweep price (context, not the series)
     sweep_at: str | None = None
 
     @property
@@ -132,7 +132,7 @@ def grid(
         LEFT JOIN latest l ON l.query_id = q.id AND l.rn = 1
         LEFT JOIN lows lo ON lo.query_id = q.id
         LEFT JOIN sweeps s ON s.query_id = q.id AND s.rn = 1
-        WHERE {' AND '.join(where)}
+        WHERE {" AND ".join(where)}
         ORDER BY q.depart_date ASC, r.destination ASC
     """
 
@@ -196,12 +196,15 @@ def sparkline(values: list[int]) -> str:
     if hi == lo:
         return SPARK[len(SPARK) // 2] * len(values)
     span = hi - lo
-    return "".join(SPARK[min(len(SPARK) - 1, int((v - lo) / span * (len(SPARK) - 1)))] for v in values)
+    return "".join(
+        SPARK[min(len(SPARK) - 1, int((v - lo) / span * (len(SPARK) - 1)))] for v in values
+    )
 
 
 # ---------------------------------------------------------------------------
 # Terminal rendering
 # ---------------------------------------------------------------------------
+
 
 def render_grid(rows: list[GridRow], title: str, window_days: int = 30) -> str:
     """The table from plan §9."""
@@ -242,7 +245,9 @@ def render_grid(rows: list[GridRow], title: str, window_days: int = 30) -> str:
         )
     if show_sweep:
         out.append("")
-        out.append("  SWEEP = latest calendar-sweep price (indicative; confirmed prices appear under CURRENT)")
+        out.append(
+            "  SWEEP = latest calendar-sweep price (indicative; confirmed prices appear under CURRENT)"
+        )
 
     out.append("")
     return "\n".join(out)
@@ -296,6 +301,7 @@ def render_sparklines(conn: sqlite3.Connection, rows: list[GridRow], title: str)
 # Advisor — "should I book this now?" for a fixed trip or a date grid
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Advice:
     row: GridRow
@@ -305,7 +311,7 @@ class Advice:
     route_p20: int | None
     route_p50: int | None
     trend_7d_pct: float | None
-    verdict: str                 # BOOK | LEAN BOOK | HOLD | WAIT
+    verdict: str  # BOOK | LEAN BOOK | HOLD | WAIT
     reasons: list[str]
 
 
@@ -381,7 +387,9 @@ def advise(
             reasons.append(f"lowest of {n} observations for these dates")
             points += 2
         if p20 is not None and r.current_cents <= p20:
-            reasons.append(f"in the cheapest 20% of {r.dest} fares seen in {route_window_days}d (p20 {fmt_money(p20)})")
+            reasons.append(
+                f"in the cheapest 20% of {r.dest} fares seen in {route_window_days}d (p20 {fmt_money(p20)})"
+            )
             points += 2
         elif p50 is not None and r.current_cents > p50:
             reasons.append(f"above the {r.dest} median of {fmt_money(p50)}")
@@ -405,7 +413,15 @@ def advise(
         if n < 5:
             reasons.append(f"only {n} observation(s): low confidence")
 
-        verdict = "BOOK" if points >= 3 else "LEAN BOOK" if points >= 1 else "WAIT" if points <= -1 else "HOLD"
+        verdict = (
+            "BOOK"
+            if points >= 3
+            else "LEAN BOOK"
+            if points >= 1
+            else "WAIT"
+            if points <= -1
+            else "HOLD"
+        )
         out.append(Advice(r, days, n, atl, p20, p50, trend, verdict, reasons))
 
     order = {"BOOK": 0, "LEAN BOOK": 1, "HOLD": 2, "WAIT": 3}
@@ -430,6 +446,8 @@ def render_advice(items: list[Advice], title: str) -> str:
         if r.deep_link:
             out.append(f"             {r.deep_link}")
         out.append("")
-    out.append("  Heuristic only: it compares today's price with what this tracker has seen. It does not predict fares.")
+    out.append(
+        "  Heuristic only: it compares today's price with what this tracker has seen. It does not predict fares."
+    )
     out.append("")
     return "\n".join(out)

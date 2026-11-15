@@ -44,7 +44,7 @@ def test_trigger_runs_job_once_and_refuses_while_running():
         if s.running:
             break
         threading.Event().wait(0.02)
-    assert s.running and not s.trigger()      # second trigger refused mid-run
+    assert s.running and not s.trigger()  # second trigger refused mid-run
     gate.set()
     for _ in range(50):
         if not s.running:
@@ -67,9 +67,13 @@ def test_http_serves_report_status_and_run(tmp_path):
             # Bind port 0 by constructing the server ourselves.
             from http.server import ThreadingHTTPServer
 
-            sched = serve.Scheduler(at="03:15", jitter_minutes=0, job=lambda: jobs.append(1), log=lambda m: None)
+            sched = serve.Scheduler(
+                at="03:15", jitter_minutes=0, job=lambda: jobs.append(1), log=lambda m: None
+            )
             threading.Thread(target=sched.loop, daemon=True).start()
-            httpd = ThreadingHTTPServer(("127.0.0.1", 0), serve.make_handler(cfg, sched, log=lambda m: None))
+            httpd = ThreadingHTTPServer(
+                ("127.0.0.1", 0), serve.make_handler(cfg, sched, log=lambda m: None)
+            )
             port_box["port"] = httpd.server_address[1]
             port_box["httpd"] = httpd
             port_box["sched"] = sched
@@ -82,10 +86,16 @@ def test_http_serves_report_status_and_run(tmp_path):
 
     with urllib.request.urlopen(base + "/") as r:
         body = r.read().decode()
-        assert r.status == 200 and "<title>flighttrack</title>" in body and "No observations yet" in body
+        assert (
+            r.status == 200
+            and "<title>flighttrack</title>" in body
+            and "No observations yet" in body
+        )
     with urllib.request.urlopen(base + "/status.json") as r:
         st = json.loads(r.read())
-        assert st["healthy"] is True and st["scheduler"]["running"] is False and st["cheapest"] == []
+        assert (
+            st["healthy"] is True and st["scheduler"]["running"] is False and st["cheapest"] == []
+        )
     req = urllib.request.Request(base + "/run", method="POST")
     with urllib.request.urlopen(req) as r:
         assert r.status == 202
@@ -106,6 +116,7 @@ def test_http_serves_report_status_and_run(tmp_path):
 # M1: start-up catch-up
 # ---------------------------------------------------------------------------
 
+
 def test_needs_catchup_from_last_success(tmp_path):
     from datetime import timezone
 
@@ -114,9 +125,9 @@ def test_needs_catchup_from_last_success(tmp_path):
     now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
     conn, _ = make_db(tmp_path)
     assert serve.needs_catchup(conn, now) == (True, "no successful fetch recorded yet")
-    set_state(conn, "last_success_at", "2026-11-13T18:00:00Z")          # 18 h ago
+    set_state(conn, "last_success_at", "2026-11-13T18:00:00Z")  # 18 h ago
     assert serve.needs_catchup(conn, now)[0] is False
-    set_state(conn, "last_success_at", "2026-11-13T15:00:00Z")          # 21 h ago
+    set_state(conn, "last_success_at", "2026-11-13T15:00:00Z")  # 21 h ago
     run, why = serve.needs_catchup(conn, now)
     assert run and "21h ago" in why
 
@@ -133,11 +144,11 @@ def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys)
     seen = []
     monkeypatch.setattr(serve, "serve", lambda cfg, job, **kw: seen.append(kw["run_on_start"]))
 
-    assert cli.main(["--config", str(cfg_path), "serve"]) == 0          # empty database → catch up
+    assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # empty database → catch up
     assert "catching up at start" in capsys.readouterr().out
     conn = connect(tmp_path / "f.db")
     set_state(conn, "last_success_at", utcnow())
     conn.close()
-    assert cli.main(["--config", str(cfg_path), "serve"]) == 0          # fresh → wait for the schedule
+    assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # fresh → wait for the schedule
     assert cli.main(["--config", str(cfg_path), "serve", "--run-on-start"]) == 0
     assert seen == [True, False, True]

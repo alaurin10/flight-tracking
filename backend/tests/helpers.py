@@ -64,8 +64,19 @@ def first_query_id(conn, dest="SLC"):
 # Google Flights page fixtures (shape mirrors the live ds:1 payload)
 # ---------------------------------------------------------------------------
 
-def make_segment(origin="SEA", dest="HND", dep=(2027, 1, 7), dep_t=(8, 30), arr=(2027, 1, 8),
-                 arr_t=(11, 5), minutes=615, plane="Boeing 787", carrier="AS", number="171"):
+
+def make_segment(
+    origin="SEA",
+    dest="HND",
+    dep=(2027, 1, 7),
+    dep_t=(8, 30),
+    arr=(2027, 1, 8),
+    arr_t=(11, 5),
+    minutes=615,
+    plane="Boeing 787",
+    carrier="AS",
+    number="171",
+):
     s = [None] * 23
     s[3], s[4], s[5], s[6] = origin, f"{origin} name", f"{dest} name", dest
     s[8], s[10], s[11], s[17] = list(dep_t), list(arr_t), minutes, plane
@@ -82,10 +93,12 @@ def make_itinerary(price, segments=None, codes=("AS",)):
     return [flight, [[None, price]]]
 
 
-def make_payload(best=(), other=(), airlines=(("AS", "Alaska"), ("DL", "Delta"), ("JL", "Japan Airlines"))):
+def make_payload(
+    best=(), other=(), airlines=(("AS", "Alaska"), ("DL", "Delta"), ("JL", "Japan Airlines"))
+):
     payload = [None] * 8
-    payload[2] = [list(best)] if best is not None else None      # "Top departing flights"
-    payload[3] = [list(other)] if other is not None else None    # "Other departing flights"
+    payload[2] = [list(best)] if best is not None else None  # "Top departing flights"
+    payload[3] = [list(other)] if other is not None else None  # "Other departing flights"
     payload[7] = [None, [[["STAR", "Star Alliance"]], [list(a) for a in airlines]]]
     return payload
 
@@ -93,9 +106,13 @@ def make_payload(best=(), other=(), airlines=(("AS", "Alaska"), ("DL", "Delta"),
 def make_results_html(payload, wrap="script"):
     import json as _json
 
-    js = ("AF_initDataCallback({key: 'ds:1', hash: '2', data:" + _json.dumps(payload) + ", sideChannel: {}});")
+    js = (
+        "AF_initDataCallback({key: 'ds:1', hash: '2', data:"
+        + _json.dumps(payload)
+        + ", sideChannel: {}});"
+    )
     if wrap == "script":
-        return f"<html><head><title>Flights</title></head><body><script class=\"ds:1\" nonce=\"abc\">{js}</script></body></html>"
+        return f'<html><head><title>Flights</title></head><body><script class="ds:1" nonce="abc">{js}</script></body></html>'
     return f"<html><body><script>{js}</script></body></html>"
 
 
@@ -127,7 +144,14 @@ class FakeTransport:
         if isinstance(item, Exception):
             raise item
         status, final_url, text = item
-        return Response(status=status, url=final_url or url, text=text, elapsed=0.01, transport="fake", headers={})
+        return Response(
+            status=status,
+            url=final_url or url,
+            text=text,
+            elapsed=0.01,
+            transport="fake",
+            headers={},
+        )
 
     def get(self, url, params=None, headers=None, timeout=30.0):
         return self._next(url, params)

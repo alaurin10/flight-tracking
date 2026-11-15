@@ -47,8 +47,10 @@ def test_missing_file(tmp_path):
     "text,match",
     [
         (BASE.replace("home: SEA", "home: SEATTLE"), "not a 3-letter IATA"),
-        ("home: SEA\nroutes: []\npatterns:\n  - name: t\n    depart_dow: THU\n    nights: 4\n",
-         "non-empty list"),
+        (
+            "home: SEA\nroutes: []\npatterns:\n  - name: t\n    depart_dow: THU\n    nights: 4\n",
+            "non-empty list",
+        ),
         (BASE.replace("dest: HND", "dest: SEA"), "same as home"),
         (BASE.replace("target_price: 65000", "target_price: -5"), "positive integer"),
         (BASE.replace("target_price: 65000", "target_price: 450.50"), "positive integer"),
@@ -59,8 +61,12 @@ def test_missing_file(tmp_path):
         (BASE + "search:\n  seat: cattle-class\n", "search.seat must be"),
         (BASE + "search:\n  adults: 99\n", "adults must be"),
         (BASE.replace("channel: none", "channel: telepathy"), "notify.channel must be"),
-        (BASE.replace("  - name: thu", "  - name: thu\n    depart_dow: THU\n    nights: 4\n  - name: thu"),
-         "duplicate pattern name"),
+        (
+            BASE.replace(
+                "  - name: thu", "  - name: thu\n    depart_dow: THU\n    nights: 4\n  - name: thu"
+            ),
+            "duplicate pattern name",
+        ),
         ("routes: []", "home"),
     ],
 )

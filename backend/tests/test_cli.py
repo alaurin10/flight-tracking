@@ -48,13 +48,27 @@ def test_expand_status_doctor_offline_report_advise(tmp_path, capsys):
 def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
     c = _cfg(tmp_path)
     cli.main(["--config", c, "expand"])
-    lines = "\n".join([
-        json.dumps({"dest": "HND", "depart": "2027-04-10", "return": "2027-04-24", "price": 812.5, "airline": "ANA", "stops": 0, "source": "expedia"}),
-        json.dumps({"dest": "XXX", "depart": "2027-04-10", "price": 1}),
-        "not json",
-    ])
+    lines = "\n".join(
+        [
+            json.dumps(
+                {
+                    "dest": "HND",
+                    "depart": "2027-04-10",
+                    "return": "2027-04-24",
+                    "price": 812.5,
+                    "airline": "ANA",
+                    "stops": 0,
+                    "source": "expedia",
+                }
+            ),
+            json.dumps({"dest": "XXX", "depart": "2027-04-10", "price": 1}),
+            "not json",
+        ]
+    )
     monkeypatch.setattr("sys.stdin", io.StringIO(lines))
-    assert cli.main(["--config", c, "ingest"]) == 1          # two bad lines → non-zero, but the good one lands
+    assert (
+        cli.main(["--config", c, "ingest"]) == 1
+    )  # two bad lines → non-zero, but the good one lands
     conn = connect(tmp_path / "f.db")
     row = conn.execute(
         "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = o.query_id"

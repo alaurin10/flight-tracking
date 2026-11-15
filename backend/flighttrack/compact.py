@@ -37,8 +37,10 @@ class CompactStats:
 
     def summary(self) -> str:
         verb = "would delete" if self.dry_run else "deleted"
-        s = (f"{verb} runner-ups={self.runner_ups_deleted} attempts={self.attempts_deleted} "
-             f"feed_log={self.feed_log_deleted}")
+        s = (
+            f"{verb} runner-ups={self.runner_ups_deleted} attempts={self.attempts_deleted} "
+            f"feed_log={self.feed_log_deleted}"
+        )
         if self.size_before:
             s += f" size {self.size_before / 1e6:.1f}→{self.size_after / 1e6:.1f} MB"
         return s
@@ -62,7 +64,9 @@ def _db_size(conn: sqlite3.Connection) -> int:
         return 0
 
 
-def compact(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, dry_run: bool = False) -> CompactStats:
+def compact(
+    conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, dry_run: bool = False
+) -> CompactStats:
     now = now or datetime.now(timezone.utc)
     r = cfg.retention
     stats = CompactStats(dry_run=dry_run, size_before=_db_size(conn))
@@ -75,8 +79,12 @@ def compact(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, 
             "SELECT COUNT(*) FROM observations WHERE is_best = 0 AND observed_at < ?", (cut_r,)
         ).fetchone()[0]
     if cut_a:
-        stats.attempts_deleted = conn.execute("SELECT COUNT(*) FROM fetch_attempts WHERE at < ?", (cut_a,)).fetchone()[0]
-        stats.feed_log_deleted = conn.execute("SELECT COUNT(*) FROM feed_log WHERE at < ?", (cut_a,)).fetchone()[0]
+        stats.attempts_deleted = conn.execute(
+            "SELECT COUNT(*) FROM fetch_attempts WHERE at < ?", (cut_a,)
+        ).fetchone()[0]
+        stats.feed_log_deleted = conn.execute(
+            "SELECT COUNT(*) FROM feed_log WHERE at < ?", (cut_a,)
+        ).fetchone()[0]
 
     if dry_run:
         stats.size_after = stats.size_before
@@ -92,7 +100,7 @@ def compact(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, 
             conn.execute("ROLLBACK")
             raise
         finally:
-            conn.executescript(SCHEMA_PATH.read_text())   # recreates the trigger, idempotent
+            conn.executescript(SCHEMA_PATH.read_text())  # recreates the trigger, idempotent
             conn.commit()
     if cut_a:
         conn.execute("DELETE FROM fetch_attempts WHERE at < ?", (cut_a,))

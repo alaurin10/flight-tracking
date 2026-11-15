@@ -35,6 +35,7 @@ BASE_URL = "https://www.google.com/travel/flights/search"
 # Wire-format primitives
 # ---------------------------------------------------------------------------
 
+
 def varint(n: int) -> bytes:
     if n < 0:
         # Negative int32 is sign-extended to 10 bytes in protobuf. We never
@@ -76,14 +77,15 @@ def field_packed(field_no: int, values: list[int]) -> bytes:
 # Messages
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Leg:
     """One flight segment request: `origin` → `dest` on `date`."""
 
-    date: str                       # 'YYYY-MM-DD'
-    origin: str                     # IATA
-    dest: str                       # IATA
-    max_stops: int | None = None    # None = any
+    date: str  # 'YYYY-MM-DD'
+    origin: str  # IATA
+    dest: str  # IATA
+    max_stops: int | None = None  # None = any
     airlines: tuple[str, ...] = ()  # restrict to these carriers
     earliest_departure_hour: int | None = None
     latest_departure_hour: int | None = None
@@ -113,7 +115,7 @@ class Leg:
         ):
             if v is not None:
                 out += field_varint(no, v)
-        out += field_bytes(13, field_string(2, self.origin))   # Airport{airport=2}
+        out += field_bytes(13, field_string(2, self.origin))  # Airport{airport=2}
         out += field_bytes(14, field_string(2, self.dest))
         for c in self.connecting_airports:
             out += field_string(15, c)
@@ -132,7 +134,7 @@ class Query:
 
     legs: tuple[Leg, ...]
     seat: str = "economy"
-    trip: str | None = None         # inferred from leg count when None
+    trip: str | None = None  # inferred from leg count when None
     adults: int = 1
     children: int = 0
     infants_in_seat: int = 0

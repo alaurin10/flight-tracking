@@ -56,7 +56,7 @@ class TransportError(Exception):
 @dataclass
 class Response:
     status: int
-    url: str            # final URL after redirects — a consent bounce shows here
+    url: str  # final URL after redirects — a consent bounce shows here
     text: str
     elapsed: float
     transport: str
@@ -70,11 +70,22 @@ class Response:
 class Transport(Protocol):
     name: str
 
-    def get(self, url: str, params: dict[str, str] | None = None,
-            headers: dict[str, str] | None = None, timeout: float = DEFAULT_TIMEOUT) -> Response: ...
+    def get(
+        self,
+        url: str,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Response: ...
 
-    def post(self, url: str, data: str, params: dict[str, str] | None = None,
-             headers: dict[str, str] | None = None, timeout: float = DEFAULT_TIMEOUT) -> Response: ...
+    def post(
+        self,
+        url: str,
+        data: str,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> Response: ...
 
 
 def _with_params(url: str, params: dict[str, str] | None) -> str:
@@ -124,7 +135,9 @@ class UrllibTransport:
             return Response(
                 status=exc.code,
                 url=exc.geturl() or req.full_url,
-                text=_decode_body(raw, exc.headers.get("Content-Encoding") if exc.headers else None),
+                text=_decode_body(
+                    raw, exc.headers.get("Content-Encoding") if exc.headers else None
+                ),
                 elapsed=time.monotonic() - t0,
                 transport=self.name,
                 headers={k.lower(): v for k, v in (exc.headers.items() if exc.headers else [])},
@@ -133,7 +146,9 @@ class UrllibTransport:
             raise TransportError(f"{type(exc).__name__}: {exc}") from exc
 
     def get(self, url, params=None, headers=None, timeout=DEFAULT_TIMEOUT) -> Response:
-        req = urllib.request.Request(_with_params(url, params), headers={**BASE_HEADERS, **(headers or {})})
+        req = urllib.request.Request(
+            _with_params(url, params), headers={**BASE_HEADERS, **(headers or {})}
+        )
         return self._do(req, timeout)
 
     def post(self, url, data, params=None, headers=None, timeout=DEFAULT_TIMEOUT) -> Response:
@@ -141,8 +156,11 @@ class UrllibTransport:
             _with_params(url, params),
             data=data.encode("utf-8"),
             method="POST",
-            headers={**BASE_HEADERS, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                     **(headers or {})},
+            headers={
+                **BASE_HEADERS,
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                **(headers or {}),
+            },
         )
         return self._do(req, timeout)
 
@@ -177,18 +195,31 @@ class PrimpTransport:
             text=getattr(res, "text", "") or "",
             elapsed=time.monotonic() - t0,
             transport=self.name,
-            headers={str(k).lower(): str(v) for k, v in dict(getattr(res, "headers", {}) or {}).items()},
+            headers={
+                str(k).lower(): str(v) for k, v in dict(getattr(res, "headers", {}) or {}).items()
+            },
         )
 
     def get(self, url, params=None, headers=None, timeout=DEFAULT_TIMEOUT) -> Response:
-        return self._wrap(self._client.get, url, timeout, params=params or {},
-                          headers={"Cookie": CONSENT_COOKIES, **(headers or {})})
+        return self._wrap(
+            self._client.get,
+            url,
+            timeout,
+            params=params or {},
+            headers={"Cookie": CONSENT_COOKIES, **(headers or {})},
+        )
 
     def post(self, url, data, params=None, headers=None, timeout=DEFAULT_TIMEOUT) -> Response:
         return self._wrap(
-            self._client.post, _with_params(url, params), timeout, content=data.encode("utf-8"),
-            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                     "Cookie": CONSENT_COOKIES, **(headers or {})},
+            self._client.post,
+            _with_params(url, params),
+            timeout,
+            content=data.encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                "Cookie": CONSENT_COOKIES,
+                **(headers or {}),
+            },
         )
 
 
@@ -212,6 +243,9 @@ def default_transport(prefer: str = "auto") -> Transport:
         except Exception as exc:  # noqa: BLE001 — any primp failure must not stop collection
             if prefer == "primp":
                 raise
-            print(f"[warn] primp transport unavailable ({type(exc).__name__}: {exc}); using urllib", file=sys.stderr)
+            print(
+                f"[warn] primp transport unavailable ({type(exc).__name__}: {exc}); using urllib",
+                file=sys.stderr,
+            )
             return UrllibTransport()
     raise ValueError(f"unknown transport {prefer!r}")

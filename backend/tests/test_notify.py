@@ -79,16 +79,23 @@ class FakeSMTP:
 def test_smtp_encodes_non_ascii_subjects(monkeypatch, subject):
     FakeSMTP.sent = []
     monkeypatch.setattr("smtplib.SMTP", FakeSMTP)
-    notify({"channel": "smtp", "smtp": {"host": "mail.example", "to": "me@example.test"}},
-           subject, "SEA→HND $612", "https://google.test/flights?tfs=xyz")
+    notify(
+        {"channel": "smtp", "smtp": {"host": "mail.example", "to": "me@example.test"}},
+        subject,
+        "SEA→HND $612",
+        "https://google.test/flights?tfs=xyz",
+    )
 
     wire = FakeSMTP.sent[0]
     headers = wire.split(b"\n\n", 1)[0]
-    headers.decode("ascii")                    # RFC 5322: header bytes are ASCII
-    assert b"=?utf-8?" in headers.lower()      # the subject went out RFC 2047-encoded
+    headers.decode("ascii")  # RFC 5322: header bytes are ASCII
+    assert b"=?utf-8?" in headers.lower()  # the subject went out RFC 2047-encoded
     parsed = message_from_bytes(wire, policy=policy.default)
     assert parsed["Subject"] == subject
-    assert "SEA→HND $612" in parsed.get_content() and "https://google.test/flights?tfs=xyz" in parsed.get_content()
+    assert (
+        "SEA→HND $612" in parsed.get_content()
+        and "https://google.test/flights?tfs=xyz" in parsed.get_content()
+    )
 
 
 def test_smtp_requires_host_and_recipient():
@@ -109,6 +116,7 @@ def test_any_channel_exception_becomes_notify_error(monkeypatch):
 # Callers: a channel that raises must never become an exception in the stage
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def broken_file_channel(monkeypatch):
     def boom(*a):
@@ -119,9 +127,11 @@ def broken_file_channel(monkeypatch):
 
 
 def test_alert_run_reports_delivery_error(tmp_path, broken_file_channel):
-    cfg = make_config(alerts=Alerts(min_observations_for_all_time_low=99), notify=broken_file_channel)
+    cfg = make_config(
+        alerts=Alerts(min_observations_for_all_time_low=99), notify=broken_file_channel
+    )
     conn, cfg = make_db(tmp_path, cfg)
-    add_obs(conn, first_query_id(conn, "SLC"), 13000)          # under the $140 SLC target
+    add_obs(conn, first_query_id(conn, "SLC"), 13000)  # under the $140 SLC target
 
     stats = alert.run(conn, cfg, verbose=False)
     assert stats.qualified == 1 and stats.sent == 0
@@ -131,7 +141,10 @@ def test_alert_run_reports_delivery_error(tmp_path, broken_file_channel):
 
 def test_deals_alert_reports_delivery_error(tmp_path, broken_file_channel):
     watch = DealWatch("Anything", origins=("Seattle",), destinations=())
-    cfg = replace(make_config(notify=broken_file_channel), deals=Deals(enabled=True, feeds=("f",), watches=(watch,)))
+    cfg = replace(
+        make_config(notify=broken_file_channel),
+        deals=Deals(enabled=True, feeds=("f",), watches=(watch,)),
+    )
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute(
         "INSERT INTO deal_posts (guid, feed, title, seen_at, price_cents, watch) VALUES ('g', 'f', ?, ?, 12700, 'Anything')",
@@ -141,7 +154,9 @@ def test_deals_alert_reports_delivery_error(tmp_path, broken_file_channel):
 
     from datetime import datetime, timezone
 
-    stats = deals.alert(conn, cfg, verbose=False, now=datetime(2026, 11, 14, 12, tzinfo=timezone.utc))
+    stats = deals.alert(
+        conn, cfg, verbose=False, now=datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+    )
     assert "synthetic channel failure" in stats.delivery_error
     assert conn.execute("SELECT alerted_at FROM deal_posts").fetchone()[0] is None
 

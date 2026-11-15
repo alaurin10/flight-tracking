@@ -32,38 +32,236 @@ from .report import fmt_money
 # words, case-insensitively). Extend freely — it is only a list.
 REGIONS: dict[str, tuple[str, ...]] = {
     "europe": (
-        "europe", "european", "uk", "england", "london", "manchester", "edinburgh", "scotland", "ireland", "dublin",
-        "france", "paris", "nice", "lyon", "spain", "madrid", "barcelona", "malaga", "seville", "portugal", "lisbon",
-        "porto", "italy", "rome", "milan", "venice", "florence", "naples", "germany", "berlin", "munich", "frankfurt",
-        "netherlands", "amsterdam", "belgium", "brussels", "switzerland", "zurich", "geneva", "austria", "vienna",
-        "czech", "prague", "poland", "warsaw", "krakow", "hungary", "budapest", "greece", "athens", "croatia",
-        "zagreb", "split", "dubrovnik", "denmark", "copenhagen", "sweden", "stockholm", "norway", "oslo", "finland",
-        "helsinki", "iceland", "reykjavik", "turkey", "istanbul", "romania", "bucharest", "bulgaria", "sofia",
-        "malta", "cyprus", "estonia", "tallinn", "latvia", "riga", "lithuania", "vilnius", "slovenia", "ljubljana",
-        "serbia", "belgrade", "scandinavia",
+        "europe",
+        "european",
+        "uk",
+        "england",
+        "london",
+        "manchester",
+        "edinburgh",
+        "scotland",
+        "ireland",
+        "dublin",
+        "france",
+        "paris",
+        "nice",
+        "lyon",
+        "spain",
+        "madrid",
+        "barcelona",
+        "malaga",
+        "seville",
+        "portugal",
+        "lisbon",
+        "porto",
+        "italy",
+        "rome",
+        "milan",
+        "venice",
+        "florence",
+        "naples",
+        "germany",
+        "berlin",
+        "munich",
+        "frankfurt",
+        "netherlands",
+        "amsterdam",
+        "belgium",
+        "brussels",
+        "switzerland",
+        "zurich",
+        "geneva",
+        "austria",
+        "vienna",
+        "czech",
+        "prague",
+        "poland",
+        "warsaw",
+        "krakow",
+        "hungary",
+        "budapest",
+        "greece",
+        "athens",
+        "croatia",
+        "zagreb",
+        "split",
+        "dubrovnik",
+        "denmark",
+        "copenhagen",
+        "sweden",
+        "stockholm",
+        "norway",
+        "oslo",
+        "finland",
+        "helsinki",
+        "iceland",
+        "reykjavik",
+        "turkey",
+        "istanbul",
+        "romania",
+        "bucharest",
+        "bulgaria",
+        "sofia",
+        "malta",
+        "cyprus",
+        "estonia",
+        "tallinn",
+        "latvia",
+        "riga",
+        "lithuania",
+        "vilnius",
+        "slovenia",
+        "ljubljana",
+        "serbia",
+        "belgrade",
+        "scandinavia",
     ),
-    "japan": ("japan", "tokyo", "osaka", "kyoto", "nagoya", "fukuoka", "sapporo", "okinawa", "haneda", "narita"),
+    "japan": (
+        "japan",
+        "tokyo",
+        "osaka",
+        "kyoto",
+        "nagoya",
+        "fukuoka",
+        "sapporo",
+        "okinawa",
+        "haneda",
+        "narita",
+    ),
     "asia": (
-        "asia", "japan", "tokyo", "osaka", "korea", "seoul", "taiwan", "taipei", "china", "beijing", "shanghai",
-        "hong kong", "singapore", "thailand", "bangkok", "phuket", "vietnam", "hanoi", "saigon", "ho chi minh",
-        "malaysia", "kuala lumpur", "indonesia", "bali", "jakarta", "philippines", "manila", "cebu", "india",
-        "delhi", "mumbai", "sri lanka", "cambodia", "laos", "nepal", "kathmandu",
+        "asia",
+        "japan",
+        "tokyo",
+        "osaka",
+        "korea",
+        "seoul",
+        "taiwan",
+        "taipei",
+        "china",
+        "beijing",
+        "shanghai",
+        "hong kong",
+        "singapore",
+        "thailand",
+        "bangkok",
+        "phuket",
+        "vietnam",
+        "hanoi",
+        "saigon",
+        "ho chi minh",
+        "malaysia",
+        "kuala lumpur",
+        "indonesia",
+        "bali",
+        "jakarta",
+        "philippines",
+        "manila",
+        "cebu",
+        "india",
+        "delhi",
+        "mumbai",
+        "sri lanka",
+        "cambodia",
+        "laos",
+        "nepal",
+        "kathmandu",
     ),
     "hawaii": ("hawaii", "honolulu", "maui", "kauai", "kona", "hilo", "oahu"),
-    "mexico": ("mexico", "cancun", "cabo", "puerto vallarta", "mexico city", "guadalajara", "oaxaca", "tulum", "cozumel"),
-    "caribbean": ("caribbean", "jamaica", "bahamas", "aruba", "puerto rico", "san juan", "dominican", "punta cana",
-                  "barbados", "st. lucia", "saint lucia", "turks", "cayman", "curacao", "bermuda", "antigua"),
-    "south america": ("south america", "brazil", "rio", "sao paulo", "argentina", "buenos aires", "chile", "santiago",
-                      "peru", "lima", "cusco", "colombia", "bogota", "medellin", "cartagena", "ecuador", "quito",
-                      "galapagos", "uruguay", "montevideo", "bolivia"),
-    "oceania": ("australia", "sydney", "melbourne", "brisbane", "perth", "new zealand", "auckland", "queenstown", "fiji", "tahiti"),
-    "africa": ("africa", "morocco", "marrakech", "casablanca", "egypt", "cairo", "south africa", "cape town",
-               "johannesburg", "kenya", "nairobi", "tanzania", "zanzibar", "ghana", "accra", "senegal"),
+    "mexico": (
+        "mexico",
+        "cancun",
+        "cabo",
+        "puerto vallarta",
+        "mexico city",
+        "guadalajara",
+        "oaxaca",
+        "tulum",
+        "cozumel",
+    ),
+    "caribbean": (
+        "caribbean",
+        "jamaica",
+        "bahamas",
+        "aruba",
+        "puerto rico",
+        "san juan",
+        "dominican",
+        "punta cana",
+        "barbados",
+        "st. lucia",
+        "saint lucia",
+        "turks",
+        "cayman",
+        "curacao",
+        "bermuda",
+        "antigua",
+    ),
+    "south america": (
+        "south america",
+        "brazil",
+        "rio",
+        "sao paulo",
+        "argentina",
+        "buenos aires",
+        "chile",
+        "santiago",
+        "peru",
+        "lima",
+        "cusco",
+        "colombia",
+        "bogota",
+        "medellin",
+        "cartagena",
+        "ecuador",
+        "quito",
+        "galapagos",
+        "uruguay",
+        "montevideo",
+        "bolivia",
+    ),
+    "oceania": (
+        "australia",
+        "sydney",
+        "melbourne",
+        "brisbane",
+        "perth",
+        "new zealand",
+        "auckland",
+        "queenstown",
+        "fiji",
+        "tahiti",
+    ),
+    "africa": (
+        "africa",
+        "morocco",
+        "marrakech",
+        "casablanca",
+        "egypt",
+        "cairo",
+        "south africa",
+        "cape town",
+        "johannesburg",
+        "kenya",
+        "nairobi",
+        "tanzania",
+        "zanzibar",
+        "ghana",
+        "accra",
+        "senegal",
+    ),
 }
 
 # Words that mean "from where you are" in US deal-site headlines. A watch
 # usually lists its own city plus a few of these.
-US_WIDE = ("us cities", "u.s. cities", "many us cities", "nationwide", "west coast", "usa", "united states")
+US_WIDE = (
+    "us cities",
+    "u.s. cities",
+    "many us cities",
+    "nationwide",
+    "west coast",
+    "usa",
+    "united states",
+)
 
 _PRICE = re.compile(r"(?:US\s?)?\$\s?(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d\d)?")
 _HTML_START = re.compile(r"^\s*(?:<!doctype\s+html|<html)", re.IGNORECASE)
@@ -87,7 +285,7 @@ class FeedItem:
     guid: str
     title: str
     link: str | None
-    published: str | None      # ISO UTC
+    published: str | None  # ISO UTC
     summary: str
     feed: str
 
@@ -113,6 +311,7 @@ class DealStats:
 # ---------------------------------------------------------------------------
 # Feed parsing (RSS 2.0 and Atom, namespaces tolerated)
 # ---------------------------------------------------------------------------
+
 
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].lower()
@@ -161,13 +360,23 @@ def parse_feed(xml_text: str, feed_url: str) -> list[FeedItem]:
         guid = _child_text(e, "guid", "id") or link or f"{feed_url}#{title}"
         published = _to_iso(_child_text(e, "pubDate", "published", "updated", "date"))
         summary = _strip_html(_child_text(e, "description", "summary", "content") or "")[:500]
-        items.append(FeedItem(guid=guid, title=title, link=link, published=published, summary=summary, feed=feed_url))
+        items.append(
+            FeedItem(
+                guid=guid,
+                title=title,
+                link=link,
+                published=published,
+                summary=summary,
+                feed=feed_url,
+            )
+        )
     return items
 
 
 # ---------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------
+
 
 def price_from_text(text: str) -> int | None:
     m = _PRICE.search(text or "")
@@ -216,8 +425,15 @@ def first_match(item: FeedItem, watches) -> DealWatch | None:
 # Poll + alert
 # ---------------------------------------------------------------------------
 
-def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = None,
-         now: datetime | None = None, verbose: bool = True, sleeper=time.sleep) -> DealStats:
+
+def poll(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    transport: Transport | None = None,
+    now: datetime | None = None,
+    verbose: bool = True,
+    sleeper=time.sleep,
+) -> DealStats:
     stats = DealStats()
     now = now or datetime.now(timezone.utc)
     stamp = _iso(now)
@@ -238,7 +454,10 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
         except (TransportError, FeedError, ET.ParseError) as exc:
             msg = (str(exc) if isinstance(exc, FeedError) else f"{type(exc).__name__}: {exc}")[:300]
             stats.errors.append(f"{feed}: {msg}")
-            conn.execute("INSERT INTO feed_log (feed, at, ok, items, error) VALUES (?, ?, 0, 0, ?)", (feed, stamp, msg))
+            conn.execute(
+                "INSERT INTO feed_log (feed, at, ok, items, error) VALUES (?, ?, 0, 0, ?)",
+                (feed, stamp, msg),
+            )
             conn.commit()
             if verbose:
                 print(f"  [FAIL] {feed}: {msg}")
@@ -246,7 +465,10 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
 
         stats.feeds_ok += 1
         stats.items += len(items)
-        conn.execute("INSERT INTO feed_log (feed, at, ok, items) VALUES (?, ?, 1, ?)", (feed, stamp, len(items)))
+        conn.execute(
+            "INSERT INTO feed_log (feed, at, ok, items) VALUES (?, ?, 1, ?)",
+            (feed, stamp, len(items)),
+        )
         new_here = 0
         for it in items:
             if it.published and it.published < cutoff:
@@ -257,8 +479,16 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
                 INSERT INTO deal_posts (guid, feed, title, link, published_at, seen_at, price_cents, watch)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(guid) DO NOTHING
                 """,
-                (it.guid, feed, it.title, it.link, it.published, stamp,
-                 price_from_text(it.title) or price_from_text(it.summary), watch.name if watch else None),
+                (
+                    it.guid,
+                    feed,
+                    it.title,
+                    it.link,
+                    it.published,
+                    stamp,
+                    price_from_text(it.title) or price_from_text(it.summary),
+                    watch.name if watch else None,
+                ),
             )
             if cur.rowcount:
                 new_here += 1
@@ -271,7 +501,9 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
     return stats
 
 
-def pending_alerts(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> list[sqlite3.Row]:
+def pending_alerts(
+    conn: sqlite3.Connection, cfg: Config, now: datetime | None = None
+) -> list[sqlite3.Row]:
     now = now or datetime.now(timezone.utc)
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
     return conn.execute(
@@ -289,8 +521,13 @@ def _line(row: sqlite3.Row) -> str:
     return f"[{row['watch']}] {row['title']}{price}"
 
 
-def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True,
-          now: datetime | None = None) -> DealStats:
+def alert(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    dry_run: bool = False,
+    verbose: bool = True,
+    now: datetime | None = None,
+) -> DealStats:
     stats = DealStats()
     now = now or datetime.now(timezone.utc)
     rows = pending_alerts(conn, cfg, now)
@@ -303,7 +540,12 @@ def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose:
                 if dry_run:
                     print(f"  [dry-run] {_line(r)}")
                 else:
-                    notify(cfg.notify, subject, _line(r) + (f"\n{r['link']}" if r["link"] else ""), r["link"])
+                    notify(
+                        cfg.notify,
+                        subject,
+                        _line(r) + (f"\n{r['link']}" if r["link"] else ""),
+                        r["link"],
+                    )
                 stats.alerted += 1
         else:
             body = "\n\n".join(_line(r) + (f"\n{r['link']}" if r["link"] else "") for r in rows)
@@ -320,14 +562,22 @@ def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose:
         return stats
     if not dry_run:
         stamp = _iso(now)
-        conn.executemany("UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(stamp, r["id"]) for r in rows])
+        conn.executemany(
+            "UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(stamp, r["id"]) for r in rows]
+        )
         conn.commit()
     return stats
 
 
-def run(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = None,
-        dry_run: bool = False, verbose: bool = True, now: datetime | None = None,
-        sleeper=time.sleep) -> DealStats:
+def run(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    transport: Transport | None = None,
+    dry_run: bool = False,
+    verbose: bool = True,
+    now: datetime | None = None,
+    sleeper=time.sleep,
+) -> DealStats:
     if not cfg.deals.enabled:
         if verbose:
             print("[deals] disabled in config")

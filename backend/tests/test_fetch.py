@@ -117,9 +117,10 @@ def test_empty_result_still_marks_query_fetched(tmp_path):
     """Otherwise a route with no inventory gets re-hammered every run."""
     conn, cfg = make_db(tmp_path, make_config())
     _run(conn, cfg, Empty(), limit=3)
-    assert conn.execute(
-        "SELECT COUNT(*) FROM queries WHERE last_fetch_at IS NOT NULL"
-    ).fetchone()[0] == 3
+    assert (
+        conn.execute("SELECT COUNT(*) FROM queries WHERE last_fetch_at IS NOT NULL").fetchone()[0]
+        == 3
+    )
 
 
 def test_failure_then_success_resets_the_counter(tmp_path):
@@ -160,9 +161,14 @@ def test_implausible_prices_are_stored_and_flagged(tmp_path):
 
 
 def test_sleep_is_jittered_between_calls_only(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config(
-        fetch=make_config().fetch.__class__(max_queries_per_run=4, min_sleep_seconds=4.0,
-                                           max_sleep_seconds=8.0)))
+    conn, cfg = make_db(
+        tmp_path,
+        make_config(
+            fetch=make_config().fetch.__class__(
+                max_queries_per_run=4, min_sleep_seconds=4.0, max_sleep_seconds=8.0
+            )
+        ),
+    )
     slept = []
     fetch.run(conn, cfg, FakeSource(), sleeper=slept.append, verbose=False)
     assert len(slept) == 3  # n-1 sleeps for n calls

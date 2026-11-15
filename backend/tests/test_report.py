@@ -8,8 +8,8 @@ def test_grid_shows_current_and_trailing_low(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
     add_obs(conn, qid, 25000, days_ago=20)
-    add_obs(conn, qid, 18000, days_ago=10)   # the 30-day low
-    add_obs(conn, qid, 21000, days_ago=0)    # current
+    add_obs(conn, qid, 18000, days_ago=10)  # the 30-day low
+    add_obs(conn, qid, 21000, days_ago=0)  # current
 
     row = [r for r in report.grid(conn, dest="SLC") if r.query_id == qid][0]
     assert row.current_cents == 21000
@@ -21,7 +21,7 @@ def test_grid_shows_current_and_trailing_low(tmp_path):
 def test_trailing_window_excludes_older_lows(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     qid = first_query_id(conn, "SLC")
-    add_obs(conn, qid, 9000, days_ago=90)    # ancient bargain, outside the window
+    add_obs(conn, qid, 9000, days_ago=90)  # ancient bargain, outside the window
     add_obs(conn, qid, 21000, days_ago=0)
 
     row = [r for r in report.grid(conn, dest="SLC", window_days=30) if r.query_id == qid][0]

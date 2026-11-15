@@ -73,7 +73,7 @@ class FetchStats:
     cooldown_until: str | None = None
     observations_written: int = 0
     implausible: int = 0
-    parser_mismatch: int = 0           # fetches whose lowest parsed price != the page's own cheapest
+    parser_mismatch: int = 0  # fetches whose lowest parsed price != the page's own cheapest
     by_kind: Counter = field(default_factory=Counter)
     sources_used: Counter = field(default_factory=Counter)
     errors: list[str] = field(default_factory=list)
@@ -91,9 +91,13 @@ class FetchStats:
         if self.retries:
             parts.append(f"retries={self.retries}")
         if self.by_kind:
-            parts.append("failures=" + ",".join(f"{k}:{v}" for k, v in sorted(self.by_kind.items())))
+            parts.append(
+                "failures=" + ",".join(f"{k}:{v}" for k, v in sorted(self.by_kind.items()))
+            )
         if self.sources_used:
-            parts.append("via=" + ",".join(f"{k}:{v}" for k, v in sorted(self.sources_used.items())))
+            parts.append(
+                "via=" + ",".join(f"{k}:{v}" for k, v in sorted(self.sources_used.items()))
+            )
         if self.implausible:
             parts.append(f"IMPLAUSIBLE_PRICES={self.implausible}")
         if self.parser_mismatch:
@@ -108,6 +112,7 @@ class FetchStats:
 # ---------------------------------------------------------------------------
 # Cooldown state
 # ---------------------------------------------------------------------------
+
 
 def cooldown_active(conn: sqlite3.Connection, now: datetime | None = None) -> str | None:
     """The ISO time the current cooldown ends, or None if we are clear to run."""
@@ -135,6 +140,7 @@ def clear_cooldown(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 # Selection
 # ---------------------------------------------------------------------------
+
 
 def _due_cutoffs(now: datetime) -> dict[int, str]:
     return {
@@ -195,8 +201,11 @@ def select_due(
             DueQuery(
                 query_id=row["id"],
                 route=Route(
-                    dest=row["destination"], label=row["label"], target_price=row["target_price"],
-                    priority=row["priority"], max_stops=row["max_stops"],
+                    dest=row["destination"],
+                    label=row["label"],
+                    target_price=row["target_price"],
+                    priority=row["priority"],
+                    max_stops=row["max_stops"],
                 ),
                 depart_date=row["depart_date"],
                 return_date=row["return_date"],
@@ -214,7 +223,10 @@ def select_due(
 # Persistence
 # ---------------------------------------------------------------------------
 
-def store(conn: sqlite3.Connection, query_id: int, offers: list[Offer], is_best_series: bool = True) -> tuple[int, int]:
+
+def store(
+    conn: sqlite3.Connection, query_id: int, offers: list[Offer], is_best_series: bool = True
+) -> tuple[int, int]:
     """Append observations for one fetch. Returns (written, implausible).
 
     `is_best_series=False` records rows that must not join the canonical
@@ -234,9 +246,16 @@ def store(conn: sqlite3.Connection, query_id: int, offers: list[Offer], is_best_
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                query_id, observed_at, offer.price_cents, offer.currency, offer.airline,
-                offer.stops, offer.duration_min, 1 if (i == 0 and is_best_series) else 0,
-                offer.raw_json(), offer.source or None,
+                query_id,
+                observed_at,
+                offer.price_cents,
+                offer.currency,
+                offer.airline,
+                offer.stops,
+                offer.duration_min,
+                1 if (i == 0 and is_best_series) else 0,
+                offer.raw_json(),
+                offer.source or None,
             ),
         )
         written += 1
@@ -257,6 +276,7 @@ def _source_used(source: Source) -> str:
 # ---------------------------------------------------------------------------
 # The run
 # ---------------------------------------------------------------------------
+
 
 def run(
     conn: sqlite3.Connection,
@@ -286,12 +306,16 @@ def run(
         )
         conn.commit()
         if verbose:
-            print(f"[fetch] run {stats.run_id}: skipped — cooldown until {until} (a previous run was blocked)")
+            print(
+                f"[fetch] run {stats.run_id}: skipped — cooldown until {until} (a previous run was blocked)"
+            )
         return stats
 
     due = select_due(conn, cfg, now=now, limit=limit, query_ids=query_ids)
     if verbose:
-        print(f"[fetch] run {stats.run_id}: {len(due)} queries due (cap {limit or cfg.fetch.max_queries_per_run}) via {getattr(source, 'name', '?')}")
+        print(
+            f"[fetch] run {stats.run_id}: {len(due)} queries due (cap {limit or cfg.fetch.max_queries_per_run}) via {getattr(source, 'name', '?')}"
+        )
 
     consecutive_failures = 0
     note_bits: list[str] = []
@@ -315,24 +339,44 @@ def run(
         while True:
             t0 = time.monotonic()
             try:
-                offers = source.fetch(cfg, item.route, item.depart_date, item.return_date, cfg.fetch.offers_per_fetch)
+                offers = source.fetch(
+                    cfg, item.route, item.depart_date, item.return_date, cfg.fetch.offers_per_fetch
+                )
                 latency = int((time.monotonic() - t0) * 1000)
                 log_attempt(conn, stats.run_id, item.query_id, _source_used(source), "ok", latency)
                 break
             except NoResults as exc:
                 latency = int((time.monotonic() - t0) * 1000)
-                log_attempt(conn, stats.run_id, item.query_id, _source_used(source), "empty", latency, str(exc))
+                log_attempt(
+                    conn,
+                    stats.run_id,
+                    item.query_id,
+                    _source_used(source),
+                    "empty",
+                    latency,
+                    str(exc),
+                )
                 empty = exc
                 break
             except SourceError as exc:
                 latency = int((time.monotonic() - t0) * 1000)
-                log_attempt(conn, stats.run_id, item.query_id, _source_used(source), exc.kind, latency, str(exc))
+                log_attempt(
+                    conn,
+                    stats.run_id,
+                    item.query_id,
+                    _source_used(source),
+                    exc.kind,
+                    latency,
+                    str(exc),
+                )
                 if isinstance(exc, NetworkError) and cfg.fetch.retry_network_once and not retried:
                     # Transient by definition; one retry after a longer pause.
                     retried = True
                     stats.retries += 1
                     if verbose:
-                        print(f"  [retry] {leg}: {exc} — retrying once in {cfg.fetch.retry_sleep_seconds:.0f}s")
+                        print(
+                            f"  [retry] {leg}: {exc} — retrying once in {cfg.fetch.retry_sleep_seconds:.0f}s"
+                        )
                     sleeper(cfg.fetch.retry_sleep_seconds)
                     continue
                 failure = exc
@@ -343,7 +387,9 @@ def run(
             # blocked, so the consecutive-failure counter resets.
             consecutive_failures = 0
             stats.empty += 1
-            conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), item.query_id))
+            conn.execute(
+                "UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), item.query_id)
+            )
             conn.commit()
             if verbose:
                 print(f"  [empty] {leg}: {empty}")
@@ -392,7 +438,7 @@ def run(
             flag = "  ⚠ implausible price — check units" if implausible else ""
             if mismatch:
                 flag += f"  ⚠ page says cheapest is {offers[0].raw['page_min']} — parser check"
-            print(f"  [ok] {leg}: ${best/100:,.0f} ({written} offers){flag}")
+            print(f"  [ok] {leg}: ${best / 100:,.0f} ({written} offers){flag}")
 
     if stats.succeeded and not stats.blocked:
         clear_cooldown(conn)
@@ -420,8 +466,13 @@ def run(
          WHERE id = ?
         """,
         (
-            utcnow(), stats.attempted, stats.succeeded, stats.failed,
-            1 if stats.blocked else 0, "; ".join(note_bits) if note_bits else None, stats.run_id,
+            utcnow(),
+            stats.attempted,
+            stats.succeeded,
+            stats.failed,
+            1 if stats.blocked else 0,
+            "; ".join(note_bits) if note_bits else None,
+            stats.run_id,
         ),
     )
     conn.commit()

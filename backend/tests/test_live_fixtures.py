@@ -26,7 +26,16 @@ def results_html():
 
 @pytest.fixture(scope="module")
 def page(results_html):
-    return classify(Response(status=200, url=RESULTS_URL, text=results_html, elapsed=0.0, transport="fixture", headers={}))
+    return classify(
+        Response(
+            status=200,
+            url=RESULTS_URL,
+            text=results_html,
+            elapsed=0.0,
+            transport="fixture",
+            headers={},
+        )
+    )
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +44,7 @@ def its(page):
 
 
 # --- results_sea_slc_rt.html ---------------------------------------------------
+
 
 def test_classified_as_results(page):
     assert page.kind is PageKind.RESULTS
@@ -55,7 +65,7 @@ def test_cheapest_is_frontier_via_denver(its):
 def test_cheapest_trip_time_includes_the_layover(its):
     c = its[0]
     assert [s.duration_min for s in c.segments] == [169, 98]
-    assert c.duration_min == 532                         # raw[0][9], not 169 + 98 = 267
+    assert c.duration_min == 532  # raw[0][9], not 169 + 98 = 267
     assert [(lay.minutes, lay.airport) for lay in c.layovers] == [(265, "DEN")]
 
 
@@ -86,11 +96,14 @@ def test_source_reads_it_without_a_parser_mismatch(results_html):
     offers = s.fetch(cfg, cfg.route("SLC"), "2027-01-15", "2027-01-18", 5)
     assert [o.price_cents for o in offers] == [39400, 44700, 47700, 47700, 48200]
     assert offers[0].airline == "Frontier" and offers[0].duration_min == 532
-    assert offers[0].raw["bucket"] == "other" and offers[0].raw["layovers"] == [{"min": 265, "at": "DEN"}]
+    assert offers[0].raw["bucket"] == "other" and offers[0].raw["layovers"] == [
+        {"min": 265, "at": "DEN"}
+    ]
     assert all("page_min" not in o.raw for o in offers)
 
 
 # --- calendar_sea_slc_3n.txt ---------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def calendar():
@@ -102,6 +115,8 @@ def test_calendar_has_31_dated_prices(calendar):
 
 
 def test_calendar_first_last_and_lowest(calendar):
-    assert calendar[0] == DatePrice("2027-01-15", "2027-01-18", 304)     # equals the unfiltered results page
+    assert calendar[0] == DatePrice(
+        "2027-01-15", "2027-01-18", 304
+    )  # equals the unfiltered results page
     assert calendar[-1] == DatePrice("2027-02-14", "2027-02-17", 262)
     assert min(calendar, key=lambda d: d.price) == DatePrice("2027-01-24", "2027-01-27", 200)

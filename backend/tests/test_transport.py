@@ -17,11 +17,16 @@ def test_auto_falls_back_to_urllib_on_any_primp_failure(monkeypatch, capsys):
     chosen = t.default_transport("auto")
     assert chosen.name == "urllib"
     err = capsys.readouterr().err
-    assert err.count("\n") == 1 and "primp transport unavailable (RuntimeError: bad wheel); using urllib" in err
+    assert (
+        err.count("\n") == 1
+        and "primp transport unavailable (RuntimeError: bad wheel); using urllib" in err
+    )
 
 
 def test_auto_is_quiet_when_primp_is_simply_not_installed(monkeypatch, capsys):
-    monkeypatch.setattr(t.PrimpTransport, "__init__", _broken(ImportError("No module named 'primp'")))
+    monkeypatch.setattr(
+        t.PrimpTransport, "__init__", _broken(ImportError("No module named 'primp'"))
+    )
     assert t.default_transport("auto").name == "urllib"
     assert capsys.readouterr().err == ""
 

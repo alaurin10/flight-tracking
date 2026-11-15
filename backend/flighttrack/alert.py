@@ -128,7 +128,9 @@ def route_percentile(conn: sqlite3.Connection, route_id: int, cfg: Config) -> in
     return percentile(prices, cfg.alerts.percentile)
 
 
-def _prior_stats(conn: sqlite3.Connection, query_id: int, observation_id: int) -> tuple[int, int | None]:
+def _prior_stats(
+    conn: sqlite3.Connection, query_id: int, observation_id: int
+) -> tuple[int, int | None]:
     """Count and minimum of observations for a query BEFORE the given one."""
     row = conn.execute(
         """
@@ -189,7 +191,10 @@ def find_candidates(conn: sqlite3.Connection, cfg: Config) -> tuple[list[Candida
         ):
             drop = (prior_low - price) / prior_low * 100.0
             reasons.append(
-                ("all_time_low", f"all-time low — {drop:.0f}% under previous best {fmt_money(prior_low)}")
+                (
+                    "all_time_low",
+                    f"all-time low — {drop:.0f}% under previous best {fmt_money(prior_low)}",
+                )
             )
 
         # --- phase 2 percentile -------------------------------------------
@@ -272,7 +277,9 @@ def _record(conn: sqlite3.Connection, cands: list[Candidate]) -> None:
     conn.commit()
 
 
-def run(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True) -> AlertStats:
+def run(
+    conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True
+) -> AlertStats:
     """Evaluate fresh observations and deliver what qualifies."""
     stats = AlertStats()
     if not cfg.alerts.enabled:

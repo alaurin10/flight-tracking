@@ -30,7 +30,7 @@ PARSER_MISMATCH_WARN = 3
 class Problem:
     code: str
     message: str
-    severity: str = "crit"   # 'crit' | 'warn'
+    severity: str = "crit"  # 'crit' | 'warn'
 
 
 @dataclass
@@ -72,10 +72,14 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
     n_active = conn.execute(
         "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id WHERE q.active = 1 AND r.active = 1"
     ).fetchone()[0]
-    n_runs = conn.execute("SELECT COUNT(*) FROM run_log WHERE kind IN ('fetch', 'confirm')").fetchone()[0]
+    n_runs = conn.execute(
+        "SELECT COUNT(*) FROM run_log WHERE kind IN ('fetch', 'confirm')"
+    ).fetchone()[0]
     rep.info.append(f"{n_active} active queries, {n_runs} fetch runs recorded")
     if n_active == 0:
-        rep.problems.append(Problem("no_queries", "no active queries — run `flighttrack expand`", "warn"))
+        rep.problems.append(
+            Problem("no_queries", "no active queries — run `flighttrack expand`", "warn")
+        )
 
     # --- is anything working? ---------------------------------------------
     last_ok = get_state(conn, STATE_LAST_SUCCESS)
@@ -87,56 +91,98 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
     age = _hours_since(last_ok, now)
     if age is None:
         if n_runs:
-            rep.problems.append(Problem("never_succeeded", f"{n_runs} run(s) recorded but no observation has ever been written — run `flighttrack doctor`"))
+            rep.problems.append(
+                Problem(
+                    "never_succeeded",
+                    f"{n_runs} run(s) recorded but no observation has ever been written — run `flighttrack doctor`",
+                )
+            )
         else:
             rep.info.append("no runs yet — nothing to judge")
     else:
         rep.info.append(f"last successful fetch {age:.1f}h ago")
         if age > cfg.health.max_hours_without_success:
-            rep.problems.append(Problem(
-                "stale_success",
-                f"no successful fetch in {age:.0f}h (limit {cfg.health.max_hours_without_success}h)",
-            ))
+            rep.problems.append(
+                Problem(
+                    "stale_success",
+                    f"no successful fetch in {age:.0f}h (limit {cfg.health.max_hours_without_success}h)",
+                )
+            )
 
     # --- is cron firing? ---------------------------------------------------
-    last_run = conn.execute("SELECT started_at, finished_at FROM run_log ORDER BY id DESC LIMIT 1").fetchone()
+    last_run = conn.execute(
+        "SELECT started_at, finished_at FROM run_log ORDER BY id DESC LIMIT 1"
+    ).fetchone()
     if last_run:
         run_age = _hours_since(last_run["started_at"], now)
         if run_age is not None and run_age > 48 and n_runs > 1:
-            rep.problems.append(Problem("no_recent_run", f"last run started {run_age:.0f}h ago — has cron stopped?"))
+            rep.problems.append(
+                Problem("no_recent_run", f"last run started {run_age:.0f}h ago — has cron stopped?")
+            )
     unfinished = conn.execute(
         "SELECT COUNT(*) FROM run_log WHERE finished_at IS NULL AND started_at < ?",
         (_iso(now - timedelta(hours=2)),),
     ).fetchone()[0]
     if unfinished:
-        rep.problems.append(Problem("unfinished_runs", f"{unfinished} run(s) never finished — process killed mid-run?", "warn"))
+        rep.problems.append(
+            Problem(
+                "unfinished_runs",
+                f"{unfinished} run(s) never finished — process killed mid-run?",
+                "warn",
+            )
+        )
 
     # --- blocking ------------------------------------------------------------
     until = cooldown_active(conn, now)
     streak = int(get_state(conn, STATE_BLOCKED_STREAK, "0") or 0)
     if until:
-        rep.problems.append(Problem("cooldown", f"in cooldown until {until} after {streak} blocked run(s)", "warn" if streak < 2 else "crit"))
+        rep.problems.append(
+            Problem(
+                "cooldown",
+                f"in cooldown until {until} after {streak} blocked run(s)",
+                "warn" if streak < 2 else "crit",
+            )
+        )
     elif streak >= 2:
-        rep.problems.append(Problem("blocked_streak", f"{streak} consecutive runs were blocked", "warn"))
+        rep.problems.append(
+            Problem("blocked_streak", f"{streak} consecutive runs were blocked", "warn")
+        )
 
     # --- last 24h of attempts, by outcome ----------------------------------
     since = _iso(now - timedelta(hours=24))
-    counts = {r["outcome"]: r["n"] for r in conn.execute(
-        "SELECT outcome, COUNT(*) AS n FROM fetch_attempts WHERE at >= ? GROUP BY outcome", (since,)
-    )}
+    counts = {
+        r["outcome"]: r["n"]
+        for r in conn.execute(
+            "SELECT outcome, COUNT(*) AS n FROM fetch_attempts WHERE at >= ? GROUP BY outcome",
+            (since,),
+        )
+    }
     if counts:
-        rep.info.append("last 24h attempts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        rep.info.append(
+            "last 24h attempts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        )
         total = sum(counts.values())
         good = counts.get("ok", 0) + counts.get("empty", 0)
         if good == 0 and total >= 2:
-            worst = max((k for k in counts if k not in ("ok", "empty")), key=lambda k: counts[k], default="unknown")
-            rep.problems.append(Problem("all_failing", f"all {total} attempts in the last 24h failed (mostly {worst})"))
+            worst = max(
+                (k for k in counts if k not in ("ok", "empty")),
+                key=lambda k: counts[k],
+                default="unknown",
+            )
+            rep.problems.append(
+                Problem(
+                    "all_failing", f"all {total} attempts in the last 24h failed (mostly {worst})"
+                )
+            )
         if counts.get("layout", 0) >= 3:
-            rep.problems.append(Problem(
-                "layout", f"{counts['layout']} layout failures in 24h — Google's page may have changed; "
-                          f"see {cfg.failure_dir} and `flighttrack doctor`",
-                "crit" if good == 0 else "warn",
-            ))
+            rep.problems.append(
+                Problem(
+                    "layout",
+                    f"{counts['layout']} layout failures in 24h — Google's page may have changed; "
+                    f"see {cfg.failure_dir} and `flighttrack doctor`",
+                    "crit" if good == 0 else "warn",
+                )
+            )
 
     # --- coverage: how much of the grid is stale? ---------------------------
     if n_active:
@@ -148,13 +194,19 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             allowed = 2 * PRIORITY_INTERVAL_DAYS.get(row["priority"], 3) * 24 + 24
             h = _hours_since(row["last_fetch_at"], now)
             if h is None:
-                stale += 1 if n_runs >= 7 else 0   # a brand-new grid is not stale, just new
+                stale += 1 if n_runs >= 7 else 0  # a brand-new grid is not stale, just new
             elif h > allowed:
                 stale += 1
         frac = stale / n_active
         rep.info.append(f"stale queries: {stale}/{n_active} ({frac:.0%})")
         if frac > cfg.health.stale_fraction_warn:
-            rep.problems.append(Problem("coverage", f"{frac:.0%} of queries are overdue — raise the cap, narrow the horizon, or enable the calendar sweep", "warn"))
+            rep.problems.append(
+                Problem(
+                    "coverage",
+                    f"{frac:.0%} of queries are overdue — raise the cap, narrow the horizon, or enable the calendar sweep",
+                    "warn",
+                )
+            )
 
     # --- deal feeds ------------------------------------------------------------
     if cfg.deals.enabled:
@@ -162,25 +214,37 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             last_good = conn.execute(
                 "SELECT MAX(at) AS t FROM feed_log WHERE feed = ? AND ok = 1", (feed,)
             ).fetchone()["t"]
-            last_any = conn.execute("SELECT MAX(at) AS t FROM feed_log WHERE feed = ?", (feed,)).fetchone()["t"]
+            last_any = conn.execute(
+                "SELECT MAX(at) AS t FROM feed_log WHERE feed = ?", (feed,)
+            ).fetchone()["t"]
             if last_any is None:
                 continue
             h = _hours_since(last_good, now)
             if h is None or h > 48:
-                rep.problems.append(Problem("feed_" + feed.split("//")[-1].split("/")[0], f"feed {feed} has not succeeded in {'ever' if h is None else f'{h:.0f}h'}", "warn"))
+                rep.problems.append(
+                    Problem(
+                        "feed_" + feed.split("//")[-1].split("/")[0],
+                        f"feed {feed} has not succeeded in {'ever' if h is None else f'{h:.0f}h'}",
+                        "warn",
+                    )
+                )
                 continue
             # Answering but empty for a week: the feed moved or died quietly.
             week_ago = _iso(now - timedelta(days=FEED_EMPTY_DAYS))
-            first = conn.execute("SELECT MIN(at) AS t FROM feed_log WHERE feed = ?", (feed,)).fetchone()["t"]
+            first = conn.execute(
+                "SELECT MIN(at) AS t FROM feed_log WHERE feed = ?", (feed,)
+            ).fetchone()["t"]
             most = conn.execute(
                 "SELECT MAX(items) AS n FROM feed_log WHERE feed = ? AND at >= ?", (feed, week_ago)
             ).fetchone()["n"]
             if first is not None and first <= week_ago and not most:
-                rep.problems.append(Problem(
-                    "feed_empty_" + feed.split("//")[-1].split("/")[0],
-                    f"feed {feed} has returned no items for {FEED_EMPTY_DAYS} days — check the URL",
-                    "warn",
-                ))
+                rep.problems.append(
+                    Problem(
+                        "feed_empty_" + feed.split("//")[-1].split("/")[0],
+                        f"feed {feed} has returned no items for {FEED_EMPTY_DAYS} days — check the URL",
+                        "warn",
+                    )
+                )
 
     # --- parser self-check -----------------------------------------------------
     # The results page states its own cheapest price; a fetch whose parsed
@@ -191,18 +255,25 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
         (since,),
     ).fetchone()[0]
     if mismatches >= PARSER_MISMATCH_WARN:
-        rep.problems.append(Problem(
-            "parser_mismatch",
-            f"{mismatches} fetches in 24h where the cheapest parsed price differed from the page's own "
-            "cheapest — the page layout may have shifted; run `flighttrack doctor`",
-            "warn",
-        ))
+        rep.problems.append(
+            Problem(
+                "parser_mismatch",
+                f"{mismatches} fetches in 24h where the cheapest parsed price differed from the page's own "
+                "cheapest — the page layout may have shifted; run `flighttrack doctor`",
+                "warn",
+            )
+        )
 
     return rep
 
 
-def run(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True,
-        now: datetime | None = None) -> tuple[HealthReport, bool]:
+def run(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    dry_run: bool = False,
+    verbose: bool = True,
+    now: datetime | None = None,
+) -> tuple[HealthReport, bool]:
     """Check, print, and notify once per problem-set per `renotify_hours`."""
     now = now or datetime.now(timezone.utc)
     rep = check(conn, cfg, now)
@@ -214,7 +285,7 @@ def run(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: b
         set_state(conn, STATE_LAST_HEALTH_SIG, None)
         return rep, False
     if rep.ok:
-        return rep, False   # warnings only: visible in `status`, not worth a push
+        return rep, False  # warnings only: visible in `status`, not worth a push
 
     if not cfg.health.notify or (cfg.notify or {}).get("channel", "none") == "none":
         return rep, False

@@ -37,7 +37,9 @@ from .db import connect, get_state, parse_ts, utcnow
 CATCHUP_HOURS = 20
 
 
-def needs_catchup(conn, now: datetime | None = None, hours: float = CATCHUP_HOURS) -> tuple[bool, str]:
+def needs_catchup(
+    conn, now: datetime | None = None, hours: float = CATCHUP_HOURS
+) -> tuple[bool, str]:
     """(run now?, why) from `last_success_at` in the state table."""
     now = now or datetime.now(timezone.utc)
     last = parse_ts(get_state(conn, fetch_mod.STATE_LAST_SUCCESS))
@@ -53,7 +55,7 @@ def needs_catchup(conn, now: datetime | None = None, hours: float = CATCHUP_HOUR
 class Scheduler:
     """Runs `job` once a day at a local wall-clock time, with jitter."""
 
-    at: str                                   # "HH:MM" local time
+    at: str  # "HH:MM" local time
     jitter_minutes: int
     job: Callable[[], None]
     log: Callable[[str], None] = print
@@ -139,11 +141,15 @@ def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
         return {
             "generated_at": utcnow(),
             "healthy": rep.ok,
-            "problems": [{"code": p.code, "severity": p.severity, "message": p.message} for p in rep.problems],
+            "problems": [
+                {"code": p.code, "severity": p.severity, "message": p.message} for p in rep.problems
+            ],
             "cooldown_until": fetch_mod.cooldown_active(conn),
             "last_success_at": get_state(conn, fetch_mod.STATE_LAST_SUCCESS),
             "last_run": dict(last_run) if last_run else None,
-            "scheduler": None if sched is None else {
+            "scheduler": None
+            if sched is None
+            else {
                 "running": sched.running,
                 "next_run": sched.next_run.isoformat() if sched.next_run else None,
                 "last_started": sched.last_started.isoformat() if sched.last_started else None,
@@ -151,8 +157,14 @@ def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
                 "last_rc": sched.last_rc,
             },
             "cheapest": [
-                {"label": c["label"], "dest": c["destination"], "depart": c["depart_date"], "return": c["return_date"],
-                 "price": c["price_cents"] / 100, "link": c["deep_link"]}
+                {
+                    "label": c["label"],
+                    "dest": c["destination"],
+                    "depart": c["depart_date"],
+                    "return": c["return_date"],
+                    "price": c["price_cents"] / 100,
+                    "link": c["deep_link"],
+                }
                 for c in cheapest
             ],
         }
@@ -191,7 +203,9 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
                 body = json.dumps(status_payload(cfg, sched), default=str, indent=2).encode()
                 self._send(HTTPStatus.OK, body, "application/json")
             elif path == "/run":
-                self._send(HTTPStatus.METHOD_NOT_ALLOWED, b"POST /run to trigger a run\n", "text/plain")
+                self._send(
+                    HTTPStatus.METHOD_NOT_ALLOWED, b"POST /run to trigger a run\n", "text/plain"
+                )
             else:
                 self._send(HTTPStatus.NOT_FOUND, b"not found\n", "text/plain")
 
@@ -210,14 +224,29 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
     return Handler
 
 
-def serve(cfg: Config, job: Callable[[], None], host: str = "0.0.0.0", port: int = 8080,
-          at: str = "03:15", jitter_minutes: int = 45, run_on_start: bool = False,
-          log: Callable[[str], None] = print, ready: threading.Event | None = None) -> None:
+def serve(
+    cfg: Config,
+    job: Callable[[], None],
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    at: str = "03:15",
+    jitter_minutes: int = 45,
+    run_on_start: bool = False,
+    log: Callable[[str], None] = print,
+    ready: threading.Event | None = None,
+) -> None:
     sched = Scheduler(at=at, jitter_minutes=jitter_minutes, job=job, log=log)
-    t = threading.Thread(target=sched.loop, kwargs={"run_on_start": run_on_start}, name="flighttrack-scheduler", daemon=True)
+    t = threading.Thread(
+        target=sched.loop,
+        kwargs={"run_on_start": run_on_start},
+        name="flighttrack-scheduler",
+        daemon=True,
+    )
     t.start()
     httpd = ThreadingHTTPServer((host, port), make_handler(cfg, sched, log))
-    log(f"[serve] report at http://{host}:{httpd.server_address[1]}/  ·  status at /status.json  ·  POST /run to run now")
+    log(
+        f"[serve] report at http://{host}:{httpd.server_address[1]}/  ·  status at /status.json  ·  POST /run to run now"
+    )
     if ready is not None:
         ready.set()
     try:

@@ -24,7 +24,7 @@ def test_fresh_database_is_ok(tmp_path):
 
 def test_runs_without_any_observation_is_critical(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
-    fetch.run(conn, cfg, _Empty(), sleeper=lambda s: None, verbose=False)   # all empty
+    fetch.run(conn, cfg, _Empty(), sleeper=lambda s: None, verbose=False)  # all empty
     conn.execute("DELETE FROM fetch_attempts")
     conn.commit()
     rep = health.check(conn, cfg)
@@ -88,18 +88,26 @@ def test_notification_is_deduped_and_resent_on_change(tmp_path):
     rep, sent = health.run(conn, cfg, verbose=False)
     assert sent and not rep.ok and "not collecting" in digest.read_text()
     rep, sent = health.run(conn, cfg, verbose=False)
-    assert not sent                                     # same problems, inside renotify window
+    assert not sent  # same problems, inside renotify window
 
-    set_state(conn, fetch.STATE_COOLDOWN_UNTIL, (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    set_state(
+        conn,
+        fetch.STATE_COOLDOWN_UNTIL,
+        (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
     set_state(conn, fetch.STATE_BLOCKED_STREAK, "3")
     rep, sent = health.run(conn, cfg, verbose=False)
-    assert sent                                         # problem set changed → notify again
+    assert sent  # problem set changed → notify again
 
 
 def test_warnings_alone_do_not_notify(tmp_path):
     cfg = _file_cfg(tmp_path)
     conn, cfg = make_db(tmp_path, cfg)
-    set_state(conn, fetch.STATE_COOLDOWN_UNTIL, (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    set_state(
+        conn,
+        fetch.STATE_COOLDOWN_UNTIL,
+        (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
     set_state(conn, fetch.STATE_BLOCKED_STREAK, "1")
     rep, sent = health.run(conn, cfg, verbose=False)
     assert rep.ok and rep.problems and not sent
@@ -109,9 +117,17 @@ def test_dead_feed_is_a_warning(tmp_path):
     from flighttrack.config import DealWatch, Deals
 
     cfg = make_config()
-    cfg = replace(cfg, deals=Deals(enabled=True, feeds=("https://x/feed",), watches=(DealWatch("w", ("Seattle",), ()),)))
+    cfg = replace(
+        cfg,
+        deals=Deals(
+            enabled=True, feeds=("https://x/feed",), watches=(DealWatch("w", ("Seattle",), ()),)
+        ),
+    )
     conn, cfg = make_db(tmp_path, cfg)
-    conn.execute("INSERT INTO feed_log (feed, at, ok, items, error) VALUES ('https://x/feed', ?, 0, 0, 'boom')", (utcnow(),))
+    conn.execute(
+        "INSERT INTO feed_log (feed, at, ok, items, error) VALUES ('https://x/feed', ?, 0, 0, 'boom')",
+        (utcnow(),),
+    )
     conn.commit()
     rep = health.check(conn, cfg)
     assert any(p.code.startswith("feed_") and p.severity == "warn" for p in rep.problems)

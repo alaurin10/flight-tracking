@@ -34,6 +34,6 @@ def test_minor_units_mode_does_not_rescale():
 
 
 def test_plausibility_band_catches_unit_errors():
-    assert price_is_plausible(81100)      # $811 — normal
-    assert not price_is_plausible(81)     # $0.81 — units almost certainly wrong
+    assert price_is_plausible(81100)  # $811 — normal
+    assert not price_is_plausible(81)  # $0.81 — units almost certainly wrong
     assert not price_is_plausible(9_000_000)

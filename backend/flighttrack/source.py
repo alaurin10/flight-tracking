@@ -34,8 +34,8 @@ from .gflights.transport import BASE_HEADERS, Response, Transport, TransportErro
 # A normalized price outside this band almost certainly means the upstream
 # units changed (dollars vs cents), not that a real fare was that extreme.
 # We record it anyway — never silently drop data — but flag it loudly.
-PLAUSIBLE_MIN_CENTS = 1_000        # $10
-PLAUSIBLE_MAX_CENTS = 5_000_000    # $50,000
+PLAUSIBLE_MIN_CENTS = 1_000  # $10
+PLAUSIBLE_MAX_CENTS = 5_000_000  # $50,000
 
 _MONEY = re.compile(r"[-+]?\d[\d,\s.]*")
 _WS = re.compile(r"\s+")
@@ -53,6 +53,7 @@ def tidy_error(text: str, limit: int = MAX_ERROR_CHARS) -> str:
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
+
 
 class SourceError(Exception):
     """Fetch failed. Subclasses say how; the base class means 'unknown'."""
@@ -93,6 +94,7 @@ SEVERITY = {"blocked": 3, "network": 2, "layout": 1, "unknown": 0}
 # Offer
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Offer:
     """One itinerary from one fetch, normalized."""
@@ -120,6 +122,7 @@ class Source(Protocol):
 # ---------------------------------------------------------------------------
 # Price normalization
 # ---------------------------------------------------------------------------
+
 
 def normalize_price(value: Any, assume_major_units: bool = True) -> int:
     """Normalize an upstream price to integer cents.
@@ -160,6 +163,7 @@ def price_is_plausible(cents: int) -> bool:
 # Query construction (offline — pure protobuf, no network, no dependencies)
 # ---------------------------------------------------------------------------
 
+
 def build_query(cfg: Config, route: Route, depart: str, ret: str | None) -> Query:
     legs = [Leg(depart, cfg.home, route.dest, max_stops=route.max_stops)]
     if ret:
@@ -183,6 +187,7 @@ def deep_link(cfg: Config, route: Route, depart: str, ret: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Failure artifacts
 # ---------------------------------------------------------------------------
+
 
 class FailureStore:
     """Keep the last N raw responses that we could not read.
@@ -220,6 +225,7 @@ class FailureStore:
 # Sources
 # ---------------------------------------------------------------------------
 
+
 class GoogleHtmlSource:
     """Our own client: one GET of the results page, classified and parsed."""
 
@@ -237,11 +243,15 @@ class GoogleHtmlSource:
         self.last_page = None
         self.last_response: Response | None = None
 
-    def fetch(self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int) -> list[Offer]:
+    def fetch(
+        self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
+    ) -> list[Offer]:
         q = build_query(cfg, route, depart, ret)
         label = f"{cfg.home}-{route.dest}-{depart}"
         try:
-            resp = self.transport.get(SEARCH_URL, params=q.params(), headers=BASE_HEADERS, timeout=self.timeout)
+            resp = self.transport.get(
+                SEARCH_URL, params=q.params(), headers=BASE_HEADERS, timeout=self.timeout
+            )
         except TransportError as exc:
             raise NetworkError(tidy_error(str(exc))) from exc
         self.last_response = resp
@@ -266,12 +276,16 @@ class GoogleHtmlSource:
             self.failures.save("layout", resp, label)
             raise LayoutError(page.detail)
 
-        offers = offers_from_itineraries(itineraries(page.payload), cfg.search.currency, self.name, limit)
+        offers = offers_from_itineraries(
+            itineraries(page.payload), cfg.search.currency, self.name, limit
+        )
         if not offers:
             if has_itinerary_lists(page.payload):
                 raise NoResults("results page had empty itinerary lists")
             self.failures.save("shape", resp, label)
-            raise LayoutError("results payload decoded but no itinerary lists found at the expected positions")
+            raise LayoutError(
+                "results payload decoded but no itinerary lists found at the expected positions"
+            )
         mark_page_min(offers, page_min_price(page.payload))
         return offers
 
@@ -316,8 +330,11 @@ def offers_from_itineraries(its: list, currency: str, source: str, limit: int) -
                     "airlines": it.airlines,
                     "segments": [
                         {
-                            "from": s.origin, "to": s.dest, "dep": f"{s.depart_date} {s.depart_time}",
-                            "arr": f"{s.arrive_date} {s.arrive_time}", "min": s.duration_min,
+                            "from": s.origin,
+                            "to": s.dest,
+                            "dep": f"{s.depart_date} {s.depart_time}",
+                            "arr": f"{s.arrive_date} {s.arrive_time}",
+                            "min": s.duration_min,
                             "flight": f"{s.airline_code or ''}{s.flight_number or ''}" or None,
                             "aircraft": s.aircraft,
                         }
@@ -345,17 +362,34 @@ class FastFlightsSource:
     def __init__(self) -> None:
         import fast_flights  # noqa: F401 — ImportError surfaces at construction
 
-    def fetch(self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int) -> list[Offer]:
+    def fetch(
+        self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
+    ) -> list[Offer]:
         from fast_flights import FlightQuery, Passengers, create_query, get_flights
         from fast_flights.exceptions import FlightsNotFound
 
-        legs = [FlightQuery(date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops)]
+        legs = [
+            FlightQuery(
+                date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops
+            )
+        ]
         if ret:
-            legs.append(FlightQuery(date=ret, from_airport=route.dest, to_airport=cfg.home, max_stops=route.max_stops))
+            legs.append(
+                FlightQuery(
+                    date=ret,
+                    from_airport=route.dest,
+                    to_airport=cfg.home,
+                    max_stops=route.max_stops,
+                )
+            )
         query = create_query(
-            flights=legs, seat=cfg.search.seat, trip="round-trip" if ret else "one-way",
-            passengers=Passengers(adults=cfg.search.adults), currency=cfg.search.currency,
-            carry_on_bags=cfg.search.carry_on_bags, exclude_basic_economy=cfg.search.exclude_basic_economy,
+            flights=legs,
+            seat=cfg.search.seat,
+            trip="round-trip" if ret else "one-way",
+            passengers=Passengers(adults=cfg.search.adults),
+            currency=cfg.search.currency,
+            carry_on_bags=cfg.search.carry_on_bags,
+            exclude_basic_economy=cfg.search.exclude_basic_economy,
             hide_separate_and_self_transfer=cfg.search.hide_separate_and_self_transfer,
         )
         try:
@@ -373,10 +407,16 @@ class FastFlightsSource:
                     Offer(
                         price_cents=normalize_price(getattr(f, "price", None)),
                         currency=cfg.search.currency,
-                        airline="/".join(str(a) for a in (getattr(f, "airlines", None) or [])) or None,
+                        airline="/".join(str(a) for a in (getattr(f, "airlines", None) or []))
+                        or None,
                         # Outbound-leg segments only, whatever the trip type.
                         stops=max(0, len(segs) - 1) if segs else None,
-                        duration_min=sum(d for d in (getattr(s, "duration", None) for s in segs) if isinstance(d, int)) or None,
+                        duration_min=sum(
+                            d
+                            for d in (getattr(s, "duration", None) for s in segs)
+                            if isinstance(d, int)
+                        )
+                        or None,
                         source=self.name,
                         raw={"price_raw": getattr(f, "price", None), "segment_count": len(segs)},
                     )
@@ -404,8 +444,13 @@ class SerpApiSource:
     DEFAULT_URL = "https://serpapi.com/search.json"
     TRAVEL_CLASS = {"economy": 1, "premium-economy": 2, "business": 3, "first": 4}
 
-    def __init__(self, api_key: str, base_url: str | None = None, transport: Transport | None = None,
-                 timeout: float = 60.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        transport: Transport | None = None,
+        timeout: float = 60.0,
+    ) -> None:
         if not api_key:
             raise ValueError("serpapi source needs an api_key")
         self.api_key = api_key
@@ -429,14 +474,18 @@ class SerpApiSource:
         if ret:
             p["return_date"] = ret
         if route.max_stops is not None:
-            p["stops"] = str(min(3, route.max_stops + 1))     # 1 nonstop, 2 ≤1 stop, 3 ≤2 stops
+            p["stops"] = str(min(3, route.max_stops + 1))  # 1 nonstop, 2 ≤1 stop, 3 ≤2 stops
         if cfg.search.carry_on_bags:
             p["bags"] = str(cfg.search.carry_on_bags)
         return p
 
-    def fetch(self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int) -> list[Offer]:
+    def fetch(
+        self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
+    ) -> list[Offer]:
         try:
-            resp = self.transport.get(self.base_url, params=self.params(cfg, route, depart, ret), timeout=self.timeout)
+            resp = self.transport.get(
+                self.base_url, params=self.params(cfg, route, depart, ret), timeout=self.timeout
+            )
         except TransportError as exc:
             raise NetworkError(tidy_error(str(exc))) from exc
         if resp.status == 429:
@@ -470,13 +519,21 @@ def offers_from_serpapi(data: dict, currency: str, source: str, limit: int) -> l
                     currency=currency,
                     airline="/".join(airlines) or None,
                     stops=max(0, len(legs) - 1) if legs else None,
-                    duration_min=it.get("total_duration") if isinstance(it.get("total_duration"), int) else None,
+                    duration_min=it.get("total_duration")
+                    if isinstance(it.get("total_duration"), int)
+                    else None,
                     source=source,
                     raw={
-                        "price_raw": price, "bucket": bucket.split("_")[0],
+                        "price_raw": price,
+                        "bucket": bucket.split("_")[0],
                         "segments": [
-                            {"from": (l.get("departure_airport") or {}).get("id"), "to": (l.get("arrival_airport") or {}).get("id"),
-                             "flight": l.get("flight_number"), "min": l.get("duration"), "aircraft": l.get("airplane")}
+                            {
+                                "from": (l.get("departure_airport") or {}).get("id"),
+                                "to": (l.get("arrival_airport") or {}).get("id"),
+                                "flight": l.get("flight_number"),
+                                "min": l.get("duration"),
+                                "aircraft": l.get("airplane"),
+                            }
                             for l in legs
                         ],
                     },
@@ -494,11 +551,29 @@ def classify_exception(exc: Exception) -> SourceError:
     """Best-effort typing of an arbitrary library exception."""
     text = tidy_error(f"{type(exc).__name__}: {exc}")
     low = text.lower()
-    if any(s in low for s in ("429", "too many requests", "sorry/index", "unusual traffic", "captcha")):
+    if any(
+        s in low for s in ("429", "too many requests", "sorry/index", "unusual traffic", "captcha")
+    ):
         return BlockedError(text)
-    if any(s in low for s in ("timed out", "timeout", "connection", "resolve", "proxy", "tls", "ssl", "eof", "reset")):
+    if any(
+        s in low
+        for s in (
+            "timed out",
+            "timeout",
+            "connection",
+            "resolve",
+            "proxy",
+            "tls",
+            "ssl",
+            "eof",
+            "reset",
+        )
+    ):
         return NetworkError(text)
-    if any(s in low for s in ("attributeerror", "indexerror", "typeerror", "keyerror", "nonetype", "json")):
+    if any(
+        s in low
+        for s in ("attributeerror", "indexerror", "typeerror", "keyerror", "nonetype", "json")
+    ):
         return LayoutError(text)
     return SourceError(text)
 
@@ -521,7 +596,9 @@ class ChainSource:
         self.last_used: str | None = None
         self.last_errors: list[tuple[str, SourceError]] = []
 
-    def fetch(self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int) -> list[Offer]:
+    def fetch(
+        self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
+    ) -> list[Offer]:
         self.last_errors = []
         for src in self.sources:
             try:
@@ -542,13 +619,19 @@ class ChainSource:
         raise type(worst)(tidy_error(msg))
 
 
-def build_source(cfg: Config, failure_dir: str | Path | None = None, transport: Transport | None = None) -> Source:
+def build_source(
+    cfg: Config, failure_dir: str | Path | None = None, transport: Transport | None = None
+) -> Source:
     """Assemble the chain named in `fetch.sources`."""
     failures = FailureStore(failure_dir, keep=cfg.fetch.keep_failure_artifacts)
     built: list[Source] = []
     for name in cfg.fetch.sources:
         if name == "google_html":
-            built.append(GoogleHtmlSource(transport=transport or default_transport(cfg.fetch.transport), failures=failures))
+            built.append(
+                GoogleHtmlSource(
+                    transport=transport or default_transport(cfg.fetch.transport), failures=failures
+                )
+            )
         elif name == "fast_flights":
             try:
                 built.append(FastFlightsSource())
@@ -558,9 +641,13 @@ def build_source(cfg: Config, failure_dir: str | Path | None = None, transport: 
                     raise
         elif name == "serpapi":
             if cfg.fetch.serpapi_key:
-                built.append(SerpApiSource(cfg.fetch.serpapi_key, cfg.fetch.serpapi_url, transport=transport))
+                built.append(
+                    SerpApiSource(cfg.fetch.serpapi_key, cfg.fetch.serpapi_url, transport=transport)
+                )
             elif len(cfg.fetch.sources) == 1:
-                raise ValueError("fetch.sources is only 'serpapi' but fetch.serpapi.api_key is unset")
+                raise ValueError(
+                    "fetch.sources is only 'serpapi' but fetch.serpapi.api_key is unset"
+                )
         else:
             raise ValueError(f"unknown source {name!r} in fetch.sources")
     return ChainSource(built) if len(built) != 1 else built[0]
@@ -593,7 +680,9 @@ class FakeSource:
         self.default = default or [45000, 47500, 52000]
         self.calls: list[tuple[str, str, str | None]] = []
 
-    def fetch(self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int) -> list[Offer]:
+    def fetch(
+        self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
+    ) -> list[Offer]:
         key = (route.dest, depart, ret)
         self.calls.append(key)
         prices = self.prices.get(key, self.default)

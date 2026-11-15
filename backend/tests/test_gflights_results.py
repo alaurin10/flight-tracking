@@ -1,6 +1,12 @@
 """Itinerary extraction: both lists, defensive indices, round-trip stops."""
 
-from flighttrack.gflights.results import Layover, airline_directory, has_itinerary_lists, itineraries, page_min_price
+from flighttrack.gflights.results import (
+    Layover,
+    airline_directory,
+    has_itinerary_lists,
+    itineraries,
+    page_min_price,
+)
 from helpers import make_itinerary, make_payload, make_segment
 
 
@@ -30,8 +36,8 @@ def test_round_trip_stops_count_outbound_segments_only():
 
 def test_missing_fields_degrade_not_crash():
     seg = make_segment()
-    seg[8] = None          # omitted time
-    seg[11] = "long"       # wrong type
+    seg[8] = None  # omitted time
+    seg[11] = "long"  # wrong type
     seg[22] = None
     it = itineraries(make_payload(best=[make_itinerary(500, segments=[seg])]))[0]
     assert it.segments[0].depart_time is None
@@ -67,8 +73,12 @@ def test_airline_directory():
 # M1: Google's own trip total, layovers, labels, the page's own cheapest price
 # ---------------------------------------------------------------------------
 
+
 def test_trip_time_prefers_googles_total_with_layovers():
-    it = make_itinerary(394, segments=[make_segment(dest="DEN", minutes=169), make_segment(origin="DEN", minutes=98)])
+    it = make_itinerary(
+        394,
+        segments=[make_segment(dest="DEN", minutes=169), make_segment(origin="DEN", minutes=98)],
+    )
     it[0][9] = 532
     it[0][13] = [[265, "DEN", "DEN", None, "Denver International Airport", "Denver"]]
     parsed = itineraries(make_payload(other=[it]))[0]
@@ -87,8 +97,8 @@ def test_trip_time_falls_back_to_the_segments():
 
 def test_labels_follow_the_page():
     payload = [None] * 8
-    payload[2] = [[make_itinerary(447)]]          # "Top departing flights"
-    payload[3] = [[make_itinerary(394)]]          # "Other departing flights"
+    payload[2] = [[make_itinerary(447)]]  # "Top departing flights"
+    payload[3] = [[make_itinerary(394)]]  # "Other departing flights"
     by_price = {i.price: i.bucket for i in itineraries(payload)}
     assert by_price == {447: "best", 394: "other"}
 

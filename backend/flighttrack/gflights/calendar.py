@@ -45,8 +45,15 @@ RPC_URL = (
     "https://www.google.com/_/FlightsFrontendUi/data/"
     "travel.frontend.flights.FlightsFrontendService/GetCalendarGraph"
 )
-RPC_PARAMS = {"hl": "en", "gl": "US", "curr": "USD", "rt": "c", "soc-app": "162",
-              "soc-platform": "1", "soc-device": "1"}
+RPC_PARAMS = {
+    "hl": "en",
+    "gl": "US",
+    "curr": "USD",
+    "rt": "c",
+    "soc-app": "162",
+    "soc-platform": "1",
+    "soc-device": "1",
+}
 RPC_HEADERS = {
     "X-Same-Domain": "1",
     "Origin": "https://www.google.com",
@@ -75,7 +82,23 @@ class DatePrice:
 def _segment(origin: str, dest: str, day: str, max_stops: int | None) -> list:
     # stops enum on this endpoint: 0 any, 1 nonstop, 2 ≤1 stop, 3 ≤2 stops
     stops = 0 if max_stops is None else min(3, max_stops + 1)
-    return [[[[origin, 0]]], [[[dest, 0]]], None, stops, [], [], day, None, [], [], [], None, None, [], 3]
+    return [
+        [[[origin, 0]]],
+        [[[dest, 0]]],
+        None,
+        stops,
+        [],
+        [],
+        day,
+        None,
+        [],
+        [],
+        [],
+        None,
+        None,
+        [],
+        3,
+    ]
 
 
 def build_body(
@@ -102,7 +125,9 @@ def build_body(
     round_trip = nights is not None
     trip_type = 1 if round_trip else 2
     anchor_out = start
-    anchor_back = (date.fromisoformat(start) + timedelta(days=nights)).isoformat() if round_trip else None
+    anchor_back = (
+        (date.fromisoformat(start) + timedelta(days=nights)).isoformat() if round_trip else None
+    )
     segments = [_segment(origin, dest, anchor_out, max_stops)]
     if round_trip:
         segments.append(_segment(dest, origin, anchor_back, max_stops))
@@ -110,9 +135,30 @@ def build_body(
     inner = [
         None,
         [
-            None, None, trip_type, None, [], SEATS[seat], [adults, 0, 0, 0],
-            None, None, None, bags, None, None, segments,
-            None, None, None, 1, None, None, None, None, None, [],
+            None,
+            None,
+            trip_type,
+            None,
+            [],
+            SEATS[seat],
+            [adults, 0, 0, 0],
+            None,
+            None,
+            None,
+            bags,
+            None,
+            None,
+            segments,
+            None,
+            None,
+            None,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            [],
         ],
         [start, end],
         None,
@@ -136,6 +182,7 @@ def windows(start: date, end: date, size: int = MAX_WINDOW_DAYS) -> list[tuple[s
 # ---------------------------------------------------------------------------
 # Response parsing
 # ---------------------------------------------------------------------------
+
 
 def unwrap_batchexecute(text: str) -> list[Any]:
     """Return every decoded `wrb.fr` inner payload in a batchexecute response.
@@ -186,7 +233,9 @@ def _walk(node: Any, out: list[DatePrice], seen: set[tuple]) -> None:
     if not isinstance(node, (list, tuple)):
         return
     if node and isinstance(node[0], str) and _ISO.match(node[0]):
-        ret = node[1] if len(node) > 1 and isinstance(node[1], str) and _ISO.match(node[1]) else None
+        ret = (
+            node[1] if len(node) > 1 and isinstance(node[1], str) and _ISO.match(node[1]) else None
+        )
         # The price sits in a nested structure after the date(s). Skip the
         # date strings themselves so a year is never mistaken for a fare.
         tail = node[2:] if ret else node[1:]

@@ -81,13 +81,13 @@ class Layover:
 
 @dataclass
 class Itinerary:
-    price: int | float | None          # as Google states it — whole currency units
-    airlines: list[str]                # codes, e.g. ['AS', 'JL']
+    price: int | float | None  # as Google states it — whole currency units
+    airlines: list[str]  # codes, e.g. ['AS', 'JL']
     airline_names: list[str]
     segments: list[Segment]
-    bucket: str                        # 'best' | 'other'
+    bucket: str  # 'best' | 'other'
     raw: Any = field(default=None, repr=False)
-    total_min: int | None = None       # `row[0][9]`: whole trip time, layovers included
+    total_min: int | None = None  # `row[0][9]`: whole trip time, layovers included
     layovers: list[Layover] = field(default_factory=list)
 
     @property
@@ -105,7 +105,10 @@ class Itinerary:
     def key(self) -> tuple:
         return (
             self.price,
-            tuple((s.origin, s.dest, s.depart_date, s.depart_time, s.flight_number) for s in self.segments),
+            tuple(
+                (s.origin, s.dest, s.depart_date, s.depart_time, s.flight_number)
+                for s in self.segments
+            ),
         )
 
 
@@ -144,7 +147,11 @@ def _layovers(flight: Any) -> list[Layover]:
         if not isinstance(lay, (list, tuple)):
             continue
         code = _at(lay, 1)
-        out.append(Layover(minutes=_positive_int(_at(lay, 0)), airport=code if isinstance(code, str) else None))
+        out.append(
+            Layover(
+                minutes=_positive_int(_at(lay, 0)), airport=code if isinstance(code, str) else None
+            )
+        )
     return out
 
 
@@ -212,6 +219,10 @@ def itineraries(payload: Any) -> list[Itinerary]:
 
 def has_itinerary_lists(payload: Any) -> bool:
     """True if the payload has the containers we expect, even if empty."""
-    return isinstance(payload, (list, tuple)) and len(payload) > 3 and (
-        isinstance(_at(payload, 3), (list, tuple)) or isinstance(_at(payload, 2), (list, tuple))
+    return (
+        isinstance(payload, (list, tuple))
+        and len(payload) > 3
+        and (
+            isinstance(_at(payload, 3), (list, tuple)) or isinstance(_at(payload, 2), (list, tuple))
+        )
     )

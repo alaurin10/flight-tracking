@@ -15,9 +15,16 @@ TODAY = date(2026, 9, 17)
 
 def test_ski_weekends_window_and_multiple_weekdays(tmp_path):
     """Scenario 2: every Fri→Mon (and Thu→Mon) from January through March, SLC only."""
-    ski = Pattern("ski", "FRI", 3, depart_dows=("FRI", "THU"), routes=("SLC",),
-                  window_start="2027-01-01", window_end="2027-03-31")
-    cfg = make_config(patterns=[ski], max_days_ahead=60)             # horizon alone would end in November
+    ski = Pattern(
+        "ski",
+        "FRI",
+        3,
+        depart_dows=("FRI", "THU"),
+        routes=("SLC",),
+        window_start="2027-01-01",
+        window_end="2027-03-31",
+    )
+    cfg = make_config(patterns=[ski], max_days_ahead=60)  # horizon alone would end in November
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute("DELETE FROM queries")
     conn.commit()
@@ -29,21 +36,28 @@ def test_ski_weekends_window_and_multiple_weekdays(tmp_path):
     deps = sorted(r["depart_date"] for r in rows)
     assert deps[0] >= "2027-01-01" and deps[-1] <= "2027-03-31"
     assert {date.fromisoformat(d).weekday() for d in deps} == {3, 4}
-    assert all((date.fromisoformat(r["return_date"]) - date.fromisoformat(r["depart_date"])).days == 3 for r in rows)
-    assert len(deps) == 25            # 13 Fridays + 12 Thursdays, Jan 1 2027 is a Friday
+    assert all(
+        (date.fromisoformat(r["return_date"]) - date.fromisoformat(r["depart_date"])).days == 3
+        for r in rows
+    )
+    assert len(deps) == 25  # 13 Fridays + 12 Thursdays, Jan 1 2027 is a Friday
 
 
 def test_fixed_trip_tracks_up_to_departure_and_uses_its_own_target(tmp_path):
     """Scenario 1: dates are set; watch for the moment to book."""
-    cfg = make_config(patterns=[Pattern("thu", "THU", 4)],
-                      trips=[Trip("japan", "HND", "2026-09-30", "2026-10-14", target_price=90000)],
-                      notify={"channel": "none"})
+    cfg = make_config(
+        patterns=[Pattern("thu", "THU", 4)],
+        trips=[Trip("japan", "HND", "2026-09-30", "2026-10-14", target_price=90000)],
+        notify={"channel": "none"},
+    )
     conn, cfg = make_db(tmp_path, cfg)
     res = expand.expand(conn, cfg, today=TODAY, build_links=False)
     assert res.trips == 1
-    row = conn.execute("SELECT id, pattern FROM queries WHERE depart_date = '2026-09-30'").fetchone()
-    assert row["pattern"] == "japan"                                     # inside min_days_ahead=21, still tracked
-    add_obs(conn, row["id"], 88000)                                      # under the trip target, over the route's $650
+    row = conn.execute(
+        "SELECT id, pattern FROM queries WHERE depart_date = '2026-09-30'"
+    ).fetchone()
+    assert row["pattern"] == "japan"  # inside min_days_ahead=21, still tracked
+    add_obs(conn, row["id"], 88000)  # under the trip target, over the route's $650
     stats = alert.run(conn, cfg, verbose=False)
     assert stats.qualified == 1
     assert conn.execute("SELECT reason FROM alerts_sent").fetchone()[0] == "threshold"
@@ -56,7 +70,10 @@ def test_trip_in_the_past_is_not_expanded(tmp_path):
 
 
 def test_window_reactivates_a_previously_expired_row(tmp_path):
-    cfg = make_config(patterns=[Pattern("p", "FRI", 3, window_start="2027-01-01", window_end="2027-01-31")], max_days_ahead=400)
+    cfg = make_config(
+        patterns=[Pattern("p", "FRI", 3, window_start="2027-01-01", window_end="2027-01-31")],
+        max_days_ahead=400,
+    )
     conn, cfg = make_db(tmp_path, cfg, today=TODAY)
     conn.execute("UPDATE queries SET active = 0")
     conn.commit()
@@ -83,7 +100,9 @@ def _load(tmp_path, extra):
 
 
 def test_config_scenario_blocks_parse(tmp_path):
-    cfg = _load(tmp_path, """
+    cfg = _load(
+        tmp_path,
+        """
 patterns:
   - name: ski
     depart_dow: [FRI, THU]
@@ -111,24 +130,51 @@ fetch:
   sources: [google_html]
   transport: urllib
   cooldown_hours: [2, 8]
-""")
+""",
+    )
     p = cfg.patterns[0]
-    assert p.depart_dows == ("FRI", "THU") and p.routes == ("SLC",) and p.window_end == "2027-03-31" and p.min_days_ahead == 7
+    assert (
+        p.depart_dows == ("FRI", "THU")
+        and p.routes == ("SLC",)
+        and p.window_end == "2027-03-31"
+        and p.min_days_ahead == 7
+    )
     assert cfg.trips[0].target_price == 80000 and cfg.trips[0].ret == "2027-04-24"
     assert cfg.calendar.enabled and cfg.deals.watches[0].destinations == ("europe",)
     assert cfg.fetch.sources == ("google_html",) and cfg.fetch.cooldown_hours == (2.0, 8.0)
 
 
-@pytest.mark.parametrize("extra, match", [
-    ("trips:\n  - name: t\n    dest: LAX\n    depart: 2027-01-01\n", "must also be listed under routes"),
-    ("trips:\n  - name: t\n    dest: HND\n    depart: 2027-01-10\n    return: 2027-01-01\n", "return must be after"),
-    ("patterns:\n  - name: p\n    depart_dow: [FRI, FUNDAY]\n    nights: 3\n", "depart_dow"),
-    ("patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    routes: [LAX]\n", "not in routes"),
-    ("patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    window: {start: 2027-02-01, end: 2027-01-01}\n", "start is after end"),
-    ("patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\nfetch:\n  sources: [kayak]\n", "unknown source"),
-    ("patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\ndeals:\n  enabled: true\n", "deals.feeds is empty"),
-    ("", "at least one pattern or trip"),
-])
+@pytest.mark.parametrize(
+    "extra, match",
+    [
+        (
+            "trips:\n  - name: t\n    dest: LAX\n    depart: 2027-01-01\n",
+            "must also be listed under routes",
+        ),
+        (
+            "trips:\n  - name: t\n    dest: HND\n    depart: 2027-01-10\n    return: 2027-01-01\n",
+            "return must be after",
+        ),
+        ("patterns:\n  - name: p\n    depart_dow: [FRI, FUNDAY]\n    nights: 3\n", "depart_dow"),
+        (
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    routes: [LAX]\n",
+            "not in routes",
+        ),
+        (
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\n    window: {start: 2027-02-01, end: 2027-01-01}\n",
+            "start is after end",
+        ),
+        (
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\nfetch:\n  sources: [kayak]\n",
+            "unknown source",
+        ),
+        (
+            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\ndeals:\n  enabled: true\n",
+            "deals.feeds is empty",
+        ),
+        ("", "at least one pattern or trip"),
+    ],
+)
 def test_config_rejects_bad_scenario_values(tmp_path, extra, match):
     with pytest.raises(ConfigError, match=match):
         _load(tmp_path, extra)

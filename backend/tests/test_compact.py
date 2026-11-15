@@ -14,7 +14,9 @@ from helpers import make_config
 
 
 def _seeded(tmp_path, **ret):
-    cfg = replace(make_config(max_days_ahead=60, notify={"channel": "none"}), retention=Retention(**ret))
+    cfg = replace(
+        make_config(max_days_ahead=60, notify={"channel": "none"}), retention=Retention(**ret)
+    )
     conn = connect(tmp_path / "c.db")
     demo.seed(conn, cfg, days=120)
     return conn, cfg
@@ -35,13 +37,24 @@ def test_compact_prunes_only_runner_ups_and_logs(tmp_path):
 
     st = compact.compact(conn, cfg)
     assert st.runner_ups_deleted == old_runners and st.vacuumed and st.size_after <= st.size_before
-    assert conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0] == best_before
-    assert conn.execute(
-        "SELECT COUNT(*) FROM observations WHERE is_best = 0 AND observed_at < ?",
-        ((datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
-    ).fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM fetch_attempts WHERE at < ?",
-                        ((datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),)).fetchone()[0] == 0
+    assert (
+        conn.execute("SELECT COUNT(*) FROM observations WHERE is_best = 1").fetchone()[0]
+        == best_before
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM observations WHERE is_best = 0 AND observed_at < ?",
+            ((datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM fetch_attempts WHERE at < ?",
+            ((datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),),
+        ).fetchone()[0]
+        == 0
+    )
     assert get_state(conn, compact.STATE_LAST_COMPACT)
 
     # The append-only guard is back in force.

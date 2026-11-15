@@ -185,7 +185,15 @@ def expand(
                 ret = depart + timedelta(days=pattern.nights) if pattern.nights else None
                 depart_s, ret_s = depart.isoformat(), ret.isoformat() if ret else None
                 wanted.add((route_id, depart_s, ret_s))
-                _upsert_query(conn, result, route_id, depart_s, ret_s, pattern.name, link(route, depart_s, ret_s))
+                _upsert_query(
+                    conn,
+                    result,
+                    route_id,
+                    depart_s,
+                    ret_s,
+                    pattern.name,
+                    link(route, depart_s, ret_s),
+                )
 
     # Fixed trips: tracked right up to departure, whatever min_days_ahead says —
     # the question they answer is "should I book today", and today may be close.
@@ -196,7 +204,15 @@ def expand(
             continue
         result.trips += 1
         wanted.add((route_id, trip.depart, trip.ret))
-        _upsert_query(conn, result, route_id, trip.depart, trip.ret, trip.name, link(route, trip.depart, trip.ret))
+        _upsert_query(
+            conn,
+            result,
+            route_id,
+            trip.depart,
+            trip.ret,
+            trip.name,
+            link(route, trip.depart, trip.ret),
+        )
         # A trip's own target overrides the route's for alerting; store it on the row.
         if trip.target_price is not None:
             conn.execute(

@@ -86,9 +86,13 @@ def test_dedup_lets_a_further_drop_through(tmp_path):
 def test_digest_replaces_a_flood(tmp_path):
     cfg = _cfg(max_per_run=3)
     conn, cfg = make_db(tmp_path, cfg)
-    qids = [r[0] for r in conn.execute(
-        "SELECT q.id FROM queries q JOIN routes r ON r.id=q.route_id "
-        "WHERE r.destination='SLC' LIMIT 5")]
+    qids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT q.id FROM queries q JOIN routes r ON r.id=q.route_id "
+            "WHERE r.destination='SLC' LIMIT 5"
+        )
+    ]
     for qid in qids:
         add_obs(conn, qid, 12000)
 
@@ -137,9 +141,13 @@ def test_phase2_fires_on_a_route_level_percentile(tmp_path):
 
     # Spread history across several HND date pairs: the baseline is the ROUTE's,
     # not this one date pair's.
-    qids = [r[0] for r in conn.execute(
-        "SELECT q.id FROM queries q JOIN routes r ON r.id=q.route_id "
-        "WHERE r.destination='HND' LIMIT 4")]
+    qids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT q.id FROM queries q JOIN routes r ON r.id=q.route_id "
+            "WHERE r.destination='HND' LIMIT 4"
+        )
+    ]
     for qid in qids:
         for i in range(40):
             add_obs(conn, qid, 100000 + (i % 7) * 2000, days_ago=40 - i)
