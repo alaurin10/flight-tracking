@@ -2,7 +2,7 @@
 # Every trip, date and price here is invented. Copy it, edit it, and load it:
 #
 #   flighttrack import-config my-trips.yaml
-#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" flighttrack \
+#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" worker \
 #       flighttrack import-config /tmp/t.yaml
 #
 # Importing again updates what exists (matched by name) and never deletes.
