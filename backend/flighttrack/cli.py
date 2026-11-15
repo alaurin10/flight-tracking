@@ -273,9 +273,9 @@ def cmd_deals(args: argparse.Namespace) -> int:
         item = FeedItem(
             guid="test", title=args.test_match, link=None, published=None, summary="", feed="test"
         )
-        from .watches import active_deal_watches
+        from .watches import deal_matchers
 
-        w = first_match(item, active_deal_watches(conn))
+        w = first_match(item, deal_matchers(conn))
         print(f"{'MATCH ' + w.name if w else 'no match'}: {args.test_match}")
         return 0
     stats = deals_mod.run(conn, cfg, dry_run=args.dry_run)

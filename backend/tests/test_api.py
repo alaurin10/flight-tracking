@@ -668,7 +668,7 @@ def test_deal_watches_and_the_headline_test(owner: TestClient) -> None:
         json={"headline": "Alaska Air: Seattle – Honolulu, Hawaii. $298 roundtrip"},
         headers=SAME_SITE,
     )
-    assert r.json() == {"price": 29800, "matched": "Hawaii", "matches": ["Hawaii"]}
+    assert r.json() == {"price": 29800, "months": [], "matched": "Hawaii", "matches": ["Hawaii"]}
     r = owner.post(
         "/api/admin/deal-watches/test",
         json={"headline": "Seattle – Honolulu, Hawaii. $598 roundtrip"},
@@ -705,7 +705,7 @@ def test_deal_feeds(owner: TestClient) -> None:
     assert [c["url"] for c in t.calls] == [url]  # fetched once before saving
     f = r.json()
     r = owner.post("/api/admin/deal-feeds", json={"url": url}, headers=SAME_SITE)
-    assert r.status_code == 422 and "already a feed" in r.json()["detail"]
+    assert r.status_code == 422 and "already a deal source" in r.json()["detail"]
     assert len(t.calls) == 1  # a duplicate is refused without fetching
     r = owner.post("/api/admin/deal-feeds", json={"url": "not a url!!"}, headers=SAME_SITE)
     assert r.status_code == 422 and r.json()["detail"].startswith("url:")
@@ -725,14 +725,14 @@ def test_deal_feeds(owner: TestClient) -> None:
 @pytest.mark.parametrize(
     ("reply", "says"),
     [
-        ((200, None, "<!DOCTYPE html><html><body>Home</body></html>"), "a web page, not a feed"),
+        ((200, None, "<!DOCTYPE html><html><body>Home</body></html>"), "no list of posts"),
         ((404, None, "gone"), "HTTP 404"),
-        ((200, None, '{"items": []}'), "not an RSS or Atom feed"),
-        ((200, None, "<svg xmlns='http://www.w3.org/2000/svg'/>"), "not an RSS or Atom feed"),
+        ((200, None, '{"items": []}'), "neither a feed nor a web page"),
+        ((200, None, "<svg xmlns='http://www.w3.org/2000/svg'/>"), "no list of posts"),
         (TransportError("connection refused"), "couldn't fetch it"),
     ],
 )
-def test_a_url_that_is_not_a_feed_is_refused(
+def test_an_address_with_nothing_to_read_is_refused(
     owner: TestClient, settings: Settings, reply: object, says: str
 ) -> None:
     owner.app.state.feed_transport = FakeTransport([reply])  # type: ignore[attr-defined]
@@ -742,6 +742,89 @@ def test_a_url_that_is_not_a_feed_is_refused(
     assert r.json()["detail"].startswith(f"url: {url} can't be added: ")
     assert says in r.json()["detail"]
     assert owner.get("/api/admin/deal-feeds").json() == []  # nothing saved
+
+
+PAGE = (REPO_ROOT / "backend/tests/fixtures/pages/escape-flights-seattle.html").read_text()
+
+
+def test_a_deal_page_with_no_feed_is_saved_as_a_page(owner: TestClient) -> None:
+    url = "https://escape.flights/category/flights-from-seattle/"
+    owner.app.state.feed_transport = FakeTransport([(200, None, PAGE)])  # type: ignore[attr-defined]
+    r = owner.post("/api/admin/deal-feeds", json={"url": url}, headers=SAME_SITE)
+    assert r.status_code == 201, r.text
+    assert (r.json()["url"], r.json()["kind"]) == (url, "page")
+
+
+def test_a_page_that_advertises_a_feed_saves_the_feed(owner: TestClient) -> None:
+    page = (
+        '<html><head><link rel="alternate" type="application/rss+xml" title="Deals" '
+        'href="https://deals.example.com/seattle/feed/"></head><body></body></html>'
+    )
+    owner.app.state.feed_transport = FakeTransport(  # type: ignore[attr-defined]
+        [(200, None, page), (200, None, FEED_XML)]
+    )
+    r = owner.post(
+        "/api/admin/deal-feeds",
+        json={"url": "https://deals.example.com/seattle/"},
+        headers=SAME_SITE,
+    )
+    assert (r.json()["url"], r.json()["kind"]) == (
+        "https://deals.example.com/seattle/feed/",
+        "feed",
+    )
+
+
+def test_the_headline_test_reads_months_and_knows_trips(owner: TestClient) -> None:
+    owner.post(
+        "/api/admin/deal-watches",
+        json={
+            "name": "Europe in summer",
+            "origins": ["Seattle"],
+            "destinations": ["europe"],
+            "months": [6, 7, 8],
+        },
+        headers=SAME_SITE,
+    )
+    r = owner.post(
+        "/api/admin/deal-watches/test",
+        json={"headline": "Seattle to Paris $412 round-trip [Jun-Aug]"},
+        headers=SAME_SITE,
+    )
+    assert r.json()["months"] == [6, 7, 8] and "Europe in summer" in r.json()["matches"]
+    r = owner.post(
+        "/api/admin/deal-watches/test",
+        json={"headline": "Seattle to Paris $412 round-trip [Jan-Mar]"},
+        headers=SAME_SITE,
+    )
+    assert "Europe in summer" not in r.json()["matches"]
+    # The demo's trip goes to Tokyo (HND): a post for it matches the trip itself.
+    r = owner.post(
+        "/api/admin/deal-watches/test",
+        json={"headline": "Seattle to Tokyo $500 round-trip"},
+        headers=SAME_SITE,
+    )
+    assert "Tokyo in spring" in r.json()["matches"]
+    r = owner.post(
+        "/api/admin/deal-watches",
+        json={"name": "Bad", "origins": ["Seattle"], "months": [13]},
+        headers=SAME_SITE,
+    )
+    assert r.status_code == 422 and r.json()["detail"].startswith("months:")
+
+
+def test_deals_lists_every_post_and_the_overview_only_matches(
+    owner: TestClient, settings: Settings
+) -> None:
+    conn = db(settings)
+    conn.execute(
+        "INSERT INTO deal_posts (guid, feed, title, seen_at, watch) VALUES "
+        "('u1', 'https://page', 'Seattle to Boise $99', '2027-01-10T11:00:00Z', NULL)"
+    )
+    conn.commit()
+    titles = [d["title"] for d in owner.get("/api/deals").json()]
+    assert "Seattle to Boise $99" in titles
+    assert all(d["watch"] for d in owner.get("/api/deals?matched=true").json())
+    assert all(d["watch"] for d in owner.get("/api/overview").json()["deals"])
 
 
 def test_changing_a_feed_address_checks_the_new_one(owner: TestClient) -> None:
@@ -755,7 +838,7 @@ def test_changing_a_feed_address_checks_the_new_one(owner: TestClient) -> None:
         json={"url": "https://b.example.com/feed"},
         headers=SAME_SITE,
     )
-    assert r.status_code == 422 and "a web page" in r.json()["detail"]
+    assert r.status_code == 422 and "no list of posts" in r.json()["detail"]
     assert owner.get("/api/admin/deal-feeds").json()[0]["url"] == "https://a.example.com/feed"
 
 

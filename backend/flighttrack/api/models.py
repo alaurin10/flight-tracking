@@ -399,6 +399,7 @@ class DealTestIn(BaseModel):
 
 class DealTestOut(BaseModel):
     price: int | None
+    months: list[int] = Field(description="travel months named in the headline, 1-12")
     matched: str | None = Field(description="the watch that would alert, if any")
     matches: list[str] = Field(description="every active watch the headline matches")
 

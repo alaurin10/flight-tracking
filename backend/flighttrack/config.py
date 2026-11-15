@@ -126,6 +126,7 @@ class WatchFile:
     trips: list[Trip]
     deal_watches: list[DealWatch]
     deal_feeds: list[str]
+    deal_pages: list[str] = field(default_factory=list)  # web pages read as lists of posts
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,7 @@ class DealWatch:
     destinations: tuple[str, ...]  # region names or words (any); empty = anywhere
     max_price: int | None = None  # cents
     keywords: tuple[str, ...] = ()  # extra words that must ALL appear (rare)
+    months: tuple[int, ...] = ()  # travel months (1-12) a post must mention, if it names any
 
 
 @dataclass(frozen=True)
@@ -483,10 +485,25 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
                 destinations=_str_list(w.get("destinations"), f"{where}.destinations"),
                 max_price=_cents(w.get("max_price"), f"{where}.max_price"),
                 keywords=_str_list(w.get("keywords"), f"{where}.keywords"),
+                months=_months(w.get("months"), f"{where}.months"),
             )
         )
     feeds = list(_str_list(deals_raw.get("feeds"), "deals.feeds"))
-    return WatchFile(home, routes, patterns, trips, deal_watches, feeds)
+    pages = list(_str_list(deals_raw.get("pages"), "deals.pages"))
+    return WatchFile(home, routes, patterns, trips, deal_watches, feeds, pages)
+
+
+def _months(value: object, where: str) -> tuple[int, ...]:
+    """Travel months, 1-12 (a deal watch's `months`); missing means any month."""
+    if value is None:
+        return ()
+    _require(
+        isinstance(value, list)
+        and all(isinstance(m, int) and not isinstance(m, bool) and 1 <= m <= 12 for m in value),
+        f"{where}: must be a list of month numbers from 1 to 12",
+    )
+    assert isinstance(value, list)
+    return tuple(sorted(set(value)))
 
 
 def read_watch_file(path: str | Path) -> WatchFile:

@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from . import airports
 from . import config as config_mod
 from .config import DOW, Config
+from .store.db import now as clock_now
 from .store.db import utcnow
 
 MAX_ACTIVE_TRIPS = 20
@@ -189,8 +190,24 @@ class DealWatchIn(_Base):
     origins: list[str] = Field(default_factory=list, max_length=20)
     destinations: list[str] = Field(default_factory=list, max_length=20)
     keywords: list[str] = Field(default_factory=list, max_length=10)
+    months: list[int] = Field(
+        default_factory=list,
+        max_length=12,
+        description="travel months, 1-12; a post that names months must name one of these",
+    )
     max_price: int | None = Field(default=None, ge=0)
     status: WatchStatus = "active"
+
+    @field_validator("months", mode="before")
+    @classmethod
+    def _months(cls, v: object) -> list[int]:
+        if v is None:
+            return []
+        if not isinstance(v, list | tuple) or not all(
+            isinstance(m, int) and not isinstance(m, bool) and 1 <= m <= 12 for m in v
+        ):
+            raise ValueError("must be a list of month numbers from 1 to 12")
+        return sorted(set(v))
 
     @field_validator("origins", "destinations", "keywords", mode="before")
     @classmethod
@@ -217,13 +234,22 @@ class DealWatch(DealWatchIn):
             destinations=tuple(self.destinations),
             max_price=self.max_price,
             keywords=tuple(self.keywords),
+            months=tuple(self.months),
         )
+
+
+FeedKind = Literal["feed", "page"]
 
 
 class DealFeedIn(_Base):
     url: str = Field(min_length=10, max_length=500)
     name: str | None = Field(default=None, max_length=80)
     status: WatchStatus = "active"
+    kind: FeedKind = Field(
+        default="feed",
+        description="feed (RSS or Atom) or page (a web page read as a list of posts); "
+        "found by fetching it once when it is saved",
+    )
 
     @field_validator("url")
     @classmethod
@@ -270,8 +296,8 @@ def _search(row: sqlite3.Row) -> Search:
 
 def _deal_watch(row: sqlite3.Row) -> DealWatch:
     d = dict(row)
-    for k in ("origins", "destinations", "keywords"):
-        d[k] = json.loads(d[k])
+    for k in ("origins", "destinations", "keywords", "months"):
+        d[k] = json.loads(d.get(k) or "[]")
     return DealWatch.model_validate(d)
 
 
@@ -709,6 +735,7 @@ def _watch_values(w: DealWatchIn) -> tuple[Any, ...]:
         json.dumps(w.origins),
         json.dumps(w.destinations),
         json.dumps(w.keywords),
+        json.dumps(w.months),
         w.max_price,
         w.status,
     )
@@ -719,8 +746,9 @@ def create_deal_watch(conn: sqlite3.Connection, data: DealWatchIn | dict[str, An
     now = utcnow()
     with conn:
         cur = conn.execute(
-            """INSERT INTO deal_watches (name, origins, destinations, keywords, max_price,
-                   status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO deal_watches (name, origins, destinations, keywords, months,
+                   max_price, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (*_watch_values(w), now, now),
         )
     return get_deal_watch(conn, int(cur.lastrowid or 0))
@@ -734,7 +762,7 @@ def update_deal_watch(
     with conn:
         conn.execute(
             """UPDATE deal_watches SET name = ?, origins = ?, destinations = ?, keywords = ?,
-                   max_price = ?, status = ?, updated_at = ? WHERE id = ?""",
+                   months = ?, max_price = ?, status = ?, updated_at = ? WHERE id = ?""",
             (*_watch_values(w), utcnow(), watch_id),
         )
     return get_deal_watch(conn, watch_id)
@@ -757,6 +785,72 @@ def active_deal_watches(conn: sqlite3.Connection) -> list[config_mod.DealWatch]:
     return [w.matcher() for w in list_deal_watches(conn, status="active")]
 
 
+def months_between(start: str, end: str) -> tuple[int, ...]:
+    """The calendar months (1-12) from one ISO date to another, inclusive."""
+    a, b = date.fromisoformat(start), date.fromisoformat(end)
+    if b < a:
+        a, b = b, a
+    out: list[int] = []
+    y, m = a.year, a.month
+    while (y, m) <= (b.year, b.month) and len(out) < 12:
+        out.append(m)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return tuple(sorted(set(out)))
+
+
+def _place_words(conn: sqlite3.Connection, origin: str, dest: str) -> tuple[str, ...]:
+    """How a deal post may name a destination: the route's label, the airport's city
+    and its code ("Tokyo", "Narita", "NRT")."""
+    row = conn.execute(
+        "SELECT label FROM routes WHERE origin = ? AND destination = ?", (origin, dest)
+    ).fetchone()
+    words = [row["label"] if row and row["label"] else "", airports.city(dest), dest]
+    return tuple(dict.fromkeys(w for w in words if w))
+
+
+def trip_and_search_watches(conn: sqlite3.Connection) -> list[config_mod.DealWatch]:
+    """Active trips and flexible searches as deal watches, so a deal page's post for the
+    same trip alerts too: from the origin (city or code) to one of the destinations, at or
+    under the target when there is one, in the trip's months or the search's window."""
+    out: list[config_mod.DealWatch] = []
+    today = clock_now().date().isoformat()
+    for t in list_trips(conn, status="active"):
+        if (t.return_date or t.depart_date) < today:
+            continue  # already flown
+        out.append(
+            config_mod.DealWatch(
+                name=t.name,
+                origins=(airports.city(t.origin), t.origin),
+                destinations=_place_words(conn, t.origin, t.destination),
+                max_price=t.target_price,
+                months=months_between(t.depart_date, t.return_date or t.depart_date),
+            )
+        )
+    for s in list_searches(conn, status="active"):
+        dests: list[str] = []
+        for d in s.destinations:
+            dests.extend(_place_words(conn, s.origin, d))
+        months: tuple[int, ...] = ()
+        if s.window_start and s.window_end:
+            months = months_between(s.window_start, s.window_end)
+        out.append(
+            config_mod.DealWatch(
+                name=s.name,
+                origins=(airports.city(s.origin), s.origin),
+                destinations=tuple(dict.fromkeys(dests)),
+                max_price=s.target_price,
+                months=months,
+            )
+        )
+    return out
+
+
+def deal_matchers(conn: sqlite3.Connection) -> list[config_mod.DealWatch]:
+    """Everything a deal post is matched against: the deal watches (regions and words)
+    first, then the trips and flexible searches."""
+    return [*active_deal_watches(conn), *trip_and_search_watches(conn)]
+
+
 def list_deal_feeds(conn: sqlite3.Connection, *, status: str | None = None) -> list[DealFeed]:
     sql, params = "SELECT * FROM deal_feeds", []
     if status:
@@ -772,7 +866,15 @@ def get_deal_feed(conn: sqlite3.Connection, feed_id: int) -> DealFeed:
     return DealFeed.model_validate(dict(row))
 
 
-FeedCheck = Callable[[str], None]
+# Fetches an address once and says what to read there: (address, kind). A web page that
+# advertises a feed gives the feed's address. Raises WatchError when there is nothing.
+FeedCheck = Callable[[str], tuple[str, FeedKind]]
+
+
+def _taken(conn: sqlite3.Connection, url: str, own_id: int | None) -> None:
+    row = conn.execute("SELECT id FROM deal_feeds WHERE url = ?", (url,)).fetchone()
+    if row is not None and row["id"] != own_id:
+        raise WatchError(f"url: {url} is already a deal source")
 
 
 def create_deal_feed(
@@ -781,17 +883,19 @@ def create_deal_feed(
     *,
     check: FeedCheck | None = None,
 ) -> DealFeed:
-    """`check(url)` (the API fetches the feed once) raises WatchError for a URL that is
-    not a feed; it runs after the cheap checks and before anything is written."""
+    """`check(url)` (the API fetches it once) decides the address and kind, or refuses;
+    it runs after the cheap checks and before anything is written."""
     f = _parse(DealFeedIn, data)
-    if conn.execute("SELECT 1 FROM deal_feeds WHERE url = ?", (f.url,)).fetchone():
-        raise WatchError(f"url: {f.url} is already a feed")
+    _taken(conn, f.url, None)
+    url, kind = f.url, f.kind
     if check is not None:
-        check(f.url)
+        url, kind = check(f.url)
+        if url != f.url:
+            _taken(conn, url, None)
     with conn:
         cur = conn.execute(
-            "INSERT INTO deal_feeds (url, name, status, created_at) VALUES (?, ?, ?, ?)",
-            (f.url, f.name, f.status, utcnow()),
+            "INSERT INTO deal_feeds (url, name, status, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+            (url, f.name, f.status, kind, utcnow()),
         )
     return get_deal_feed(conn, int(cur.lastrowid or 0))
 
@@ -803,20 +907,21 @@ def update_deal_feed(
     *,
     check: FeedCheck | None = None,
 ) -> DealFeed:
-    """`check` runs only when the URL changes."""
+    """`check` runs only when the URL changes; otherwise the stored kind is kept."""
     old = get_deal_feed(conn, feed_id)
     f = _parse(DealFeedIn, data)
-    clash = conn.execute(
-        "SELECT id FROM deal_feeds WHERE url = ? AND id != ?", (f.url, feed_id)
-    ).fetchone()
-    if clash:
-        raise WatchError(f"url: {f.url} is already a feed")
-    if check is not None and f.url != old.url:
-        check(f.url)
+    _taken(conn, f.url, feed_id)
+    url, kind = f.url, old.kind
+    if f.url != old.url:
+        kind = f.kind
+        if check is not None:
+            url, kind = check(f.url)
+            if url != f.url:
+                _taken(conn, url, feed_id)
     with conn:
         conn.execute(
-            "UPDATE deal_feeds SET url = ?, name = ?, status = ? WHERE id = ?",
-            (f.url, f.name, f.status, feed_id),
+            "UPDATE deal_feeds SET url = ?, name = ?, status = ?, kind = ? WHERE id = ?",
+            (url, f.name, f.status, kind, feed_id),
         )
     return get_deal_feed(conn, feed_id)
 
@@ -830,6 +935,14 @@ def delete_deal_feed(conn: sqlite3.Connection, feed_id: int) -> None:
     get_deal_feed(conn, feed_id)
     with conn:
         conn.execute("DELETE FROM deal_feeds WHERE id = ?", (feed_id,))
+
+
+def active_sources(conn: sqlite3.Connection, cfg: Config) -> list[tuple[str, FeedKind]]:
+    """What to poll, with how to read it: the active deal sources, or, while none has
+    been added, the default feeds in config/flighttrack.yaml."""
+    if conn.execute("SELECT COUNT(*) FROM deal_feeds").fetchone()[0] == 0:
+        return [(u, "feed") for u in cfg.deals.feeds]
+    return [(f.url, f.kind) for f in list_deal_feeds(conn, status="active")]
 
 
 def active_feed_urls(conn: sqlite3.Connection, cfg: Config) -> list[str]:
@@ -1016,6 +1129,7 @@ def import_watch_file(
             "origins": list(w.origins),
             "destinations": list(w.destinations),
             "keywords": list(w.keywords),
+            "months": list(w.months),
             "max_price": w.max_price,
             "status": row["status"] if row else "active",
         }
@@ -1028,11 +1142,12 @@ def import_watch_file(
         else:
             summary.unchanged["deal_watches"] += 1
 
-    for url in wf.deal_feeds:
+    sources = [(u, "feed") for u in wf.deal_feeds] + [(u, "page") for u in wf.deal_pages]
+    for url, kind in sources:
         if conn.execute("SELECT 1 FROM deal_feeds WHERE url = ?", (url,)).fetchone():
             summary.unchanged["deal_feeds"] += 1
         else:
-            create_deal_feed(conn, {"url": url})
+            create_deal_feed(conn, {"url": url, "kind": kind})
             summary.created["deal_feeds"] += 1
 
     summary.expansion = refresh(conn, cfg, today=today, build_links=build_links)
@@ -1109,11 +1224,21 @@ def export_watch_file(conn: sqlite3.Connection, cfg: Config) -> dict[str, Any]:
             we["keywords"] = w.keywords
         if w.max_price is not None:
             we["max_price"] = w.max_price
+        if w.months:
+            we["months"] = w.months
         watches.append(we)
     return {
         "home": home,
         "routes": routes,
         "trips": [trip_entry(t) for t in trips],
         "patterns": [pattern_entry(s) for s in searches],
-        "deals": {"watches": watches, "feeds": [f.url for f in list_deal_feeds(conn)]},
+        "deals": {
+            "watches": watches,
+            "feeds": [f.url for f in list_deal_feeds(conn) if f.kind == "feed"],
+            **(
+                {"pages": pages}
+                if (pages := [f.url for f in list_deal_feeds(conn) if f.kind == "page"])
+                else {}
+            ),
+        },
     }

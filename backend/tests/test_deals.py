@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
 from helpers import FakeTransport, make_config, make_db
 
@@ -243,23 +244,194 @@ ATOM_SMALL = """<?xml version="1.0"?>
 </feed>"""
 
 
-def test_check_feed_counts_items_of_rss_and_atom():
-    assert deals.check_feed("https://a/feed", FakeTransport([(200, None, RSS)])) == len(
-        deals.parse_feed(RSS, "f")
+PAGE_URL = "https://escape.flights/category/flights-from-seattle/"
+PAGE = (Path(__file__).parent / "fixtures" / "pages" / "escape-flights-seattle.html").read_text()
+
+
+def test_inspect_source_reads_feeds_by_their_items():
+    found = deals.inspect_source("https://a/feed", FakeTransport([(200, None, RSS)]))
+    assert (found.url, found.kind, found.items) == ("https://a/feed", "feed", 4)
+    assert (
+        deals.inspect_source("https://a/atom", FakeTransport([(200, None, ATOM_SMALL)])).items == 2
     )
-    assert deals.check_feed("https://a/atom", FakeTransport([(200, None, ATOM_SMALL)])) == 2
 
 
-def test_check_feed_refuses_what_is_not_a_feed():
+def test_inspect_source_reads_a_page_with_no_feed_as_a_list_of_posts():
+    found = deals.inspect_source(PAGE_URL, FakeTransport([(200, None, PAGE)]))
+    assert (found.url, found.kind, found.items) == (PAGE_URL, "page", 3)
+
+
+def test_inspect_source_prefers_the_feed_a_page_advertises():
+    page = (
+        "<!doctype html><html><head>"
+        '<link rel="alternate" type="application/rss+xml" title="Site &raquo; Comments Feed" '
+        'href="/comments/feed/">'
+        '<link rel="alternate" type="application/rss+xml" title="Seattle deals" href="feed/">'
+        "</head><body><h2>Nothing to read here</h2></body></html>"
+    )
+    t = FakeTransport([(200, None, page), (200, None, RSS)])
+    found = deals.inspect_source("https://deals.example/seattle/", t)
+    assert (found.url, found.kind) == ("https://deals.example/seattle/feed/", "feed")
+    assert [c["url"] for c in t.calls] == [  # the comments feed is skipped
+        "https://deals.example/seattle/",
+        "https://deals.example/seattle/feed/",
+    ]
+
+
+def test_inspect_source_refuses_what_it_cannot_read():
     import pytest
 
     from flighttrack.gflights.transport import TransportError
 
+    empty_page = "<!doctype html><html><body><h1>Welcome</h1><p>No posts.</p></body></html>"
     for reply, says in [
-        ((200, None, "  <!doctype html><p>home</p>"), "web page"),
+        ((200, None, empty_page), "no list of posts"),
         ((503, None, ""), "HTTP 503"),
-        ((200, None, "not xml at all"), "not an RSS or Atom feed"),
-        (TransportError("timed out"), "couldn't fetch it (timed out)"),
+        ((200, None, '{"items": []}'), "neither a feed nor a web page"),
+        (TransportError("timed out"), r"couldn't fetch it \(timed out\)"),
     ]:
-        with pytest.raises(deals.FeedError, match=says.replace("(", r"\(").replace(")", r"\)")):
-            deals.check_feed("https://a/x", FakeTransport([reply]))
+        with pytest.raises(deals.FeedError, match=says):
+            deals.inspect_source("https://a/x", FakeTransport([reply]))
+
+
+def test_parse_page_reads_each_post_heading_and_skips_the_rest():
+    items = deals.parse_page(PAGE, PAGE_URL)
+    assert [i.title.split(" $")[0] for i in items] == [
+        "Cheap Flights: Seattle to London",
+        "Nonstop Flights: Seattle to/from San Francisco, Los Angeles, Phoenix, or San Diego",
+        "Nonstop Flights: Seattle to Salt Lake City",
+    ]
+    assert [deals.price_from_text(i.title) for i in items] == [58300, 9700, 13400]
+    first = items[0]
+    assert first.link == first.guid
+    assert first.link.startswith("https://escape.flights/cheap-flights-seattle-to-london-")
+    assert first.summary.startswith("Icelandair has round-trip flights from Seattle (SEA)")
+    assert first.published is None and first.feed == PAGE_URL
+    # Not posts: the site title, category, pagination and sidebar links, another site,
+    # and markup inside a script.
+    assert not any("category" in i.link or "twitter" in i.link for i in items)
+    assert not any("not-a-post" in i.link for i in items)
+
+
+def test_months_named_in_a_post():
+    assert deals.months_in("Seattle to London $583 [Nov-May, Aug]") == {11, 12, 1, 2, 3, 4, 5, 8}
+    assert deals.months_in("Flights November to May and also August") == {
+        11, 12, 1, 2, 3, 4, 5, 8
+    }  # fmt: skip
+    assert deals.months_in("travel Jan – Mar 2027") == {1, 2, 3}
+    assert deals.months_in("Hawaii this summer from $298") == {6, 7, 8}
+    assert deals.months_in("Sept and Oct dates") == {9, 10}
+    # Ordinary words are not months; no month named is None, not "every month".
+    assert deals.months_in("prices may fall; march to the gate") is None
+    assert deals.months_in("Seattle to Rome from $489") is None
+
+
+def test_a_watch_with_months_skips_posts_for_other_months():
+    summer_europe = DealWatch(
+        "Europe in summer", origins=("Seattle",), destinations=("europe",), months=(6, 7, 8)
+    )
+
+    def post(title):
+        return deals.FeedItem("g", title, None, None, "", "f")
+
+    assert deals.matches(post("Seattle to Paris $412 [Jun-Aug]"), summer_europe)
+    assert deals.matches(post("Seattle to London $583 [Nov-May, Aug]"), summer_europe)
+    assert not deals.matches(post("Seattle to Rome $489 [Jan-Mar]"), summer_europe)
+    assert deals.matches(post("Seattle to Rome $489"), summer_europe)  # no months: can't tell
+
+
+def test_a_page_source_records_its_posts_first_then_alerts_on_new_ones(tmp_path):
+    """The first read of a page only records what is there (its posts have no dates, so
+    old ones must not alert); a post that appears later alerts as usual."""
+    from flighttrack import watches
+
+    cfg = replace(_cfg(tmp_path), patterns=[])  # no flexible searches to match as well
+    conn, cfg = make_db(tmp_path, cfg)
+    watches.create_deal_feed(conn, {"url": PAGE_URL, "kind": "page"})
+    watches.create_deal_watch(
+        conn, {"name": "Europe", "origins": ["Seattle"], "destinations": ["europe"]}
+    )
+    stats = deals.poll(
+        conn, cfg, transport=FakeTransport([(200, None, PAGE)]), now=NOW, verbose=False
+    )
+    assert (stats.feeds_ok, stats.new, stats.matched) == (1, 3, 1)  # London is in Europe
+    rows = conn.execute("SELECT title, watch, alerted_at FROM deal_posts ORDER BY id").fetchall()
+    assert rows[0]["watch"] == "Europe" and rows[0]["alerted_at"] is not None
+    assert rows[1]["watch"] is None  # every post is kept for the Deals page
+    assert deals.pending_alerts(conn, cfg, now=NOW) == []
+
+    newer = PAGE.replace(
+        '<div class="entry-meta-top">',
+        "<h2 class='excerpt-title'><a href='https://escape.flights/seattle-to-paris-412/'>"
+        "Cheap Flights: Seattle to Paris $412 round-trip [Jun-Aug]</a></h2>"
+        '<p>Air France from Seattle.</p><div class="entry-meta-top">',
+        1,
+    )
+    stats = deals.poll(
+        conn, cfg, transport=FakeTransport([(200, None, newer)]), now=NOW, verbose=False
+    )
+    assert (stats.new, stats.matched) == (1, 1)
+    assert [r["title"] for r in deals.pending_alerts(conn, cfg, now=NOW)] == [
+        "Cheap Flights: Seattle to Paris $412 round-trip [Jun-Aug]"
+    ]
+
+
+def test_a_page_that_stops_listing_posts_is_a_failure(tmp_path):
+    from flighttrack import watches
+
+    conn, cfg = make_db(tmp_path, _cfg(tmp_path))
+    watches.create_deal_feed(conn, {"url": PAGE_URL, "kind": "page"})
+    stats = deals.poll(
+        conn,
+        cfg,
+        transport=FakeTransport([(200, None, "<html><body>Redesigned!</body></html>")]),
+        now=NOW,
+        verbose=False,
+    )
+    assert stats.feeds_ok == 0 and "no posts could be read" in stats.errors[0]
+
+
+def test_trips_and_searches_match_deal_posts_to_the_same_place(tmp_path):
+    """A post for a trip's or a search's destination alerts for it, under its target and
+    in its months, with no deal watch at all."""
+    from flighttrack import watches
+    from flighttrack.store.db import set_clock
+
+    set_clock(lambda: NOW)
+    conn, cfg = make_db(tmp_path, make_config(patterns=[]))
+    watches.create_trip(
+        conn,
+        cfg,
+        {
+            "name": "London in March",
+            "origin": "SEA",
+            "destination": "LHR",
+            "depart_date": "2027-03-05",
+            "return_date": "2027-03-12",
+            "target_price": 70000,
+        },
+    )
+    watches.create_search(
+        conn,
+        cfg,
+        {
+            "name": "Ski weekends",
+            "origin": "SEA",
+            "destinations": ["SLC"],
+            "depart_dows": ["FRI"],
+            "nights": 2,
+            "window_start": "2026-12-01",
+            "window_end": "2027-02-28",
+        },
+    )
+    matchers = watches.deal_matchers(conn)
+    london, sf, salt_lake = deals.parse_page(PAGE, PAGE_URL)
+    assert deals.first_match(london, matchers).name == "London in March"  # Mar, $583 ≤ $700
+    assert deals.first_match(salt_lake, matchers).name == "Ski weekends"  # Dec, in window
+    assert deals.first_match(sf, matchers) is None
+    trip = next(m for m in matchers if m.name == "London in March")
+    assert trip.origins == ("Seattle", "SEA") and "LHR" in trip.destinations
+    assert trip.months == (3,)
+    # Over the target: no alert for the trip.
+    dear = deals.FeedItem("g", "Seattle to London $900 [Mar]", None, None, "", "f")
+    assert deals.first_match(dear, matchers) is None

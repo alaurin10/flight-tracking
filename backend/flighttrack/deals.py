@@ -1,4 +1,4 @@
-"""Announced-deal watcher: RSS/Atom feeds from deal sites, matched to what you care about.
+"""Announced-deal watcher: deal sites' feeds and pages, matched to what you care about.
 
 This is the third kind of question — "tell me when someone announces a deal
 to Europe from my city" — and it needs a different source than the price
@@ -9,7 +9,13 @@ stdlib XML parsing, and word matching on titles.
 Matching is deliberately simple and transparent: a post matches a watch if
 any of the watch's origin words appears, any of its destination words (or
 the words of a named region) appears, and the price parsed from the title is
-at or under `max_price` when one is set. There is no NLP to be wrong.
+at or under `max_price` when one is set, and, when the watch names travel
+months, the post names one of them or none at all. There is no NLP to be wrong.
+
+A source is an RSS/Atom feed, or a web page with no feed (escape.flights'
+category pages): each heading that links to a post on the same site is one
+post, and the text after it, up to the next, is its summary. Trips and
+flexible searches are matched too (`watches.deal_matchers`).
 """
 
 from __future__ import annotations
@@ -25,13 +31,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from functools import partial
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 
 from .config import Config, DealWatch
 from .gflights.transport import Transport, TransportError, default_transport
 from .notifier import Notifier
 from .report import fmt_money
 from .store.db import now as clock_now
-from .watches import active_deal_watches, active_feed_urls
+from .watches import active_sources, deal_matchers
 
 log = logging.getLogger(__name__)
 
@@ -388,25 +396,218 @@ def parse_feed(xml_text: str, feed_url: str) -> list[FeedItem]:
 # ---------------------------------------------------------------------------
 
 
-def check_feed(url: str, transport: Transport, timeout: float = 15.0) -> int:
-    """Fetch a feed once and read it, as when the owner adds one. Returns how many
-    items it has; raises FeedError with a sentence a person can read when the address
-    does not answer with an RSS or Atom feed."""
+# ---------------------------------------------------------------------------
+# Travel months named in a post ("[Nov-May, Aug]", "Flights November to May")
+# ---------------------------------------------------------------------------
+
+_MONTH_NUM = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}  # fmt: skip
+# Capitalised only, so "may" and "march" as ordinary words don't count.
+_M = (
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?"
+    r"|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+)
+_MONTH_RANGE = re.compile(rf"\b({_M})\.?\s*(?:-|–|—|to|through|thru|until)\s*({_M})\b")
+_MONTH_ONE = re.compile(rf"\b({_M})\b")
+_SEASONS = (
+    (re.compile(r"\bsummer\b", re.I), (6, 7, 8)),
+    (re.compile(r"\bwinter\b", re.I), (12, 1, 2)),
+    (re.compile(r"\b(?:autumn|Fall)\b"), (9, 10, 11)),
+    (re.compile(r"\bSpring\b"), (3, 4, 5)),
+)
+
+
+def _month(word: str) -> int:
+    return _MONTH_NUM[word[:3].lower()]
+
+
+def months_in(text: str) -> set[int] | None:
+    """The travel months a post names, or None when it names none. A range wraps over
+    the new year ("Nov-May" is November to May); seasons count as their months."""
+    found: set[int] = set()
+
+    def span(m: re.Match[str]) -> str:
+        a, b = _month(m.group(1)), _month(m.group(2))
+        n = a
+        while True:
+            found.add(n)
+            if n == b:
+                break
+            n = n % 12 + 1
+        return " "
+
+    rest = _MONTH_RANGE.sub(span, text or "")
+    found.update(_month(m.group(1)) for m in _MONTH_ONE.finditer(rest))
+    for pattern, months in _SEASONS:
+        if pattern.search(rest):
+            found.update(months)
+    return found or None
+
+
+# ---------------------------------------------------------------------------
+# Deal pages: a web page with no feed, read as a list of posts
+# ---------------------------------------------------------------------------
+
+_SKIP_TAGS = {"script", "style", "noscript", "svg", "template"}
+_HEADINGS = {"h1", "h2", "h3", "h4"}
+# Links that lead to more lists, not to a post.
+_NOT_A_POST = re.compile(r"/(?:category|tag|author|page|feed|search|wp-login)(?:/|$)|[?#]")
+
+
+class _PageReader(HTMLParser):
+    """Collects (title, link, summary) for each heading that links to a post."""
+
+    def __init__(self, base: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base = base
+        self.host = urlsplit(base).netloc.lower().removeprefix("www.")
+        self.skip = 0
+        self.heading = 0
+        self.link: str | None = None
+        self.link_text: list[str] = []
+        self.anchors = 0  # inside any link: its text is not part of a summary
+        self.found: list[tuple[str, str]] = []  # links seen in the current heading
+        self.posts: list[dict[str, str]] = []
+        self.feeds: list[tuple[str, str]] = []  # <link rel=alternate> (href, title)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = {k: v or "" for k, v in attrs}
+        if tag in _SKIP_TAGS:
+            self.skip += 1
+        elif tag == "link" and "alternate" in a.get("rel", "").lower().split():
+            if re.search(r"application/(?:rss|atom)\+xml", a.get("type", ""), re.I):
+                self.feeds.append((urljoin(self.base, a.get("href", "")), a.get("title", "")))
+        elif tag in _HEADINGS:
+            self.heading += 1
+            self.found = []
+        elif tag == "a":
+            self.anchors += 1
+            if self.heading:
+                self.link = urljoin(self.base, a.get("href", ""))
+                self.link_text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _SKIP_TAGS:
+            self.skip = max(0, self.skip - 1)
+        elif tag == "a":
+            self.anchors = max(0, self.anchors - 1)
+            if self.link is not None:
+                self.found.append((self.link, " ".join(self.link_text)))
+                self.link = None
+        elif tag in _HEADINGS and self.heading:
+            self.heading -= 1
+            for href, text in self.found:
+                title = _strip_html(text)
+                if len(title) >= 15 and self._is_post(href):
+                    self.posts.append({"title": title, "link": href, "summary": ""})
+                    break
+            self.found = []
+
+    def handle_data(self, data: str) -> None:
+        if self.skip:
+            return
+        if self.link is not None:
+            self.link_text.append(data)
+        elif self.posts and not self.heading and not self.anchors:
+            post = self.posts[-1]
+            if len(post["summary"]) < 600:
+                post["summary"] += " " + data
+
+    def _is_post(self, href: str) -> bool:
+        parts = urlsplit(href)
+        host = parts.netloc.lower().removeprefix("www.")
+        if parts.scheme not in ("http", "https") or host != self.host:
+            return False
+        if href.rstrip("/") == self.base.rstrip("/") or parts.path in ("", "/"):
+            return False
+        return not _NOT_A_POST.search(href[len(parts.scheme) + 3 + len(parts.netloc) :])
+
+
+def _read_page(text: str, url: str) -> _PageReader:
+    reader = _PageReader(url)
+    reader.feed(text)
+    reader.close()
+    return reader
+
+
+def parse_page(html_text: str, page_url: str) -> list[FeedItem]:
+    """The posts listed on a deal site's page: each heading that links to a post on the
+    same site, with the text after it (up to the next) as its summary."""
+    seen: set[str] = set()
+    items: list[FeedItem] = []
+    for post in _read_page(html_text, page_url).posts:
+        if post["link"] in seen:
+            continue
+        seen.add(post["link"])
+        items.append(
+            FeedItem(
+                guid=post["link"],
+                title=post["title"],
+                link=post["link"],
+                published=None,
+                summary=_strip_html(post["summary"])[:500],
+                feed=page_url,
+            )
+        )
+    return items
+
+
+def _feed_items(text: str, url: str) -> list[FeedItem] | None:
+    """The items when `text` is an RSS, Atom or RDF feed, else None."""
+    if looks_like_html(text):
+        return None
     try:
-        resp = transport.get(url, timeout=timeout)
-    except TransportError as exc:
-        raise FeedError(f"couldn't fetch it ({exc})") from None
-    if resp.status >= 400:
-        raise FeedError(f"it answered HTTP {resp.status}")
-    if looks_like_html(resp.text):
-        raise FeedError("it is a web page, not a feed")
-    try:
-        root = ET.fromstring(resp.text)
+        root = ET.fromstring(text)
     except ET.ParseError:
-        raise FeedError("it is not an RSS or Atom feed") from None
+        return None
     if _local(root.tag) not in ("rss", "feed", "rdf"):
-        raise FeedError("it is not an RSS or Atom feed")
-    return len(parse_feed(resp.text, url))
+        return None
+    return parse_feed(text, url)
+
+
+@dataclass(frozen=True)
+class SourceFound:
+    url: str  # what to poll: the address given, or the feed its page advertises
+    kind: str  # "feed" | "page"
+    items: int
+
+
+def inspect_source(url: str, transport: Transport, timeout: float = 15.0) -> SourceFound:
+    """Fetch an address once, as when the owner adds a deal source, and work out how to
+    read it: a feed; a page that advertises a feed (its feed is used); or a page that
+    lists posts. Raises FeedError, in words, when it is none of these."""
+
+    def get(u: str) -> str:
+        try:
+            resp = transport.get(u, timeout=timeout)
+        except TransportError as exc:
+            raise FeedError(f"couldn't fetch it ({exc})") from None
+        if resp.status >= 400:
+            raise FeedError(f"it answered HTTP {resp.status}")
+        return resp.text
+
+    text = get(url)
+    items = _feed_items(text, url)
+    if items is not None:
+        return SourceFound(url, "feed", len(items))
+    if not looks_like_html(text) and "<" not in text[:200]:
+        raise FeedError("it is neither a feed nor a web page")
+    reader = _read_page(text, url)
+    for href, title in reader.feeds:
+        if "comment" in title.lower() or "/comments/" in href:
+            continue
+        try:
+            found = _feed_items(get(href), href)
+        except FeedError:
+            continue
+        if found:
+            return SourceFound(href, "feed", len(found))
+    posts = parse_page(text, url)
+    if posts:
+        return SourceFound(url, "page", len(posts))
+    raise FeedError("it has no feed, and no list of posts could be read from the page")
 
 
 def price_from_text(text: str) -> int | None:
@@ -442,6 +643,10 @@ def matches(item: FeedItem, watch: DealWatch) -> bool:
         price = price_from_text(item.title) or price_from_text(item.summary)
         if price is None or price > watch.max_price:
             return False
+    if watch.months:
+        named = months_in(f"{item.title} {item.summary}")
+        if named is not None and not named & set(watch.months):
+            return False
     return True
 
 
@@ -470,19 +675,33 @@ def poll(
     stamp = _iso(now)
     transport = transport or default_transport("urllib")
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
-    watches = active_deal_watches(conn)
+    watches = deal_matchers(conn)
 
-    for i, feed in enumerate(active_feed_urls(conn, cfg)):
+    for i, (feed, kind) in enumerate(active_sources(conn, cfg)):
         if i:
             sleeper(1.0)
         stats.feeds += 1
+        # A page's posts carry no dates: the first good read of a page only records what
+        # is already there, so an old post never alerts; alerts start with new posts.
+        first_read = (
+            kind == "page"
+            and conn.execute(
+                "SELECT 1 FROM feed_log WHERE feed = ? AND ok = 1 LIMIT 1", (feed,)
+            ).fetchone()
+            is None
+        )
         try:
             resp = transport.get(feed, timeout=cfg.fetch.request_timeout_seconds)
             if resp.status >= 400:
                 raise TransportError(f"HTTP {resp.status}")
-            if looks_like_html(resp.text):
-                raise FeedError("feed returned a web page, not a feed")
-            items = parse_feed(resp.text, feed)
+            if kind == "page":
+                items = parse_page(resp.text, feed)
+                if not items:
+                    raise FeedError("no posts could be read from the page (has it changed?)")
+            else:
+                if looks_like_html(resp.text):
+                    raise FeedError("feed returned a web page, not a feed")
+                items = parse_feed(resp.text, feed)
         except (TransportError, FeedError, ET.ParseError) as exc:
             msg = (str(exc) if isinstance(exc, FeedError) else f"{type(exc).__name__}: {exc}")[:300]
             stats.errors.append(f"{feed}: {msg}")
@@ -509,8 +728,9 @@ def poll(
             cur = conn.execute(
                 """
                 INSERT INTO deal_posts
-                    (guid, feed, title, link, published_at, seen_at, price_cents, watch)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(guid) DO NOTHING
+                    (guid, feed, title, link, published_at, seen_at, price_cents, watch,
+                     alerted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(guid) DO NOTHING
                 """,
                 (
                     it.guid,
@@ -521,6 +741,7 @@ def poll(
                     stamp,
                     price_from_text(it.title) or price_from_text(it.summary),
                     watch.name if watch else None,
+                    stamp if first_read else None,
                 ),
             )
             if cur.rowcount:
