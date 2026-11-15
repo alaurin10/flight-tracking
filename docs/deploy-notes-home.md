@@ -59,9 +59,16 @@ stacks, builds their images on every update, and from M6 also builds a frontend.
 
 - The mini PC's totals: Datacenter → *your node* → **Summary**: *CPU(s)* (cores) and
   *RAM usage* (the total after the slash).
-- Home Assistant's real use: VM 100 → **Summary**, set the graphs to **Week
-  (maximum)** and read the peak of *Memory usage*. Also Home Assistant → Settings →
-  System → Hardware.
+- Home Assistant's real use, read **inside Home Assistant**, not in Proxmox. Proxmox's
+  memory graph for a VM counts the guest's file cache as used, so a Home Assistant VM
+  usually shows close to its full allocation (7 of 8 GiB is typical) whatever it
+  needs. Instead:
+  - Settings → System → **Hardware**: memory in use.
+  - Settings → **Add-ons** → each add-on's Info tab: its own memory, to find a heavy one
+    (Frigate, Whisper or Piper voice, InfluxDB with Grafana, Music Assistant, Node-RED;
+    ESPHome spikes while compiling).
+  - Most exact, with the *Terminal & SSH* add-on: `free -m`; real use is *total*
+    minus *available*. Check at a busy moment, or a few times over a day.
 - The Docker host's real use: in VM 102, `free -h`, `df -h /` and
   `docker stats --no-stream`.
 
@@ -77,8 +84,12 @@ For a mini PC with **16 GiB and 4 cores** (the common N100-class box):
 | 102 Docker host | 6 → **10 GiB** | 2 → **4** | → **host** | 24 → **40 GB** |
 | Proxmox itself | ~2 GiB left over | | | |
 
-- If Home Assistant's weekly peak (step 1.1) is above 3 GiB, give it 6 GiB and the
-  Docker host 8 GiB instead.
+- If Home Assistant's real use (step 1.1) is 3–4.5 GiB, give it 6 GiB and the Docker
+  host 8 GiB instead. Above that, find the heavy add-on first; to keep it, leave Home
+  Assistant at 8 GiB and grow the Docker host only by what the node has spare.
+- After shrinking Home Assistant, watch Settings → System → Repairs and the add-on
+  logs for a day. An add-on killed for lack of memory shows there; raise it again
+  (another Shutdown and Start).
 - With **32 GiB**: Home Assistant 6 GiB, Docker host 16 GiB, and room for another VM
   later.
 - With **8 cores**: Home Assistant 2, Docker host 6 or 8.
