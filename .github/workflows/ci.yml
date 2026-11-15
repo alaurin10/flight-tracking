@@ -116,8 +116,8 @@ jobs:
           health() { docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q "$1")"; }
           ok=""
           for i in $(seq 1 30); do
-            api=$(health api); worker=$(health worker)
-            fresh=$(curl -s -o /dev/null -w '%{http_code}' localhost:8091/api/health)
+            api=$(health api || true); worker=$(health worker || true)
+            fresh=$(curl -s -o /dev/null -w '%{http_code}' localhost:8091/api/health || true)
             echo "after $((i * 5)) s: api $api, worker $worker, /api/health $fresh"
             if [ "$api" = healthy ] && [ "$worker" = healthy ] && [ "$fresh" = 200 ]; then ok=1; break; fi
             sleep 5
