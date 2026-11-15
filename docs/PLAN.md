@@ -14,7 +14,7 @@ Update this table in the same pull request that finishes a milestone.
 
 | Step | What | Status | PR | Notes |
 |---|---|---|---|---|
-| M1 | Collector fixes | done | PRNUM | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
+| M1 | Collector fixes | done | [#5](https://github.com/alaurin10/flight-tracking/pull/5) | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | not started | | |
 | M3 | Database as the source of truth | not started | | |
