@@ -85,7 +85,7 @@ jobs:
         run: |
           docker tag flightwatch:ci flightwatch:local
           mkdir -p data && chmod 777 data
-          docker compose run --rm --no-build worker flighttrack import-config /app/config/seed.example.yaml
+          docker compose run --rm --pull never worker flighttrack import-config /app/config/seed.example.yaml
           FLIGHTTRACK_SOURCE=fake docker compose up -d --no-build worker
           count() { docker compose exec -T worker python -c "import sqlite3; print(sqlite3.connect('/data/flights.db').execute('SELECT COUNT(*) FROM observations').fetchone()[0])"; }
           ok=""
