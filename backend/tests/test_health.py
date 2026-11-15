@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from helpers import make_config, make_db
 
 from flighttrack import fetch, health
-from flighttrack.db import set_state, utcnow
 from flighttrack.source import BlockedError, FakeSource
+from flighttrack.store.db import set_state, utcnow
 
 
 def _file_cfg(tmp_path, **health_over):

@@ -9,15 +9,15 @@ from helpers import make_config
 
 from flighttrack import compact, demo, jobs
 from flighttrack.config import Retention
-from flighttrack.db import connect, get_state
 from flighttrack.source import FakeSource
+from flighttrack.store.db import get_state, open_db
 
 
 def _seeded(tmp_path, **ret):
     cfg = replace(
         make_config(max_days_ahead=60, notify={"channel": "none"}), retention=Retention(**ret)
     )
-    conn = connect(tmp_path / "c.db")
+    conn = open_db(tmp_path / "c.db")
     demo.seed(conn, cfg, days=120)
     return conn, cfg
 

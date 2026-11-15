@@ -23,12 +23,12 @@ def test_observations_reject_delete(tmp_path):
 
 
 def test_schema_is_reapplied_safely(tmp_path):
-    from flighttrack import db
+    from flighttrack.store import db
 
     conn, _ = make_db(tmp_path)
     qid = first_query_id(conn)
     add_obs(conn, qid, 20000)
     conn.close()
 
-    conn2 = db.connect(tmp_path / "t.db")  # reopening must not wipe anything
+    conn2 = db.open_db(tmp_path / "t.db")  # reopening must not wipe anything
     assert conn2.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1

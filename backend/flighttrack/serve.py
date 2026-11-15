@@ -29,7 +29,7 @@ from . import fetch as fetch_mod
 from . import health as health_mod
 from . import html as html_mod
 from .config import Config
-from .db import connect, get_state, parse_ts, utcnow
+from .store.db import get_state, open_db, parse_ts, utcnow
 
 # At start-up, run at once when nothing has succeeded for this long, so a
 # restart or a week of downtime does not wait for tomorrow's 03:15.
@@ -121,7 +121,7 @@ class Scheduler:
 
 def status_payload(cfg: Config, sched: Scheduler | None) -> dict:
     """Everything a phone widget or a home dashboard would want, as JSON."""
-    conn = connect(cfg.db_path)
+    conn = open_db(cfg.db_path)
     try:
         rep = health_mod.check(conn, cfg)
         last_run = conn.execute("SELECT * FROM run_log ORDER BY id DESC LIMIT 1").fetchone()
@@ -194,7 +194,7 @@ def make_handler(cfg: Config, sched: Scheduler | None, log: Callable[[str], None
             path = self.path.split("?", 1)[0]
             if path in ("/", "/index.html"):
                 if not html_path.exists():
-                    conn = connect(cfg.db_path)
+                    conn = open_db(cfg.db_path)
                     try:
                         html_mod.write(conn, html_path, cfg=cfg)
                     finally:

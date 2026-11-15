@@ -17,7 +17,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
-from .db import utcnow
+from .store.db import utcnow
 
 
 class NotifyError(Exception):

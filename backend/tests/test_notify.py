@@ -167,7 +167,7 @@ def test_deals_alert_reports_delivery_error(tmp_path, broken_file_channel):
 def test_health_run_returns_false(tmp_path, broken_file_channel):
     from datetime import datetime, timedelta
 
-    from flighttrack.db import set_state
+    from flighttrack.store.db import set_state
 
     now = datetime(2026, 11, 14, 12, tzinfo=UTC)
     conn, cfg = make_db(tmp_path, make_config(notify=broken_file_channel))

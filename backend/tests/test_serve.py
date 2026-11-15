@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from helpers import make_config, make_db
 
 from flighttrack import serve
-from flighttrack.db import connect
+from flighttrack.store.db import open_db
 
 
 def test_compute_next_is_tomorrow_when_time_has_passed():
@@ -120,7 +120,7 @@ def test_http_serves_report_status_and_run(tmp_path):
 
 def test_needs_catchup_from_last_success(tmp_path):
 
-    from flighttrack.db import set_state
+    from flighttrack.store.db import set_state
 
     now = datetime(2026, 11, 14, 12, tzinfo=UTC)
     conn, _ = make_db(tmp_path)
@@ -134,7 +134,7 @@ def test_needs_catchup_from_last_success(tmp_path):
 
 def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys):
     from flighttrack import cli
-    from flighttrack.db import set_state, utcnow
+    from flighttrack.store.db import set_state, utcnow
 
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
@@ -148,7 +148,7 @@ def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys)
 
     assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # empty database → catch up
     assert "catching up at start" in capsys.readouterr().out
-    conn = connect(tmp_path / "f.db")
+    conn = open_db(tmp_path / "f.db")
     set_state(conn, "last_success_at", utcnow())
     conn.close()
     assert cli.main(["--config", str(cfg_path), "serve"]) == 0  # fresh → wait for the schedule

@@ -4,7 +4,7 @@ import io
 import json
 
 from flighttrack import cli
-from flighttrack.db import connect
+from flighttrack.store.db import open_db
 
 CONFIG = """
 home: SEA
@@ -69,7 +69,7 @@ def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
     assert (
         cli.main(["--config", c, "ingest"]) == 1
     )  # two bad lines → non-zero, but the good one lands
-    conn = connect(tmp_path / "f.db")
+    conn = open_db(tmp_path / "f.db")
     row = conn.execute(
         "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = "
         "o.query_id"

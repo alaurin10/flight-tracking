@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from .config import Config
-from .db import get_state, parse_ts, set_state, utcnow
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
 from .notify import NotifyError, notify
+from .store.db import get_state, parse_ts, set_state, utcnow
 
 STATE_LAST_HEALTH_ALERT = "last_health_alert_at"
 STATE_LAST_HEALTH_SIG = "last_health_signature"

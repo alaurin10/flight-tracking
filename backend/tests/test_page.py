@@ -9,7 +9,7 @@ from helpers import make_config, make_db
 
 from flighttrack import demo, html
 from flighttrack.config import Trip
-from flighttrack.db import connect
+from flighttrack.store.db import open_db
 
 TODAY = date(2026, 11, 14)
 
@@ -20,7 +20,7 @@ def _demo(tmp_path):
         max_days_ahead=90,
         notify={"channel": "none"},
     )
-    conn = connect(tmp_path / "demo.db")
+    conn = open_db(tmp_path / "demo.db")
     demo.seed(conn, cfg, days=20, today=TODAY)  # pinned: the 2027 trip must still be ahead
     return conn, cfg
 

@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from .config import Config
-from .db import utcnow
 from .expand import trip_targets
 from .notify import NotifyError, notify
 from .report import fmt_date, fmt_money
+from .store.db import utcnow
 
 
 @dataclass

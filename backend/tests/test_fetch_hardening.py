@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from helpers import make_config, make_db
 
 from flighttrack import fetch
-from flighttrack.db import get_state
 from flighttrack.source import BlockedError, FakeSource, LayoutError, NetworkError, Offer
+from flighttrack.store.db import get_state
 
 
 class Sequenced:

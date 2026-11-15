@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from . import expand as expand_mod
 from .config import Config
-from .db import set_state
+from .store.db import set_state
 
 BASE_PRICE = {"HND": 92000, "NRT": 84000, "SLC": 21000}
 AIRLINES = {

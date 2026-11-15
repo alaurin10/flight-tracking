@@ -25,7 +25,6 @@ from datetime import UTC, date, datetime, timedelta
 
 from . import fetch as fetch_mod
 from .config import Config, Pattern, Route
-from .db import get_state, set_state, utcnow
 from .expand import departure_dates
 from .gflights import PageKind, classify
 from .gflights.calendar import (
@@ -40,6 +39,7 @@ from .gflights.calendar import (
 )
 from .gflights.transport import Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
+from .store.db import get_state, set_state, utcnow
 
 STATE_CURSOR = "sweep_cursor"
 SOURCE_NAME = "google_calendar"

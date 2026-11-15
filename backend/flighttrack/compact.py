@@ -7,9 +7,11 @@ alerts and percentiles depend on — that is the `is_best = 1` series, and it
 is never pruned here.
 
 This is the one sanctioned exception to the append-only rule on
-`observations`: the delete trigger is dropped inside a transaction, the old
-runner-up rows are removed, and the trigger is put straight back. A crash in
-between leaves the schema re-applied on the next connect (it is idempotent).
+`observations`: in one transaction the delete trigger is dropped, the old
+runner-up rows are removed, and the trigger is created again from
+`store.db.OBSERVATIONS_NO_DELETE`. SQLite schema changes are transactional, so
+a crash leaves either the old state or the new one, never a missing trigger
+(and `migrate()` re-creates the triggers if anything ever removed them).
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from .config import Config
-from .db import SCHEMA_PATH, get_state, set_state, utcnow
+from .store.db import OBSERVATIONS_NO_DELETE, ensure_append_only, get_state, set_state, utcnow
 
 STATE_LAST_COMPACT = "last_compact_at"
 
@@ -90,17 +92,18 @@ def compact(
         return stats
 
     if cut_r and stats.runner_ups_deleted:
+        conn.commit()
         try:
             conn.execute("BEGIN")
             conn.execute("DROP TRIGGER IF EXISTS observations_no_delete")
             conn.execute("DELETE FROM observations WHERE is_best = 0 AND observed_at < ?", (cut_r,))
+            conn.execute(OBSERVATIONS_NO_DELETE)
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
         finally:
-            conn.executescript(SCHEMA_PATH.read_text())  # recreates the trigger, idempotent
-            conn.commit()
+            ensure_append_only(conn)  # a no-op unless something above went wrong
     if cut_a:
         conn.execute("DELETE FROM fetch_attempts WHERE at < ?", (cut_a,))
         conn.execute("DELETE FROM feed_log WHERE at < ?", (cut_a,))

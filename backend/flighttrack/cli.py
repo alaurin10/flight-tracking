@@ -26,7 +26,7 @@ from . import html as html_mod
 from . import report as report_mod
 from . import sweep as sweep_mod
 from .config import Config, ConfigError, load
-from .db import connect
+from .store.db import open_db
 
 DEFAULT_CONFIG = "config.yaml"
 
@@ -40,7 +40,7 @@ def _load(args, strict_secrets: bool = False) -> Config:
 
 
 def _db(cfg: Config) -> sqlite3.Connection:
-    return connect(cfg.db_path)
+    return open_db(cfg.db_path)
 
 
 def _source(cfg: Config):
@@ -215,7 +215,7 @@ def cmd_serve(args) -> int:
     from .serve import needs_catchup, serve
 
     cfg = _load(args, strict_secrets=False)
-    conn = connect(cfg.db_path)  # apply schema up front so the first GET has tables
+    conn = open_db(cfg.db_path)  # apply schema up front so the first GET has tables
     try:
         catchup, why = needs_catchup(conn)
     finally:
@@ -266,7 +266,7 @@ def cmd_demo(args) -> int:
             print(f"[demo] {db_path} exists — pass --force to overwrite")
             return 2
         db_path.unlink()
-    conn = connect(db_path)
+    conn = open_db(db_path)
     stats = demo_mod.seed(conn, cfg, days=args.days)
     out = html_mod.write(conn, args.out, cfg=cfg)
     print(

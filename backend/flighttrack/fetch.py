@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from .config import Config, Route
-from .db import get_state, parse_ts, set_state, utcnow
 from .source import (
     BlockedError,
     LayoutError,
@@ -39,6 +38,7 @@ from .source import (
     SourceError,
     price_is_plausible,
 )
+from .store.db import get_state, parse_ts, set_state, utcnow
 
 # How stale a query may get before it is due again, by route priority.
 PRIORITY_INTERVAL_DAYS = {1: 1, 2: 3, 3: 7}
