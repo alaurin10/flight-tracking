@@ -20,7 +20,7 @@ Update this table in the same pull request that finishes a milestone.
 | M3 | Database as the source of truth | done | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
 | M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
 | M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
-| B | Owner: go live at flights.andrewlaurin.com | in progress | | live checks done 2026-11-15: results page and calendar work from home; calibrate 20/20 |
+| B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
 | M6 | Frontend: read-only app | not started | | |
 | M7 | Manage | not started | | |
 | M8 | Push alerts and installable app | not started | | |
@@ -195,6 +195,23 @@ Decisions log (add a line when a milestone departs from this document, with the 
   burst, so the daily limit is still unmeasured. `calendar.enabled` is now true;
   `collect.daily_request_budget` stays 50 for a week of real running and goes to 80 if
   `/api/status` shows no blocks.
+- 2026-11-15 (checkpoint B, done): the site is live at `https://flights.andrewlaurin.com`
+  through the Home Assistant tunnel, and the deploy timer runs. Checked from outside:
+  `livez` 200; `meta` reports the commit; the security headers (CSP with the interim page's
+  hash, HSTS, `nosniff`, frame denial, `X-Robots-Tag`) arrive through Cloudflare, which does
+  not cache (`cf-cache-status: DYNAMIC`); `robots.txt` disallows all; `/api/admin/trips`
+  without a session is 401; `/api/docs` is 404 (`ENV=prod`); the worker's heartbeat is
+  fresh; both deal feeds answered from home with 16 items. PR #16 merged at 21:25:48 UTC and
+  the site reported its commit by 21:27:58, so auto-deploy rebuilds and restarts unattended.
+  Still open on the owner's side: no trips are loaded yet, so `/api/health` is 503
+  `no_data` and `/api/status` shows `never_succeeded` (an empty batch was logged as a run);
+  plain `http://` is answered rather than redirected (Cloudflare's *Always Use HTTPS* is
+  off; HSTS covers repeat visits). Home Assistant used 1.3 of its 8 GB inside the guest,
+  which is what the VM split in `docs/deploy-notes-home.md` is based on.
+- 2026-11-15 (owner's choice): trips, searches and deal watches will be added through the
+  app's Manage page (M7), not `import-config` or the API by hand. Until then nothing is
+  tracked, so no price history accumulates and `/api/health` stays 503 `no_data`; the worker
+  still polls the deal feeds and runs the daily canary.
 
 ## How to work from this document
 
