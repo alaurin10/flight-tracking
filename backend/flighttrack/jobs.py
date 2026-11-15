@@ -77,7 +77,7 @@ def run_daily(
 
     def stage(name: str, fn: Callable[[], tuple[int, str]]) -> None:
         if verbose:
-            log(f"\n== {name} ==")
+            log(f"\n== {name} ==" if log is print else f"== {name} ==")
         sr = StageResult(name)
         try:
             sr.rc, sr.summary = fn()

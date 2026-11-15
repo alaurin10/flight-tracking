@@ -19,7 +19,7 @@
 ## Rules that protect the project
 
 - **Tests never touch the network.** Use `FakeSource`, `FakeTransport` and the saved pages in
-  `tests/fixtures/`.
+  `backend/tests/fixtures/`.
 - **Live requests to Google are rationed.** At most 10 in a session, at least 7 seconds apart,
   through `flighttrack doctor`. Stop at the first HTTP 429 or `/sorry/` page and do not retry.
   Never run `flighttrack calibrate` from a cloud session.

@@ -43,7 +43,7 @@ over days, so daily resolution is plenty.
 
 The results page, the `primp` transport, the search filters, the calendar call and block
 detection were checked against live Google on 2026-11-14; `docs/PLAN.md` has the table.
-239 offline tests pass with and without the optional dependencies and with the clock moved
+258 offline tests pass with and without the optional dependencies and with the clock moved
 years ahead. **`docs/data-sources.md`** is the full analysis of every data source considered and
 why the system is layered the way it is.
 
@@ -51,15 +51,15 @@ why the system is layered the way it is.
 
 On an always-on box at home with a residential IP: a mini PC, NAS or Raspberry Pi
 running `docker compose up -d`, which starts one process that runs the daily job
-at 03:15 and serves the report on port 8080 (Tailscale for your phone away from
-home). A Mac works with the launchd agent in `deploy/` if it stays awake. Cloud
-IPs get captcha'd. **`docs/running.md`** compares the options; **`docs/deploy-proxmox.md`**
-is the Proxmox LXC runbook (`deploy/lxc/`); **`docs/using.md`** is the day-to-day guide.
+at 03:15 and serves the report on port 8091 (LAN only: it has no sign-in yet). Cloud
+IPs get captcha'd. **`docs/using.md`** is the day-to-day guide. The other files in `deploy/`
+and `docs/running.md`, `docs/deploy-proxmox.md` predate the move to `backend/` (milestone 2 of
+`docs/PLAN.md`) and are replaced by the deploy kit in milestone 5.
 Storage is light: one SQLite file, ~100 MB/year unbounded or ~35 MB bounded with the default
 weekly retention (`flighttrack compact`), which never touches the cheapest-offer price series.
 
 ```bash
-flighttrack demo && open out/demo.html   # see the report with synthetic data, right now
+uv run flighttrack demo && open ../data/out/demo.html   # the report with synthetic data, from backend/
 ```
 
 ### First run on the host
@@ -78,30 +78,54 @@ google.com/travel/flights for the same search; if they match, price normalizatio
 
 ## Install
 
-Python 3.10+.
+### With Docker (the way it runs at home)
 
 ```bash
 git clone https://github.com/alaurin10/flight-tracking.git
 cd flight-tracking
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e '.[full]'       # core + primp (browser TLS fingerprint) + fast-flights fallback
-# pip install -e .             # core only: PyYAML is the sole dependency
+cp .env.example .env                       # set TZ; the rest is for later milestones
+GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
+docker compose exec flighttrack flighttrack doctor --offline
 ```
 
+The page is at `http://<host>:8091/`. The database, the page and saved failure pages live in
+`./data` (owned by uid 1000; `sudo chown -R 1000:1000 data` if an older install made it as
+root). The container's root file system is read-only. Edit `config.yaml` for your own trips;
+compose mounts it into the container, so `docker compose restart` picks up a change. Do not
+commit real trips: the repository is public.
+
+### Without Docker
+
+Python 3.12 and [uv](https://docs.astral.sh/uv/).
+
 ```bash
-flighttrack expand          # build the date grid — no network
-flighttrack doctor          # one real request
-flighttrack run             # the daily job
-flighttrack report --pattern ski_weekend --sort price
-flighttrack advise --pattern japan
+cd backend
+uv sync --frozen                  # add --extra fallback for the fast-flights fallback parser
+uv run flighttrack expand         # build the date grid — no network
+uv run flighttrack doctor         # one real request
+uv run flighttrack run            # the daily job
+uv run flighttrack report --pattern ski_weekend --sort price
+uv run flighttrack advise --pattern japan
 ```
+
+Without `--config`, commands read `config.yaml` at the repository root wherever they are run
+from, and write under `data/` there (`DATA_DIR` in `.env` moves it).
+
+### Where settings live
+
+| Kind | Place |
+|---|---|
+| Secrets and per-install values | `.env`, never committed (`.env.example` lists them) |
+| Tunables: search filters, pacing, alerts, health, retention, deal feeds | `config/flighttrack.yaml` |
+| What is tracked: home airport, routes, trips, patterns, deal watches | `config.yaml` (`--config`); the database from milestone 3 |
 
 ---
 
 ## Configuration
 
-Everything lives in `config.yaml`, laid out around the three questions. There is deliberately
-no settings UI: config changes are rare, and a YAML file is diffable and editable over SSH.
+What is tracked lives in `config.yaml`, laid out around the three questions; the tunables are
+in `config/flighttrack.yaml`. A section in `config.yaml` overrides the same section of the
+tunables key by key, so an older single-file config still works.
 
 ```yaml
 routes:                      # every trip/pattern references one; carries label, target, priority
@@ -118,10 +142,8 @@ patterns:                    # 2. recurring shapes
     routes: [SLC]
     window: {start: 2027-01-01, end: 2027-03-31}
 
-deals:                       # 3. announced deals
+deals:                       # 3. announced deals (the feeds are in config/flighttrack.yaml)
   enabled: true
-  feeds: [https://www.theflightdeal.com/feed/,
-          https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/]
   watches:
     - {name: Europe from Seattle, origins: [Seattle, SEA, "West Coast", "US cities"],
        destinations: [europe], max_price: 60000}
@@ -157,7 +179,7 @@ and spends the detail budget on the dates that look interesting.
 |---|---|
 | `run` | The daily job: expand → sweep → fetch → deals → alert → health → html. Stages are isolated. |
 | `serve` | `run` on a daily schedule **and** a web server for the report (`/`, `/status.json`, `POST /run`). One process for an always-on box. Runs once at start-up when nothing has succeeded in 20 hours. |
-| `demo` | Seed synthetic history into `data/demo.db` and render `out/demo.html`. No network. |
+| `demo` | Seed synthetic history into `data/demo.db` and render `data/out/demo.html`. No network. |
 | `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; `run` does it weekly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
 | `fetch` | Fetch due queries through the source chain. `--dry-run` lists them. Skips itself during a cooldown. |
@@ -175,7 +197,7 @@ and spends the detail budget on the dates that look interesting.
 
 ### The report
 
-Every run rewrites `out/index.html` (and `flighttrack serve` serves it): trip cards with today's
+Every run rewrites `data/out/index.html` (and `flighttrack serve` serves it): trip cards with today's
 price, a book-or-wait verdict and reasons, and the price history charted against your target;
 the best date in each grid; every tracked departure as a calendar heatmap with the cheapest
 outlined and a table twin; announced deals; and the collector's own health. Light and dark,
@@ -223,7 +245,7 @@ price alerts per run before a digest; only observations from the last 48h are co
 
 ### Notifications
 
-The shipped config appends every alert to `out/digest.md` (`notify.channel: file`). `smtp` sends
+The shipped config appends every alert to `data/out/digest.md` (`notify.channel: file`). `smtp` sends
 email instead (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TO`), and `none` turns delivery off.
 The web app replaces all of these with browser push (`docs/PLAN.md`, M8).
 
@@ -234,14 +256,14 @@ swallow the retry, and any error inside a channel is reported, never raised into
 
 ## Scheduling
 
-Three ways, in order of preference — details in `docs/running.md`:
+**`docker compose up -d`** on a mini PC: `flighttrack serve` runs the job daily and serves the
+report. Without Docker, one cron line does the same job:
 
-1. **`docker compose up -d`** on a mini PC: `flighttrack serve` runs the job daily and serves the report.
-2. **systemd** timer + service in `deploy/` (daily, jittered, hardened, catches up after sleep).
-3. **launchd** agent in `deploy/` for a Mac, or one cron line:
-   ```cron
-   15 3 * * *  cd /srv/flighttrack && .venv/bin/flighttrack run >> log/run.log 2>&1
-   ```
+```cron
+15 3 * * *  cd /srv/flight-tracking/backend && .venv/bin/flighttrack run >> ../data/run.log 2>&1
+```
+
+Milestone 4 replaces the once-a-day run with a worker that collects in small batches.
 
 `run` exits non-zero when the collector aborted or health is critical, so cron mail surfaces it —
 and `health` sends a notification as well.
@@ -263,23 +285,29 @@ deal feeds ──► deals ──► deal_posts  └──► alert ◄───
 `observations` is append-only and the database enforces it (`BEFORE UPDATE`/`DELETE` triggers
 raise). Every historical percentile depends on nothing ever rewriting that table. Calendar-sweep
 prices are stored with `is_best = 0` and `source = 'google_calendar'`: context, never the series.
-Expired queries and dropped routes are deactivated, never deleted. Schema changes are additive
-and applied automatically on connect. The one sanctioned exception to append-only is `compact`,
-which removes runner-up offers and old request logs (never `is_best` rows) inside a transaction
-that drops and immediately restores the delete trigger.
+Expired queries and dropped routes are deactivated, never deleted. Schema changes are numbered,
+additive migrations in `backend/flighttrack/store/migrations/`, applied whenever a command
+opens the database; an older database is adopted without rewriting it. The one sanctioned
+exception to append-only is `compact`, which removes runner-up offers and old request logs
+(never `is_best` rows) inside one transaction that drops and restores the delete trigger.
 
 ---
 
 ## Development
 
 ```bash
-pip install -e '.[dev]'
-pytest -q        # 239 tests, all offline; passes with or without primp/fast-flights
-FLIGHTTRACK_BROWSER_TESTS=1 pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
+cd backend
+uv sync --frozen
+uv run ruff check . && uv run ruff format --check .
+uv run mypy flighttrack       # strict; modules from before M2 are listed as exceptions
+uv run pytest                 # 258 tests, all offline; also with `uv sync --frozen --extra fallback`
+FLIGHTTRACK_BROWSER_TESTS=1 uv run pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
+docker build -f docker/Dockerfile .   # from the repository root
 ```
 
 `FakeSource` and `FakeTransport` make every path testable without a request. The encoder test
-against `fast-flights` skips if that extra is not installed.
+against `fast-flights` skips if that extra is not installed. Logs from the long-running `serve`
+are one JSON object per line; commands a person runs print plain text.
 
 ## Terms of service
 

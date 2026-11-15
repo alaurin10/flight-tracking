@@ -16,7 +16,7 @@ Update this table in the same pull request that finishes a milestone.
 |---|---|---|---|---|
 | M1 | Collector fixes | done | [#5](https://github.com/alaurin10/flight-tracking/pull/5) | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
-| M2 | Restructure to the Snow Watch layout | not started | | |
+| M2 | Restructure to the Snow Watch layout | in review | | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
 | M3 | Database as the source of truth | not started | | |
 | M4 | The worker | not started | | |
 | M5 | API and deploy kit | not started | | |
@@ -47,6 +47,33 @@ Decisions log (add a line when a milestone departs from this document, with the 
   observation's `raw.page_min`, so no schema change was needed.
 - 2026-11-15 (M1): the exclude-basic calendar slot was not searched for. Method 1 needs a
   normal browser; method 2 needs requests outside `doctor` and more than a session's budget.
+- 2026-11-15 (M2): the root `Dockerfile` is deleted in M2 instead of M5. It built from `src/`,
+  which no longer exists; `docker/Dockerfile` replaces it.
+- 2026-11-15 (M2): the watch file (`--config`) may still carry any tunable section, which then
+  overrides `config/flighttrack.yaml` key by key, so a checkpoint-A `config.yaml` keeps working
+  unchanged. An `output:` section is ignored with a warning (paths come from `Settings`). A
+  missing `config/flighttrack.yaml` means the code defaults.
+- 2026-11-15 (M2): the plan did not place `notify`, `deals.enabled`, `deals.max_alerts_per_run`
+  or `deals.lookback_days`. `notify` and the last two are tunables; `deals.enabled` stays in the
+  watch file with `deals.watches`, because enabling deals without watches is a config error. A
+  relative `notify.file.path` is under `DATA_DIR`.
+- 2026-11-15 (M2): `flighttrack/db.py` and `schema.sql` are gone. `utcnow`, `parse_ts`,
+  `get_state` and `set_state` are imported from `flighttrack.store.db`. Commands open the
+  database with `open_db()` (`connect` plus `migrate`). `migrate()` also re-creates an
+  append-only trigger if one is missing, which the old connect did by re-applying `schema.sql`,
+  and `compact` now drops and re-creates the delete trigger inside the same transaction as the
+  delete.
+- 2026-11-15 (M2): `html.py` is exempt from ruff's line-length rule: most of it is embedded CSS
+  and JS, and M6 deletes it.
+- 2026-11-15 (M2): plain-text log lines for commands a person runs are the bare message (Snow
+  Watch prefixes level and logger), so `fetch` and `sweep` read as before. `serve` logs JSON.
+  `health.run` logs its problems; `flighttrack health` prints the report itself.
+- 2026-11-15 (M2): the non-Docker files in `deploy/` and `docs/running.md`,
+  `docs/deploy-proxmox.md` install from the repository root with the old extras and Python 3.10,
+  so they no longer work. They are left as they are for M5 to delete, as planned.
+- 2026-11-15 (M2): the compose service is still called `flighttrack` (checkpoint A's
+  `docker compose exec flighttrack …` commands keep working). Compose mounts `./config.yaml`
+  read-only over the copy in the image until M3 removes it.
 
 ## How to work from this document
 

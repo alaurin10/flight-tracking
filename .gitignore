@@ -6,6 +6,7 @@ build/
 dist/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 
 # Local data and generated output — never commit price history or secrets.
 *.db
@@ -14,7 +15,3 @@ dist/
 data/
 out/
 .env
-
-# uv
-backend/.venv/
-.mypy_cache/

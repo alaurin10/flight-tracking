@@ -1,29 +1,81 @@
-name: tests
+name: CI
 
+# Checks only. Nothing is deployed from here: the server builds its own image.
+# Actions are pinned to commits; Dependabot keeps them fresh.
+# No job talks to Google Flights or the deal feeds: tests use fakes and saved pages,
+# and the smoke-test container runs with no network at all.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: ["3.10", "3.12"]
-        extras: ["dev", "core"]
+    defaults:
+      run:
+        working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
-          python-version: ${{ matrix.python }}
-      - name: Install
-        run: |
-          python -m pip install -U pip
-          if [ "${{ matrix.extras }}" = "dev" ]; then pip install -e '.[dev]'; else pip install -e . pytest; fi
-      # Every test is offline. The suite must pass with and without the
-      # optional fast-flights/primp extras, because the box that runs this
-      # may have neither.
-      - name: Test
-        run: python -m pytest -q
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy flighttrack
+      - run: uv run pytest
       - name: Offline doctor on the shipped config
-        run: flighttrack doctor --offline
+        run: uv run flighttrack doctor --offline
+      # The image installs the fast-flights fallback; the suite must pass with and without it.
+      - name: Tests with the fallback extra
+        run: |
+          uv sync --frozen --extra fallback
+          uv run pytest
+
+  audit:
+    # Known vulnerabilities in dependencies. Reported, not blocking: a new advisory
+    # shouldn't turn every open PR red; Dependabot opens the fix.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: "3.12"
+      - name: Python dependencies
+        working-directory: backend
+        run: |
+          uv export --frozen --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt > /tmp/req.txt
+          uvx pip-audit -r /tmp/req.txt
+
+  docker:
+    # Proves the image builds and starts. Nothing is pushed anywhere.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build -f docker/Dockerfile --build-arg GIT_COMMIT=${{ github.sha }} -t flightwatch:ci .
+      - name: Smoke test
+        run: |
+          harden="--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true"
+          docker run --rm flightwatch:ci flighttrack --help
+          docker run --rm $harden flightwatch:ci flighttrack doctor --offline
+          docker run --rm flightwatch:ci sh -c 'test "$GIT_COMMIT" = "${{ github.sha }}" && test "$(id -u)" = 1000'
+          # serve on an empty database tries a catch-up run at once; --network none
+          # keeps every one of those requests inside the container.
+          mkdir -p /tmp/fw-data && chmod 777 /tmp/fw-data
+          docker run -d --name fw --network none $harden -v /tmp/fw-data:/data flightwatch:ci
+          probe() { docker exec fw python -c "import sys, urllib.request; sys.stdout.write(urllib.request.urlopen('http://localhost:8080$1', timeout=5).read().decode())"; }
+          for i in $(seq 1 30); do probe /status.json > /dev/null 2>&1 && break; sleep 1; done
+          probe /status.json | grep -q '"scheduler"'
+          probe / | grep -q '<html'
+          test -f /tmp/fw-data/flights.db
+          docker logs fw 2>&1 | head -1 | python3 -c 'import json, sys; json.loads(sys.stdin.read())'
+          docker logs fw 2>&1 | head -20
