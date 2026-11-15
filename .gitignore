@@ -14,3 +14,7 @@ dist/
 data/
 out/
 .env
+
+# uv
+backend/.venv/
+.mypy_cache/

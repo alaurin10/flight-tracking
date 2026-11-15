@@ -137,7 +137,7 @@ def test_config_rejects_bad_scenario_values(tmp_path, extra, match):
 def test_shipped_config_is_valid_and_covers_all_three_scenarios():
     from pathlib import Path
 
-    cfg = load(Path(__file__).resolve().parents[1] / "config.yaml", strict_secrets=False)
+    cfg = load(Path(__file__).resolve().parents[2] / "config.yaml", strict_secrets=False)
     assert any(p.window_start for p in cfg.patterns), "a windowed (ski) pattern"
     assert cfg.trips, "a fixed trip"
     assert cfg.deals.watches, "a deal watch"
