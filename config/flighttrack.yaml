@@ -100,9 +100,12 @@ collect:
 # promising dates are confirmed with a real fetch. Verify on your host first:
 #   flighttrack doctor --calendar
 # and enable only if the printed prices match the price graph in a browser.
+# Checked from the home address on 2026-11-15: 31 dated prices for SEA→LAX. They
+# include basic economy (SEA→LAX Jan 14–18: $287 against $307 on the results
+# page), so they are compared only with each other and shown as estimates.
 # ---------------------------------------------------------------------------
 calendar:
-  enabled: false
+  enabled: true
   max_calls_per_run: 12
   confirm_budget: 6
   priority_boost_pct: 10

@@ -20,7 +20,7 @@ Update this table in the same pull request that finishes a milestone.
 | M3 | Database as the source of truth | done | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
 | M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
 | M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
-| B | Owner: go live at flights.andrewlaurin.com | not started | | |
+| B | Owner: go live at flights.andrewlaurin.com | in progress | | live checks done 2026-11-15: results page and calendar work from home; calibrate 20/20 |
 | M6 | Frontend: read-only app | not started | | |
 | M7 | Manage | not started | | |
 | M8 | Push alerts and installable app | not started | | |
@@ -187,6 +187,14 @@ Decisions log (add a line when a milestone departs from this document, with the 
   Under `time-machine`, `tests/test_cli.py::test_healthcheck_worker_reads_the_heartbeat` fails on
   `main` as well: the clock moves but file modification times do not. It is not a date
   dependency; every other test passes 7 to 800 days ahead.
+- 2026-11-15 (checkpoint B, owner's live checks from the home address): `doctor` read 10
+  itineraries for SEA→LAX Jan 14–18 2027 (cheapest $307). The first `doctor --calendar`
+  got HTTP 200 with a 363-byte reply and no prices (not saved); the next, minutes later,
+  returned 31 dated prices (first $287, basic economy included). `calibrate --count 20
+  --interval 6` had 20 ok, 0 failed, latency median 0.8 s: no block within a 20-request
+  burst, so the daily limit is still unmeasured. `calendar.enabled` is now true;
+  `collect.daily_request_budget` stays 50 for a week of real running and goes to 80 if
+  `/api/status` shows no blocks.
 
 ## How to work from this document
 
