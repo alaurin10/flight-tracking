@@ -51,15 +51,23 @@ The chips at the top filter everything below to one destination.
 
 ## Changing what is tracked
 
-Trips, flexible searches and deal watches live in the database. Until the app's
-Manage page arrives, keep them in a YAML file (see `config/seed.example.yaml`)
-and load it; every save re-expands the date grid at once.
+Trips, flexible searches, deal watches and feeds live in the database. Change them
+on the app's **Manage** page: sign in with the owner password, then add, edit, pause,
+resume, archive or delete. Every save re-expands the date grid at once, and saving an
+active trip or search queues a fetch, so its first price arrives within a minute or so.
+A search's form says how many date pairs it tracks before you save it; a deal watch's
+form can try a headline. Deleting keeps the prices already collected.
+
+The same can be done from a terminal with a YAML file (see
+`config/seed.example.yaml`), handy for loading many at once or keeping a copy:
 
 ```bash
 flighttrack export-config --out my-trips.yaml   # what is tracked now
 # edit my-trips.yaml
 flighttrack import-config my-trips.yaml         # creates and updates by name; never deletes
 ```
+
+In that file:
 
 | You want to… | Do |
 |---|---|

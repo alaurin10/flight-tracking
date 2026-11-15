@@ -388,6 +388,27 @@ def parse_feed(xml_text: str, feed_url: str) -> list[FeedItem]:
 # ---------------------------------------------------------------------------
 
 
+def check_feed(url: str, transport: Transport, timeout: float = 15.0) -> int:
+    """Fetch a feed once and read it, as when the owner adds one. Returns how many
+    items it has; raises FeedError with a sentence a person can read when the address
+    does not answer with an RSS or Atom feed."""
+    try:
+        resp = transport.get(url, timeout=timeout)
+    except TransportError as exc:
+        raise FeedError(f"couldn't fetch it ({exc})") from None
+    if resp.status >= 400:
+        raise FeedError(f"it answered HTTP {resp.status}")
+    if looks_like_html(resp.text):
+        raise FeedError("it is a web page, not a feed")
+    try:
+        root = ET.fromstring(resp.text)
+    except ET.ParseError:
+        raise FeedError("it is not an RSS or Atom feed") from None
+    if _local(root.tag) not in ("rss", "feed", "rdf"):
+        raise FeedError("it is not an RSS or Atom feed")
+    return len(parse_feed(resp.text, url))
+
+
 def price_from_text(text: str) -> int | None:
     m = _PRICE.search(text or "")
     if not m:

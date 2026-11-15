@@ -22,7 +22,7 @@ Update this table in the same pull request that finishes a milestone.
 | M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
 | B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
 | M6 | Frontend: read-only app | done | [#18](https://github.com/alaurin10/flight-tracking/pull/18) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
-| M7 | Manage | not started | | |
+| M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
 | M9 | Hardening and 1.0 | not started | | |
@@ -246,6 +246,39 @@ Decisions log (add a line when a milestone departs from this document, with the 
 - 2026-11-15 (M6): `docker build` ran in the cloud session (`dockerd` started by hand, the
   sandbox's proxy passed as build arguments), and CI's smoke test and compose check passed
   against that image before CI ran them.
+- 2026-11-15 (M7): the plan's API had nothing for "This tracks N date pairs" or for knowing a
+  cooldown before queuing, so M7 adds two owner endpoints. `POST /api/admin/searches/preview`
+  (`?search_id=` when editing) saves the search as active inside a transaction that is always
+  rolled back and answers its pairs, the total with it, the limit, detail fetches a day and
+  the days a full refresh takes. Detail fetches a day are the budget less the calendar's
+  `max_calls_per_run` (when it is on) less the canary (`fetch.detail_fetches_per_day`).
+  `GET /api/admin/collecting` answers the cooldown, the budget, the limits, the default feeds
+  and the deal regions (so the form's region list comes from `deals.REGIONS`).
+- 2026-11-15 (M7): "Check now" during a cooldown: the page asks `/api/admin/collecting` and says
+  when collecting resumes without queuing; the API also refuses a `fetch_trip`, `fetch_search`
+  or `run_batch` job then with 409 (a sentence with the time). `poll_deals` is still queued.
+  Saving a trip or search during a cooldown still queues its job, which fails with the M4
+  message, and its dates stay first in line.
+- 2026-11-15 (M7): adding a deal feed, or changing its address, fetches it once
+  (`deals.check_feed`) and refuses with 422 unless it answers HTTP < 400 with an RSS, Atom
+  or RDF document; a duplicate is refused before fetching. Skipped with
+  `FLIGHTTRACK_SOURCE=fake`. Tests inject `app.state.feed_transport` (a `FakeTransport`).
+- 2026-11-15 (M7): with `FLIGHTTRACK_SOURCE=fake` the worker no longer sleeps 4–8 s between
+  requests (nobody to be polite to), so the e2e flow sees its first price about 13 s after
+  saving (the job queue runs every 15 s). The real source is unchanged.
+- 2026-11-15 (M7): `frontend/e2e/serve.sh` takes a port and `--worker`. Playwright starts two
+  servers: 8019 for the read-only specs (unchanged, so their exact counts hold) and 8020 for
+  `manage.spec.ts`, with a worker on the fake source and a tunables copy whose budget is 1000
+  so reruns never run it dry. The alert-settings spec runs on desktop only, because both
+  projects would change the same stored values at once.
+- 2026-11-15 (M7): the sign-in is the `OwnerLogin` card on `/manage` (as on Snow Watch's
+  admin page); there is no separate `/signin` route. Owner state is `lib/session.svelte.ts`
+  (shared with More, whose Owner card now links to Manage). Forms open over the list with
+  shallow routing (`pushState`), so Back closes them; a reload shows the list. Delete asks
+  in a dialog built on Snow Watch's `modal.ts` rather than `confirm()`.
+- 2026-11-15 (M7): "Manage" is the fifth tab on phones and in the rail for everyone. Form
+  inputs are 16 px (phones zoom into smaller ones) and controls at least 40 px tall; an e2e
+  test checks every form at 380 px for both and for sideways scrolling. The frontend is 0.7.0.
 
 ## How to work from this document
 

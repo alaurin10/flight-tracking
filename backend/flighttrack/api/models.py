@@ -364,6 +364,35 @@ class OkOut(BaseModel):
     ok: bool
 
 
+class SearchPreviewOut(BaseModel):
+    """What saving a search would track, before it is saved."""
+
+    pairs: int = Field(description="date pairs this search would track")
+    total_pairs: int = Field(description="date pairs tracked in all, with it saved as active")
+    max_pairs: int = Field(description="the limit on active date pairs")
+    detail_per_day: int = Field(description="detail fetches a day at the current budget")
+    refresh_days: int = Field(description="days a detail fetch of every tracked pair takes")
+
+
+class CollectingOut(BaseModel):
+    """What the Manage page shows about collecting: limits, budget and any cooldown."""
+
+    cooldown_until: str | None = Field(description="collecting is paused until then")
+    budget: BudgetOut
+    detail_per_day: int
+    active_trips: int
+    max_trips: int
+    active_searches: int
+    max_searches: int
+    active_pairs: int
+    max_pairs: int
+    default_feeds: list[str] = Field(description="polled while no feed has been added in the app")
+    regions: list[str] = Field(
+        description="region names a deal watch's destinations may use; each stands for a list "
+        "of place names"
+    )
+
+
 class DealTestIn(BaseModel):
     headline: str = Field(min_length=1, max_length=500)
 
@@ -424,3 +453,5 @@ class ApiTypes(BaseModel):
     job_in: JobIn
     job: JobOut
     ok: OkOut
+    search_preview: SearchPreviewOut
+    collecting: CollectingOut

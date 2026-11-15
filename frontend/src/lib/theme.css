@@ -582,3 +582,131 @@ ul.rows > li:first-child {
 	white-space: nowrap;
 	border: 0;
 }
+
+/* --- Forms (Manage). Inputs are 16px so phones don't zoom in on focus. --- */
+.form {
+	display: grid;
+	gap: 14px;
+}
+.form .row2 {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 14px;
+}
+.field {
+	display: grid;
+	gap: 5px;
+	min-width: 0;
+	align-content: start;
+}
+.field > label,
+.field > .label,
+fieldset.field > legend {
+	font-size: 0.86rem;
+	font-weight: 600;
+	color: var(--text-2);
+	padding: 0;
+}
+fieldset.field {
+	border: 0;
+	margin: 0;
+	padding: 0;
+}
+.field .hint {
+	font-size: 0.8rem;
+	color: var(--text-3);
+	margin: 0;
+}
+.field .err {
+	font-size: 0.82rem;
+	color: var(--warn-ink);
+	margin: 0;
+}
+.input,
+.form input[type='text'],
+.form input[type='url'],
+.form input[type='date'],
+.form input[type='number'],
+.form input[type='password'],
+.form input[type='search'],
+.form select,
+.form textarea {
+	width: 100%;
+	min-height: 44px;
+	padding: 9px 12px;
+	border-radius: 12px;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+	font-size: 16px;
+	box-sizing: border-box;
+	min-width: 0;
+}
+.form textarea {
+	min-height: 80px;
+	resize: vertical;
+}
+.form [aria-invalid='true'] {
+	border-color: var(--warn);
+}
+.form .money {
+	position: relative;
+}
+.form .money > span {
+	position: absolute;
+	left: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	color: var(--text-3);
+	pointer-events: none;
+}
+.form .money > input {
+	padding-left: 24px;
+}
+.check {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 44px;
+	font-size: 0.95rem;
+	cursor: pointer;
+}
+.check input {
+	width: 20px;
+	height: 20px;
+	margin: 0;
+	accent-color: var(--accent);
+}
+.form .actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.form .btn {
+	min-height: 44px;
+	padding: 8px 18px;
+}
+/* A message under a form or at the top of a page. */
+.notice {
+	border-radius: 16px;
+	padding: 10px 14px;
+	font-size: 0.9rem;
+	margin: 0;
+}
+.notice.bad {
+	background: var(--warn-bg);
+	border: 1px solid var(--warn-border);
+	color: var(--warn-ink);
+}
+.notice.info {
+	background: var(--accent-soft);
+	border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+	color: var(--text);
+}
+.notice.caution {
+	background: var(--caution-bg);
+	border: 1px solid var(--caution-border);
+	color: var(--caution-ink);
+}

@@ -183,6 +183,13 @@ def budget_remaining(conn: sqlite3.Connection, cfg: Config, now: datetime | None
     return max(0, cfg.collect.daily_request_budget - budget_used(conn, now))
 
 
+def detail_fetches_per_day(cfg: Config) -> int:
+    """Detail fetches a day leaves room for: the daily budget less the calendar sweep's
+    calls (when it is on) and the canary's one request."""
+    calendar = cfg.calendar.max_calls_per_run if cfg.calendar.enabled else 0
+    return max(1, cfg.collect.daily_request_budget - calendar - 1)
+
+
 def budget_frees_at(
     conn: sqlite3.Connection, cfg: Config, now: datetime | None = None
 ) -> datetime | None:

@@ -50,10 +50,11 @@ GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
 Both services should say `(healthy)` in `docker compose ps` within a minute. The
 worker creates `data/flights.db` when it starts.
 
-**What to track.** Sign in on the site once the Manage page exists (milestone 7).
-Until then, write your trips, flexible searches and deal watches in a YAML file
-shaped like `config/seed.example.yaml`, keep it outside the repository (it is
-public), and load it:
+**What to track.** Open the site's **Manage** page, sign in with `OWNER_PASSWORD`,
+and add trips, flexible searches, deal watches and feeds there. A new trip's first
+price arrives within a minute or so. To load many at once instead, write them in a
+YAML file shaped like `config/seed.example.yaml`, keep it outside the repository (it
+is public), and load it:
 
 ```bash
 docker compose run --rm -v "$PWD/../my-trips.yaml:/tmp/trips.yaml:ro" worker flighttrack import-config /tmp/trips.yaml

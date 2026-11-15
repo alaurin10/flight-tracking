@@ -123,7 +123,7 @@ Commands write under `data/` at the repository root wherever they are run from
 |---|---|
 | Secrets and per-install values | `.env`, never committed (`.env.example` lists them) |
 | Tunables: search filters, pacing, alerts, health, retention, deal feeds | `config/flighttrack.yaml` |
-| What is tracked: trips, flexible searches, deal watches and feeds | the database (`flighttrack import-config` or the owner endpoints under `/api/admin/`; the app's Manage page from milestone 7) |
+| What is tracked: trips, flexible searches, deal watches and feeds | the database, edited on the app's Manage page (or with `flighttrack import-config`, or the owner endpoints under `/api/admin/`) |
 
 ---
 

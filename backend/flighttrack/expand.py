@@ -165,6 +165,13 @@ def wanted_pairs(conn: sqlite3.Connection, cfg: Config, today: date | None = Non
     return set(_wanted(conn, cfg, today or date.today()).pairs)
 
 
+def wanted_owners(
+    conn: sqlite3.Connection, cfg: Config, today: date | None = None
+) -> dict[Pair, list[Owner]]:
+    """Each wanted date pair with the trips and searches that want it."""
+    return _wanted(conn, cfg, today or date.today()).pairs
+
+
 def _route_stops(values: list[int | None]) -> int | None:
     """Record everything unless every watch on the route limits stops."""
     if not values or any(v is None for v in values):

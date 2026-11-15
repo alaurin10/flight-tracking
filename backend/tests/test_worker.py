@@ -458,3 +458,22 @@ def test_fake_source_mode_collects_at_once_and_makes_no_outside_requests(tmp_pat
     assert w.canary() == "skipped"
     w.deals()
     assert w.transport.calls == []
+
+
+def test_fake_source_mode_does_not_pause_between_requests(tmp_path):
+    """With nobody to be polite to, the fake worker's batches don't sleep 4–8 s per
+    request (so the Manage e2e sees a first price within seconds). The real source,
+    and any sleeper a test passes, are left alone."""
+    import time as time_mod
+
+    fake = Settings(data_dir=tmp_path / "d", db_path=tmp_path / "t.db", flighttrack_source="fake")
+    real = Settings(data_dir=tmp_path / "d", db_path=tmp_path / "t.db")
+    cfg = make_config()
+    w = Worker(fake, cfg, notifier=Notifier())
+    assert w.sleeper is not time_mod.sleep
+    started = time_mod.monotonic()
+    w.sleeper(6.0)
+    assert time_mod.monotonic() - started < 1
+    assert Worker(real, cfg, notifier=Notifier()).sleeper is time_mod.sleep
+    mine = lambda s: None  # noqa: E731
+    assert Worker(fake, cfg, sleeper=mine, notifier=Notifier()).sleeper is mine

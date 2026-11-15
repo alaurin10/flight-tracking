@@ -234,3 +234,32 @@ def test_health_warns_when_a_feed_is_empty_for_a_week(tmp_path):
     assert not any(
         p.code.startswith("feed_empty") for p in health.check(conn2, cfg2, now=NOW).problems
     )
+
+
+ATOM_SMALL = """<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>r/flightdeals</title>
+<entry><id>t3_1</id><title>SEA to HNL $199</title></entry>
+<entry><id>t3_2</id><title>SEA to LIH $219</title></entry>
+</feed>"""
+
+
+def test_check_feed_counts_items_of_rss_and_atom():
+    assert deals.check_feed("https://a/feed", FakeTransport([(200, None, RSS)])) == len(
+        deals.parse_feed(RSS, "f")
+    )
+    assert deals.check_feed("https://a/atom", FakeTransport([(200, None, ATOM_SMALL)])) == 2
+
+
+def test_check_feed_refuses_what_is_not_a_feed():
+    import pytest
+
+    from flighttrack.gflights.transport import TransportError
+
+    for reply, says in [
+        ((200, None, "  <!doctype html><p>home</p>"), "web page"),
+        ((503, None, ""), "HTTP 503"),
+        ((200, None, "not xml at all"), "not an RSS or Atom feed"),
+        (TransportError("timed out"), "couldn't fetch it (timed out)"),
+    ]:
+        with pytest.raises(deals.FeedError, match=says.replace("(", r"\(").replace(")", r"\)")):
+            deals.check_feed("https://a/x", FakeTransport([reply]))

@@ -285,9 +285,11 @@ Leave the `VAPID_*` and `CONTACT_EMAIL` lines empty until push alerts arrive (M8
 
 ## 5. Write your trips file
 
-What is tracked lives in the database. Until the Manage page arrives (M7), you write it
-in a YAML file and load it. **Keep this file outside the checkout**: the repository is
-public, and real trip dates must never be committed.
+What is tracked lives in the database. Since M7 the easy way is the site's **Manage**
+page: once the site is up, open Manage, sign in with `OWNER_PASSWORD` and add your trips
+there; skip this step and step 8. A YAML file is still the way to load many at once.
+**Keep this file outside the checkout**: the repository is public, and real trip dates
+must never be committed.
 
 ```bash
 cp /opt/flight-tracking/config/seed.example.yaml ~/flight-trips.yaml && chmod 644 ~/flight-trips.yaml
@@ -530,8 +532,8 @@ On a phone with Wi-Fi **off**:
 1. `https://flights.andrewlaurin.com/` shows the page with your trips.
 2. `https://flights.andrewlaurin.com/api/health` shows `"status":"ok"`.
 
-From a laptop (any network), the owner sign-in (there is no sign-in page until M7, so
-this uses `curl`):
+From a laptop (any network), the owner sign-in: open the **Manage** page and sign in; it
+lists what is tracked. Or check it with `curl`:
 
 ```bash
 curl -s -c /tmp/fw -H 'Origin: https://flights.andrewlaurin.com' -H 'Content-Type: application/json' -d '{"password":"<your password>"}' https://flights.andrewlaurin.com/api/auth/login
@@ -577,10 +579,10 @@ Restoring is in [`DEPLOYMENT.md`](DEPLOYMENT.md#backups-and-restore).
 | Stop it | `docker compose down` (data stays in `data/`) |
 | Pause updates | `sudo systemctl stop flightwatch-deploy.timer` (start it again to resume) |
 
-Future milestones arrive through the timer like any update. Two need a step from you
-when they land, and their pull requests will say so: M7 (the Manage page, nothing to do
-but sign in) and M8 (push alerts: `docker compose run --rm worker flighttrack push keys`,
-paste two lines into `.env`, `docker compose up -d`).
+Future milestones arrive through the timer like any update. M7 (the Manage page) needed
+nothing but signing in. M8 needs a step from you when it lands, and its pull request will
+say so (push alerts: `docker compose run --rm worker flighttrack push keys`, paste two
+lines into `.env`, `docker compose up -d`).
 
 ## 14. Troubleshooting
 
