@@ -10,6 +10,7 @@ export interface ApiTypes {
 	admin_trips: Trip[];
 	airports: AirportOut[];
 	alert_settings: AlertSettings;
+	collecting: CollectingOut;
 	deal_feed_in: DealFeedIn;
 	deal_test_in: DealTestIn;
 	deal_test_out: DealTestOut;
@@ -27,6 +28,7 @@ export interface ApiTypes {
 	overview: OverviewOut;
 	search: SearchOut;
 	search_in: SearchIn;
+	search_preview: SearchPreviewOut;
 	search_saved: SearchSaved;
 	status: StatusOut;
 	status_in: StatusIn;
@@ -523,6 +525,43 @@ export interface AlertSettings {
 	 * alert on prices in the route's cheapest 20%
 	 */
 	percentile_alerts: boolean;
+}
+/**
+ * What the Manage page shows about collecting: limits, budget and any cooldown.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "CollectingOut".
+ */
+export interface CollectingOut {
+	active_pairs: number;
+	active_searches: number;
+	active_trips: number;
+	budget: BudgetOut;
+	/**
+	 * collecting is paused until then
+	 */
+	cooldown_until: string | null;
+	/**
+	 * polled while no feed has been added in the app
+	 */
+	default_feeds: string[];
+	detail_per_day: number;
+	max_pairs: number;
+	max_searches: number;
+	max_trips: number;
+	/**
+	 * region names a deal watch's destinations may use; each stands for a list of place names
+	 */
+	regions: string[];
+}
+/**
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "BudgetOut".
+ */
+export interface BudgetOut {
+	limit: number;
+	remaining: number;
+	used: number;
 }
 /**
  * This interface was referenced by `ApiTypes`'s JSON-Schema
@@ -1263,6 +1302,34 @@ export interface SearchIn {
 	window_start?: string | null;
 }
 /**
+ * What saving a search would track, before it is saved.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "SearchPreviewOut".
+ */
+export interface SearchPreviewOut {
+	/**
+	 * detail fetches a day at the current budget
+	 */
+	detail_per_day: number;
+	/**
+	 * the limit on active date pairs
+	 */
+	max_pairs: number;
+	/**
+	 * date pairs this search would track
+	 */
+	pairs: number;
+	/**
+	 * days a detail fetch of every tracked pair takes
+	 */
+	refresh_days: number;
+	/**
+	 * date pairs tracked in all, with it saved as active
+	 */
+	total_pairs: number;
+}
+/**
  * This interface was referenced by `ApiTypes`'s JSON-Schema
  * via the `definition` "SearchSaved".
  */
@@ -1308,15 +1375,6 @@ export interface BackupOut {
 	bytes: number;
 	created_at: string;
 	name: string;
-}
-/**
- * This interface was referenced by `ApiTypes`'s JSON-Schema
- * via the `definition` "BudgetOut".
- */
-export interface BudgetOut {
-	limit: number;
-	remaining: number;
-	used: number;
 }
 /**
  * This interface was referenced by `ApiTypes`'s JSON-Schema

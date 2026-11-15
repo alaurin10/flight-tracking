@@ -8,7 +8,10 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			/** The Manage page's open form (shallow routing: Back closes it). */
+			manage?: { form: 'trip' | 'search' | 'deal-watch' | 'feed'; id?: number };
+		}
 		// interface Platform {}
 	}
 }

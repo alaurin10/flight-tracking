@@ -70,7 +70,8 @@ jobs:
 
   e2e:
     # The built app in a real browser against the API, on a database seeded by
-    # `flighttrack demo` (synthetic history, no network).
+    # `flighttrack demo` (synthetic history, no network). The Manage specs get a second
+    # server with a worker on FLIGHTTRACK_SOURCE=fake (invented prices, no outside requests).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,6 +126,7 @@ jobs:
         # M5: livez 200; health 503 with no prices, 200 after `flighttrack demo`; the
         # overview lists the demo trip; the CSP header is present; sign in and create a trip.
         # M6: / and app routes return the app shell.
+        # M7: /manage too; the owner's collecting summary and a search preview answer.
         run: |
           harden="--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true"
           docker run --rm flightwatch:ci flighttrack --help
@@ -145,7 +147,7 @@ jobs:
           curl -sf localhost:8000/robots.txt | grep -q 'Disallow: /'
           # M6: the app shell at / and at any app route (the SPA fallback), with its
           # start-up script's hash in the CSP; the old page is gone.
-          for p in / /status /trip/tokyo-spring; do
+          for p in / /status /trip/tokyo-spring /manage; do
             curl -sf "localhost:8000$p" | grep -q '<title>Flight Watch</title>'
             curl -sf "localhost:8000$p" | grep -q '/_app/immutable/'
           done
@@ -163,6 +165,10 @@ jobs:
           curl -s -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'Origin: https://evil.example' \
             -H "$json" -d "$trip" localhost:8000/api/admin/trips | grep -q 403
           curl -sf -b /tmp/jar localhost:8000/api/admin/trips | grep -q '"slug":"ci-trip"'
+          curl -sf -b /tmp/jar localhost:8000/api/admin/collecting | grep -q '"max_pairs":400'
+          search='{"name":"CI search","origin":"SEA","destinations":["SLC"],"depart_dows":["FRI"],"nights":2}'
+          curl -sf -b /tmp/jar -H "$origin" -H "$json" -d "$search" \
+            localhost:8000/api/admin/searches/preview | grep -q '"refresh_days":'
           docker logs fw 2>&1 | head -1 | python3 -c 'import json, sys; json.loads(sys.stdin.read())'
           docker logs fw 2>&1 | tail -20
       - name: Compose check (both services healthy; fake source, no outside requests)

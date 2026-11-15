@@ -304,6 +304,7 @@ def make_admin_router() -> APIRouter:
             active_pairs=c["pairs"],
             max_pairs=watches.MAX_ACTIVE_PAIRS,
             default_feeds=list(cfg.deals.feeds),
+            regions=sorted(deals.REGIONS),
         )
 
     # -- jobs -------------------------------------------------------------------------

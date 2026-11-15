@@ -836,6 +836,7 @@ def test_collecting_reports_limits_budget_and_cooldown(
     assert c["active_trips"] == 1 and c["max_trips"] == watches.MAX_ACTIVE_TRIPS
     assert c["active_searches"] == 2 and c["max_searches"] == watches.MAX_ACTIVE_SEARCHES
     assert 0 < c["active_pairs"] <= c["max_pairs"]
+    assert "hawaii" in c["regions"] and "europe" in c["regions"]
     assert c["default_feeds"] == list(owner.app.state.cfg.deals.feeds)  # type: ignore[attr-defined]
     conn = db(settings)
     set_state(conn, fetch.STATE_COOLDOWN_UNTIL, "2027-01-10T15:00:00Z")

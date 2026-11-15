@@ -198,6 +198,13 @@
         },
         "max_trips": {
           "type": "integer"
+        },
+        "regions": {
+          "description": "region names a deal watch's destinations may use; each stands for a list of place names",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -210,7 +217,8 @@
         "max_searches",
         "active_pairs",
         "max_pairs",
-        "default_feeds"
+        "default_feeds",
+        "regions"
       ],
       "title": "CollectingOut",
       "type": "object"

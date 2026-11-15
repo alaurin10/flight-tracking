@@ -387,6 +387,10 @@ class CollectingOut(BaseModel):
     active_pairs: int
     max_pairs: int
     default_feeds: list[str] = Field(description="polled while no feed has been added in the app")
+    regions: list[str] = Field(
+        description="region names a deal watch's destinations may use; each stands for a list "
+        "of place names"
+    )
 
 
 class DealTestIn(BaseModel):

@@ -1,8 +1,9 @@
-<!-- Theme, what Flight Watch is, and (from the Manage milestone) the owner's sign-in. -->
+<!-- Theme, what Flight Watch is, and the way to the owner's Manage page. -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { app } from '../../lib/app.svelte';
 	import { prefs, type Theme } from '../../lib/prefs.svelte';
+	import { owner } from '../../lib/session.svelte';
 
 	const THEMES: { id: Theme; label: string }[] = [
 		{ id: 'auto', label: 'Auto' },
@@ -11,6 +12,9 @@
 	];
 	const appVersion = __APP_VERSION__;
 	const stale = $derived(!!app.meta && app.meta.version !== appVersion);
+	$effect(() => {
+		if (!owner.me) owner.load().catch(() => {});
+	});
 </script>
 
 <svelte:head><title>More · Flight Watch</title></svelte:head>
@@ -62,7 +66,11 @@
 		{:else}
 			<p class="muted">
 				Anyone with the link can read this site. Changing what is tracked needs the owner’s
-				password; the sign-in and the Manage page arrive in the next version.
+				password.
+			</p>
+			<p class="small">
+				<a class="btn" href={resolve('/manage')}>{owner.isOwner ? 'Manage' : 'Sign in to manage'}</a
+				>
 			</p>
 		{/if}
 	</section>

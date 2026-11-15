@@ -79,12 +79,15 @@
 		deals: 'M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8zM7.5 7.5h.01',
 		// A pulse line.
 		status: 'M3 12h4l3-8 4 16 3-8h4',
+		// Sliders.
+		manage: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
 		more: 'M5 12h.01M12 12h.01M19 12h.01'
 	};
 	const tabs = [
 		{ href: '/', label: 'Overview', icon: ICONS.overview },
 		{ href: '/deals', label: 'Deals', icon: ICONS.deals },
 		{ href: '/status', label: 'Status', icon: ICONS.status },
+		{ href: '/manage', label: 'Manage', icon: ICONS.manage },
 		{ href: '/more', label: 'More', icon: ICONS.more }
 	] as const;
 	const active = (href: string) =>
@@ -449,7 +452,7 @@
 		max-width: 440px;
 		margin: 0 auto;
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+		grid-template-columns: repeat(5, 1fr);
 		gap: 2px;
 		padding: 5px;
 		border-radius: 999px;

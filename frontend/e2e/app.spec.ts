@@ -2,7 +2,15 @@
 // (e2e/serve.sh). Every project (phone, desktop) runs every test.
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/trip/tokyo-spring', '/search/ski-weekends', '/deals', '/status', '/more'];
+const PAGES = [
+	'/',
+	'/trip/tokyo-spring',
+	'/search/ski-weekends',
+	'/deals',
+	'/status',
+	'/manage',
+	'/more'
+];
 
 /** Page errors and CSP violations, collected while the test runs. */
 function watch(page: Page): string[] {
