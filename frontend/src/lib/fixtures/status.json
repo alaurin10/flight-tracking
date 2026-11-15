@@ -1,0 +1,263 @@
+{
+	"generated_at": "2026-11-15T21:35:33Z",
+	"version": "0.3.0",
+	"commit": null,
+	"ok": true,
+	"checked_at": "2026-11-15T21:35:33Z",
+	"problems": [],
+	"info": [
+		"94 active queries, 15 fetch runs recorded",
+		"last successful fetch 11.6h ago",
+		"last 24h attempts: ok=60",
+		"stale queries: 0/94 (0%)"
+	],
+	"last_success_at": "2026-11-15T10:00:00Z",
+	"newest_price_at": "2026-11-15T10:00:00Z",
+	"cooldown_until": null,
+	"blocked_streak": 0,
+	"next_batch_at": null,
+	"last_sweep_at": null,
+	"budget": {
+		"used": 60,
+		"limit": 50,
+		"remaining": 0
+	},
+	"requests_by_day": [
+		{
+			"day": "2026-11-02",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-03",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-04",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-05",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-06",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-07",
+			"outcomes": {
+				"layout": 1,
+				"ok": 59
+			}
+		},
+		{
+			"day": "2026-11-08",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-09",
+			"outcomes": {
+				"network": 1,
+				"ok": 59
+			}
+		},
+		{
+			"day": "2026-11-10",
+			"outcomes": {
+				"layout": 1,
+				"network": 1,
+				"ok": 58
+			}
+		},
+		{
+			"day": "2026-11-11",
+			"outcomes": {
+				"layout": 1,
+				"ok": 59
+			}
+		},
+		{
+			"day": "2026-11-12",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-13",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-14",
+			"outcomes": {
+				"ok": 60
+			}
+		},
+		{
+			"day": "2026-11-15",
+			"outcomes": {
+				"ok": 60
+			}
+		}
+	],
+	"recent_runs": [
+		{
+			"id": 15,
+			"kind": "fetch",
+			"started_at": "2026-11-15T10:00:00Z",
+			"finished_at": "2026-11-15T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 14,
+			"kind": "fetch",
+			"started_at": "2026-11-14T10:00:00Z",
+			"finished_at": "2026-11-14T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 13,
+			"kind": "fetch",
+			"started_at": "2026-11-13T10:00:00Z",
+			"finished_at": "2026-11-13T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 12,
+			"kind": "fetch",
+			"started_at": "2026-11-12T10:00:00Z",
+			"finished_at": "2026-11-12T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 11,
+			"kind": "fetch",
+			"started_at": "2026-11-11T10:00:00Z",
+			"finished_at": "2026-11-11T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 59,
+			"failed": 1,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 10,
+			"kind": "fetch",
+			"started_at": "2026-11-10T10:00:00Z",
+			"finished_at": "2026-11-10T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 58,
+			"failed": 2,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 9,
+			"kind": "fetch",
+			"started_at": "2026-11-09T10:00:00Z",
+			"finished_at": "2026-11-09T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 59,
+			"failed": 1,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 8,
+			"kind": "fetch",
+			"started_at": "2026-11-08T10:00:00Z",
+			"finished_at": "2026-11-08T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 7,
+			"kind": "fetch",
+			"started_at": "2026-11-07T10:00:00Z",
+			"finished_at": "2026-11-07T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 59,
+			"failed": 1,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		},
+		{
+			"id": 6,
+			"kind": "fetch",
+			"started_at": "2026-11-06T10:00:00Z",
+			"finished_at": "2026-11-06T10:07:00Z",
+			"attempted": 60,
+			"succeeded": 60,
+			"failed": 0,
+			"blocked": false,
+			"skipped": false,
+			"notes": null
+		}
+	],
+	"feeds": [
+		{
+			"url": "https://www.theflightdeal.com/feed/",
+			"name": null,
+			"last_at": null,
+			"last_ok_at": null,
+			"last_items": null,
+			"last_error": null
+		},
+		{
+			"url": "https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/",
+			"name": null,
+			"last_at": null,
+			"last_ok_at": null,
+			"last_items": null,
+			"last_error": null
+		}
+	],
+	"canary": null,
+	"backups": [],
+	"database_bytes": 2179072,
+	"observations": 4324,
+	"active_pairs": 94,
+	"jobs_queued": 0,
+	"worker_heartbeat_age_s": null
+}

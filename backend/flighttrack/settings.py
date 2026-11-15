@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Default: <data_dir>/flights.db (see `database`).
     db_path: Path | None = None
     config_dir: Path = REPO_ROOT / "config"
+    # The built frontend (frontend/build); the image sets /app/static. None = API only.
     static_dir: Path | None = None
 
     # The default origin for new trips and searches, and for `doctor`.
@@ -40,6 +41,10 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
 
+    # Public reads allowed per client per minute (`/api/airports` has its own 30). The
+    # e2e tests raise it: every browser there is the same client.
+    reads_per_minute: int = 60
+
     # The paid fallback source; empty = off. A `${SERPAPI_KEY}` in the config wins.
     serpapi_key: str = ""
     # The git commit this build came from (set by the Docker build).
@@ -52,15 +57,6 @@ class Settings(BaseSettings):
     @property
     def database(self) -> Path:
         return self.db_path or self.data_dir / "flights.db"
-
-    @property
-    def out_dir(self) -> Path:
-        return self.data_dir / "out"
-
-    @property
-    def html_path(self) -> Path:
-        """The static page (until the web app replaces it in M6)."""
-        return self.out_dir / "index.html"
 
     @property
     def failure_dir(self) -> Path:

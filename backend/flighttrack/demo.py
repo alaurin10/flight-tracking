@@ -1,5 +1,5 @@
-"""Seed a database with plausible synthetic history, so the report can be seen
-before a single real price has been collected.
+"""Seed a database with plausible synthetic history, so the app can be seen
+before a single real price has been collected (and the e2e tests have data).
 
 Deterministic (seeded), clearly synthetic (source='demo'), never written to
 the real database path unless you point it there.
@@ -241,5 +241,54 @@ def seed(
                 _iso(now - timedelta(days=i)),
             ),
         )
+    _seed_alerts(conn, now)
     conn.commit()
     return {"queries": len(rows), "observations": written, "days": days}
+
+
+def _money(cents: int) -> str:
+    return f"${cents // 100:,}"
+
+
+def _seed_alerts(conn: sqlite3.Connection, now: datetime) -> None:
+    """A price alert for each trip's lowest price and one for the newest deal post, as the
+    worker records them (`alerts_sent` plus a `notifications` row), so the app has recent
+    alerts to show."""
+    for trip in watches.list_trips(conn, status="active"):
+        best = conn.execute(
+            "SELECT o.id, o.query_id, o.observed_at, o.price_cents FROM observations o "
+            "JOIN watch_queries w ON w.query_id = o.query_id "
+            "WHERE w.trip_id = ? AND o.is_best = 1 AND o.source = 'demo' "
+            "ORDER BY o.price_cents, o.observed_at LIMIT 1",
+            (trip.id,),
+        ).fetchone()
+        if best is None:
+            continue
+        conn.execute(
+            "INSERT INTO alerts_sent (query_id, observation_id, sent_at, reason, price_cents) "
+            "VALUES (?, ?, ?, 'all_time_low', ?)",
+            (best["query_id"], best["id"], best["observed_at"], best["price_cents"]),
+        )
+        dates = date.fromisoformat(trip.depart_date).strftime("%b %-d")
+        if trip.return_date:
+            dates += " – " + date.fromisoformat(trip.return_date).strftime("%b %-d")
+        conn.execute(
+            "INSERT INTO notifications (kind, title, body, url, created_at) "
+            "VALUES ('price', ?, ?, ?, ?)",
+            (
+                f"{_money(best['price_cents'])} {trip.name} · {dates}",
+                "the lowest price seen for this trip (synthetic)",
+                f"/trip/{trip.slug}",
+                best["observed_at"],
+            ),
+        )
+    deal = conn.execute(
+        "SELECT title, watch, price_cents, seen_at FROM deal_posts "
+        "WHERE watch IS NOT NULL ORDER BY seen_at DESC LIMIT 1"
+    ).fetchone()
+    if deal is not None:
+        conn.execute(
+            "INSERT INTO notifications (kind, title, body, url, created_at) "
+            "VALUES ('deal', ?, ?, '/deals', ?)",
+            (deal["title"], f"{deal['watch']} · {_money(deal['price_cents'])}", deal["seen_at"]),
+        )

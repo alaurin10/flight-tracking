@@ -202,7 +202,6 @@ def test_shipped_tunables(tmp_path):
     )
     assert cfg.fetch.max_queries_per_run == 25
     assert cfg.db_path == str(tmp_path / "flights.db")
-    assert cfg.html_path == str(tmp_path / "out" / "index.html")
     assert cfg.failure_dir == str(tmp_path / "failures")
     assert cfg.notify["file"]["path"] == str(tmp_path / "out" / "digest.md")
 

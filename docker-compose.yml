@@ -1,5 +1,5 @@
 # Flight Watch: one image, two services.
-#   api      FastAPI under uvicorn: the page and /api. Reads prices; writes only what
+#   api      FastAPI under uvicorn: the app (SvelteKit build) and /api. Reads prices; writes only what
 #            is tracked, jobs and owner sessions. Host port 8091.
 #   worker   `flighttrack worker`: collects on its own (batches, sweep, deals,
 #            alerts, health, canary, job queue, backups). No port.

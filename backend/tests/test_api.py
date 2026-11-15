@@ -80,7 +80,7 @@ def test_livez_without_a_database(settings: Settings) -> None:
         r = c.get("/api/health")
         assert r.status_code == 503 and r.json()["status"] == "no_data"
         assert c.get("/api/overview").status_code == 503  # no database yet
-        assert c.get("/").status_code == 503
+        assert c.get("/").status_code == 404  # no frontend build here: the API only
     assert not settings.database.exists()  # reading never creates it
 
 
@@ -157,13 +157,11 @@ def test_production_adds_hsts_and_hides_the_docs(monkeypatch: pytest.MonkeyPatch
         assert c.get("/api/openapi.json").status_code == 404
 
 
-def test_interim_page_and_its_script_hash(client: TestClient, settings: Settings) -> None:
-    r = client.get("/")
-    assert r.status_code == 200 and "<html" in r.text and "Tokyo" in r.text
-    page = settings.data_dir / "page.html"
-    page.write_text(r.text, encoding="utf-8")
-    hashes = inline_script_hashes(page)
-    assert hashes and all(h in r.headers["content-security-policy"] for h in hashes)
+def test_without_a_build_only_the_api_answers(client: TestClient) -> None:
+    assert client.get("/").status_code == 404
+    assert client.get("/trip/tokyo").status_code == 404
+    csp = client.get("/api/livez").headers["content-security-policy"]
+    assert "script-src 'self';" in csp  # no inline script allowed at all
 
 
 def test_spa_fallback_when_the_frontend_is_built(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -175,14 +173,19 @@ def test_spa_fallback_when_the_frontend_is_built(monkeypatch: pytest.MonkeyPatch
     (static / "_app" / "immutable" / "a.js").write_text("x")
     monkeypatch.setenv("STATIC_DIR", str(static))
     with TestClient(create_app(Settings())) as c:
-        r = c.get("/trip/japan")
-        assert r.status_code == 200 and "start()" in r.text
+        for path in ("/", "/trip/japan", "/search/ski", "/status", "/more"):
+            r = c.get(path)
+            assert r.status_code == 200 and "start()" in r.text
+            assert r.headers["cache-control"] == "no-cache"
         assert (
             inline_script_hashes(static / "index.html")[0] in r.headers["content-security-policy"]
         )
         assert "immutable" in c.get("/_app/immutable/a.js").headers["cache-control"]
         assert c.get("/api/unknown").status_code == 404
         assert c.get("/robots.txt").text.startswith("User-agent")
+        (tmp_path / "secret.txt").write_text("not for you")
+        for path in ("/../secret.txt", "/%2e%2e/secret.txt", "/_app/..%2f..%2fsecret.txt"):
+            assert "not for you" not in c.get(path).text  # never outside the build
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +272,13 @@ def test_trip_page(client: TestClient, settings: Settings) -> None:
     assert other["departs"] == "2027-05-15 13:05" and other["arrives"] == "2027-05-16 16:20"
     assert body["offers_at"] == iso(NOW)
     assert body["advice"]["verdict"] == body["verdict"] and body["advice"]["reasons"]
-    assert body["alerts"] == [
-        {"sent_at": iso(NOW - timedelta(days=3)), "reason": "threshold", "price": 79000}
-    ]
+    # The demo records its own alert at the trip's lowest price; ours is the newest.
+    assert body["alerts"][0] == {
+        "sent_at": iso(NOW - timedelta(days=3)),
+        "reason": "threshold",
+        "price": 79000,
+    }
+    assert [a["reason"] for a in body["alerts"]] == ["threshold", "all_time_low"]
     assert client.get("/api/trips/nowhere").status_code == 404
 
 
@@ -401,6 +408,15 @@ def test_public_reads_are_limited_to_60_a_minute(
     assert client.get("/api/livez").status_code == 200  # the container health check is free
     monkeypatch.setattr(ratelimit, "now", lambda: 1002.0)  # two seconds refill two
     assert client.get("/api/deals").status_code == 200
+
+
+def test_reads_per_minute_is_a_setting(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ratelimit, "now", lambda: 1000.0)
+    seed(settings)
+    with TestClient(create_app(settings.model_copy(update={"reads_per_minute": 5}))) as c:
+        for _ in range(5):
+            assert c.get("/api/deals").status_code == 200
+        assert c.get("/api/deals").status_code == 429
 
 
 def test_airport_search_is_limited_to_30_a_minute(

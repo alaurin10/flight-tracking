@@ -1,8 +1,8 @@
-"""Reporting and the static HTML page."""
+"""Reporting: the grid, the history and the text renderings."""
 
 from helpers import add_obs, first_query_id, make_config, make_db
 
-from flighttrack import html, report
+from flighttrack import report
 
 
 def test_grid_shows_current_and_trailing_low(tmp_path):
@@ -90,33 +90,3 @@ def test_empty_grid_renders_without_crashing(tmp_path):
     _conn, _cfg = make_db(tmp_path, make_config())
     assert "No observations yet" in report.render_grid([], "SEA → nowhere")
     assert "No observations yet" in report.render_cheapest([])
-
-
-def test_html_page_is_written(tmp_path):
-    conn, _cfg = make_db(tmp_path, make_config())
-    add_obs(conn, first_query_id(conn, "SLC"), 15000)
-
-    out = html.write(conn, tmp_path / "sub" / "index.html")
-    text = out.read_text()
-    assert out.exists()
-    assert "<!DOCTYPE html>" in text and "Salt Lake City" in text
-    assert "prefers-color-scheme" in text  # readable on a phone at night
-    assert "viewport" in text
-
-
-def test_html_escapes_hostile_text(tmp_path):
-    """Airline and label strings come from upstream; never trust them in HTML."""
-    conn, _cfg = make_db(tmp_path, make_config())
-    conn.execute("UPDATE routes SET label='<script>alert(1)</script>' WHERE destination='SLC'")
-    conn.commit()
-    add_obs(conn, first_query_id(conn, "SLC"), 15000, airline="<img onerror=x>")
-
-    text = html.render(conn)
-    assert "<script>alert(1)</script>" not in text
-    assert "&lt;script&gt;" in text
-    assert "<img onerror=x>" not in text
-
-
-def test_html_renders_with_no_data(tmp_path):
-    conn, _cfg = make_db(tmp_path, make_config())
-    assert "No observations yet" in html.render(conn)

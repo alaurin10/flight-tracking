@@ -39,7 +39,7 @@ over days, so daily resolution is plenty.
 | Report: trip cards with history charts and verdicts, best-of-grid, calendar heatmaps, deals, collector | ✅ light/dark, phone-first, no external requests |
 | `worker`: collects in small batches under a rolling 24 h request budget, recovers from blocks and downtime by itself, daily canary, nightly backups | ✅ Docker Compose service with a heartbeat health check (M4) |
 | Web API (FastAPI): public reads, owner sign-in, admin endpoints, rate limits, strict headers; the page at `/` until the app replaces it | ✅ Docker Compose `api` service on port 8091 (M5); [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
-| `demo`: synthetic history to see the UI today | ✅ |
+| `demo`: synthetic history to see the app today | ✅ |
 | Rate-limit calibration | ⬜ not measured from a home address; a cloud sandbox was blocked every 4–6 requests. `flighttrack calibrate` on the always-on box |
 
 The results page, the `primp` transport, the search filters, the calendar call and block
@@ -60,7 +60,8 @@ Storage is light: one SQLite file, ~100 MB/year unbounded or ~35 MB bounded with
 weekly retention (`flighttrack compact`), which never touches the cheapest-offer price series.
 
 ```bash
-uv run flighttrack demo && open ../data/out/demo.html   # the report with synthetic data, from backend/
+uv run flighttrack demo && DB_PATH=../data/demo.db uv run uvicorn --factory flighttrack.api.app:create_app --port 8000   # from backend/
+cd frontend && npm ci && npm run dev    # the app with synthetic data at http://localhost:5173
 ```
 
 ### First run on the host
@@ -191,10 +192,10 @@ and spends the detail budget on the dates that look interesting.
 |---|---|
 | `worker` | The collector: one long-running process (see Scheduling). Logs one JSON object per line. |
 | `healthcheck worker` | Exit 0 when the worker's heartbeat is under three minutes old (the container health check). |
-| `run` | One full cycle now, for debugging: expand → sweep → fetch → deals → alert → health → compact → html. Stages are isolated. |
+| `run` | One full cycle now, for debugging: expand → sweep → fetch → deals → alert → health → compact. Stages are isolated. |
 | `owner logout-all` | End every owner session (after changing `OWNER_PASSWORD`). |
 | `schema` | Write the API's JSON Schema (`--out ../frontend/src/lib/api-schema.json`); CI fails when the committed copy is stale. |
-| `demo` | Seed synthetic history into `data/demo.db` and render `data/out/demo.html`. No network. |
+| `demo` | Seed synthetic history into `data/demo.db` (`--db PATH` elsewhere). No network. |
 | `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; the worker does it nightly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
 | `fetch` | Fetch due queries through the source chain. `--dry-run` lists them. Skips itself during a cooldown. |
@@ -208,16 +209,19 @@ and spends the detail budget on the dates that look interesting.
 | `doctor` | Verify the data path. `--calendar`, `--dump PATH`, `--transport urllib`. |
 | `calibrate` | Measure the rate limit (needs `--yes`). |
 | `ingest` | Record prices from another tool, one JSON object per line. |
-| `html` | Regenerate the static page. |
 
-### The report
+### The app
 
-The API serves it at `/`, drawn from the database at most once a minute: trip cards with today's
-price, a book-or-wait verdict and reasons, and the price history charted against your target;
-the best date in each grid; every tracked departure as a calendar heatmap with the cheapest
-outlined and a table twin; announced deals; and the collector's own health. Light and dark,
-phone-first, hover readouts, no external requests, every date a deep link into the exact Google
-Flights search. `flighttrack demo` renders it with synthetic data so you can see it before day one.
+A SvelteKit single-page app in `frontend/`, built into the image and served by the API with the
+SPA fallback. Anyone with the link can read it: the overview (trip cards with today's price, the
+week's change, a book-or-wait verdict, target, all-time low and a small chart; the best date of
+each flexible search; recent alerts and deals; a health pill), a page per trip (the price
+history against the target, the verdict's reasons, the latest offers, alerts sent, the Google
+Flights link), a page per search (one calendar heat map per destination, cheapest outlined, a
+table cheapest first, and any date's history on a tap), deals, status and settings. Light and
+dark, phone-first, charts usable by keyboard and each with a table twin, no third-party
+requests. `flighttrack demo` seeds a database with synthetic data so it can be seen before day
+one.
 
 ---
 
@@ -341,10 +345,17 @@ cd backend
 uv sync --frozen
 uv run ruff check . && uv run ruff format --check .
 uv run mypy flighttrack       # strict; modules from before M2 are listed as exceptions
-uv run pytest                 # 368 tests, all offline; also with `uv sync --frozen --extra fallback`
+uv run pytest                 # 365 tests, all offline; also with `uv sync --frozen --extra fallback`
 uv run flighttrack schema --out ../frontend/src/lib/api-schema.json   # after changing an API model
-FLIGHTTRACK_BROWSER_TESTS=1 uv run pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
 docker build -f docker/Dockerfile .   # from the repository root
+```
+
+```bash
+cd frontend
+npm ci
+npm run types                 # src/lib/types.gen.ts from the schema above
+npm run lint && npm run check && npm test
+npm run build && npm run e2e  # Playwright on the built app, against the API on a demo database
 ```
 
 `FakeSource` and `FakeTransport` make every path testable without a request. The encoder test

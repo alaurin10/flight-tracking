@@ -1,0 +1,584 @@
+/* Flight Watch design tokens: Snow Watch's glass and panels, over a still dawn sky, with
+   a teal accent so the two sites feel related but never get mixed up.
+
+   Two layers sit on the sky: glass for floating controls (navigation, segmented
+   controls, notices) and frosted panels for content (charts, tables, lists). Numbers
+   never sit on bare sky.
+
+   The mode (light or dark) is set on <html> as data-mode before the app starts
+   (static/theme-init.js) and kept in step by the layout. Data colours (verdicts, the
+   price ramp, request outcomes) keep their meaning in both modes. */
+:root {
+	color-scheme: light;
+	/* Page base, and the sky behind everything. */
+	--bg: #e9f0f8;
+	--sky: linear-gradient(180deg, #d6e6f5 0%, #e9f0f8 45%, #f6efe6 100%);
+	/* Opaque surfaces: sticky table cells, popups. */
+	--surface: #f7f9fc;
+	/* Wells: inactive segment tracks, stat cards. */
+	--surface-2: #e7edf5;
+	/* Frosted content panels. */
+	--panel: rgba(255, 255, 255, 0.74);
+	--panel-rim: rgba(255, 255, 255, 0.7);
+	--border: rgba(13, 27, 48, 0.12);
+	--text: #0d1b30;
+	--text-2: #3b475b;
+	--text-3: #4d596c;
+	--grid: rgba(13, 27, 48, 0.09);
+	--hover: rgba(255, 255, 255, 0.55);
+	--sel: rgba(255, 255, 255, 0.95);
+	--sel-shadow: 0 2px 10px rgba(24, 44, 84, 0.14), inset 0 1px 0 #ffffff;
+	--warn: #b4263d;
+	--warn-bg: #fde9ec;
+	--warn-border: #f3c2cb;
+	--warn-ink: #9a1f34;
+	--caution-bg: #fff4dc;
+	--caution-border: #f0d9a4;
+	--caution-ink: #7a4b00;
+	--glass: rgba(255, 255, 255, 0.5);
+	--glass-border: rgba(255, 255, 255, 0.8);
+	--glass-shadow: 0 12px 32px rgba(24, 44, 84, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+	--header-glass: rgba(240, 245, 251, 0.72);
+	--shadow: 0 8px 28px rgba(24, 44, 84, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+	/* The accent: teal (Snow Watch's is indigo). */
+	--accent: #0b7a73;
+	--accent-soft: rgba(11, 122, 115, 0.1);
+	--accent-ink: #075e58;
+	--on-accent: #ffffff;
+	--focus: #0b7a73;
+
+	/* Data colours. */
+	--line: #0b7a73;
+	--line-area: rgba(11, 122, 115, 0.1);
+	--target: #c25e00;
+	--estimate: #6d5bd0;
+	--good: #1d7a4c;
+	--good-bg: #def3e6;
+	--good-ink: #14532d;
+	--down: #1d7a4c;
+	--up: #b4263d;
+	/* Verdicts: book (green), lean book (teal), hold (neutral), wait (amber). */
+	--v-book-bg: #1d7a4c;
+	--v-book-ink: #ffffff;
+	--v-lean-bg: #d3efe9;
+	--v-lean-ink: #0b5650;
+	--v-hold-bg: var(--surface-2);
+	--v-hold-ink: var(--text-2);
+	--v-wait-bg: #fff0cf;
+	--v-wait-ink: #7a4b00;
+	/* Request outcomes on the status page. */
+	--o-ok: #2f9e6f;
+	--o-empty: #8fb8a6;
+	--o-blocked: #c2334d;
+	--o-other: #d08a1e;
+	/* Price ramp for the date grids: darker is cheaper. */
+	--p1: #075e58;
+	--p2: #1f8f86;
+	--p3: #7cc4bb;
+	--p4: #c7e6e1;
+	--p5: rgba(13, 27, 48, 0.06);
+	--p-ink-dark: #ffffff; /* text on p1–p2 */
+	--p-ink-light: #0d1b30; /* text on p3–p5 */
+
+	/* Language: shape, type, motion. */
+	--radius: 24px;
+	--radius-sm: 16px;
+	--blur-glass: blur(22px) saturate(1.7);
+	--blur-panel: blur(34px) saturate(1.6);
+	--font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-num: 'Manrope', var(--font-ui);
+	--spring: 340ms cubic-bezier(0.3, 1.35, 0.5, 1);
+	--ease: 200ms ease;
+}
+
+/* Dark: smoked glass over a blue-slate night sky, never near-black. */
+:root[data-mode='dark'] {
+	color-scheme: dark;
+	--bg: #1a2336;
+	--sky: linear-gradient(180deg, #141d33 0%, #1a2336 50%, #22283d 100%);
+	--surface: #222d44;
+	--surface-2: #2b3752;
+	--panel: rgba(26, 36, 58, 0.72);
+	--panel-rim: rgba(255, 255, 255, 0.14);
+	--border: rgba(255, 255, 255, 0.14);
+	--text: #f3f6fc;
+	--text-2: #c9d1de;
+	--text-3: #b1bbcb;
+	--grid: rgba(255, 255, 255, 0.11);
+	--hover: rgba(255, 255, 255, 0.1);
+	--sel: rgba(255, 255, 255, 0.2);
+	--sel-shadow: 0 2px 10px rgba(4, 8, 20, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+	--warn: #f08a9c;
+	--warn-bg: #3a2030;
+	--warn-border: #6a3346;
+	--warn-ink: #f8c3cd;
+	--caution-bg: #3a3020;
+	--caution-border: #6a5533;
+	--caution-ink: #f6d9a0;
+	--glass: rgba(26, 36, 60, 0.46);
+	--glass-border: rgba(255, 255, 255, 0.2);
+	--glass-shadow: 0 14px 36px rgba(4, 8, 20, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+	--header-glass: rgba(26, 35, 54, 0.72);
+	--shadow: 0 10px 30px rgba(4, 8, 20, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+	--accent: #6fd8cc;
+	--accent-soft: rgba(111, 216, 204, 0.16);
+	--accent-ink: #a8ebe3;
+	--on-accent: #0d1b30;
+	--focus: #6fd8cc;
+	--line: #6fd8cc;
+	--line-area: rgba(111, 216, 204, 0.12);
+	--target: #ffb067;
+	--estimate: #b9acff;
+	--good: #5fd39a;
+	--good-bg: #1e3a2c;
+	--good-ink: #c9f2dc;
+	--down: #5fd39a;
+	--up: #f08a9c;
+	--v-book-bg: #5fd39a;
+	--v-book-ink: #07101f;
+	--v-lean-bg: #1d4a46;
+	--v-lean-ink: #b6efe7;
+	--v-wait-bg: #3d3220;
+	--v-wait-ink: #f6d9a0;
+	--o-ok: #4cc08c;
+	--o-empty: #6c9887;
+	--o-blocked: #f08a9c;
+	--o-other: #f0b45c;
+	/* Cheaper is brighter in dark. */
+	--p1: #a8ebe3;
+	--p2: #4fb8ad;
+	--p3: #237a73;
+	--p4: #1c4a4a;
+	--p5: rgba(255, 255, 255, 0.07);
+	--p-ink-dark: #07101f; /* text on p1–p2 */
+	--p-ink-light: #f3f6fc; /* text on p3–p5 */
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	background: var(--bg);
+}
+
+/* The sky: fixed behind the page (a pseudo-element, since iOS ignores fixed
+   backgrounds). */
+body::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	background: var(--sky);
+}
+
+html,
+body {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: 15px;
+	line-height: 1.4;
+	-webkit-text-size-adjust: 100%;
+}
+
+a {
+	color: var(--accent-ink);
+}
+
+.num {
+	font-family: var(--font-num);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Floating controls: clear glass that blurs the sky behind it. */
+.glass {
+	background: var(--glass);
+	border: 1px solid var(--glass-border);
+	box-shadow: var(--glass-shadow);
+	backdrop-filter: var(--blur-glass);
+	-webkit-backdrop-filter: var(--blur-glass);
+}
+
+/* Content panels: frosted, so numbers stay readable. */
+.card {
+	background: var(--panel);
+	border: 1px solid var(--panel-rim);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	backdrop-filter: var(--blur-panel);
+	-webkit-backdrop-filter: var(--blur-panel);
+	padding: 16px 18px;
+	min-width: 0;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+	.glass,
+	.card {
+		background: var(--surface);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+}
+
+.card h2 {
+	font-size: 1rem;
+	font-weight: 600;
+	margin: 0 0 10px;
+}
+
+/* A section heading on the sky, with a quiet note after it. */
+h2.section {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 2px 10px;
+	font-size: 1.08rem;
+	font-weight: 650;
+	margin: 26px 4px 10px;
+}
+h2.section .note {
+	font-size: 0.82rem;
+	font-weight: 500;
+	color: var(--text-2);
+}
+h2.section .more {
+	margin-left: auto;
+	font-size: 0.85rem;
+	font-weight: 500;
+}
+
+/* A small uppercase label above a number. */
+.eyebrow {
+	font-size: 0.72rem;
+	font-weight: 600;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text-3);
+}
+
+/* The big page heading, set on the sky. */
+.pagehead {
+	padding: 18px 4px 14px;
+}
+.pagehead h1 {
+	font-family: var(--font-num);
+	font-size: 2.5rem;
+	font-weight: 700;
+	letter-spacing: -0.03em;
+	line-height: 1.05;
+	margin: 0;
+}
+.pagehead p {
+	margin: 6px 0 0;
+	color: var(--text-2);
+}
+@media (max-width: 640px) {
+	.pagehead {
+		padding-top: 6px;
+	}
+	.pagehead h1 {
+		font-size: 1.8rem;
+	}
+}
+
+.muted {
+	color: var(--text-2);
+}
+
+.faint {
+	color: var(--text-3);
+}
+
+button {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+/* Segmented control: a well with the chosen option raised. */
+.seg {
+	display: inline-flex;
+	background: var(--surface-2);
+	border-radius: 999px;
+	padding: 3px;
+	gap: 2px;
+}
+
+.seg button {
+	border: 0;
+	background: transparent;
+	border-radius: 999px;
+	padding: 5px 12px;
+	min-height: 32px;
+	font-size: 0.86rem;
+	font-weight: 500;
+	color: var(--text-2);
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		background-color var(--ease),
+		box-shadow var(--ease),
+		color var(--ease);
+}
+
+.seg button:hover {
+	color: var(--text);
+}
+
+/* Selection is colour and background only, never weight: controls never move. */
+.seg button[aria-pressed='true'] {
+	background: var(--sel);
+	color: var(--text);
+	box-shadow: var(--sel-shadow);
+}
+
+.table-wrap {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+table.data {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: 0.86rem;
+	font-variant-numeric: tabular-nums;
+}
+
+table.data th,
+table.data td {
+	padding: 6px 8px;
+	text-align: right;
+	white-space: nowrap;
+	border-bottom: 1px solid var(--grid);
+}
+
+table.data th:first-child,
+table.data td:first-child {
+	text-align: left;
+	position: sticky;
+	left: 0;
+	background: var(--surface);
+}
+
+table.data th.l,
+table.data td.l {
+	text-align: left;
+}
+
+table.data thead th {
+	color: var(--text-2);
+	font-weight: 600;
+}
+
+/* A chart's table twin: folded under the chart. */
+details.twin {
+	margin-top: 8px;
+}
+details.twin > summary {
+	cursor: pointer;
+	font-size: 0.82rem;
+	color: var(--text-2);
+	padding: 4px 0;
+	min-height: 32px;
+	display: flex;
+	align-items: center;
+}
+details.twin .table-wrap {
+	max-height: 320px;
+	overflow-y: auto;
+	margin-top: 4px;
+	border-radius: 12px;
+}
+
+/* Buttons: capsules. Wells by default, the accent for the main action. */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 36px;
+	border: 0;
+	background: var(--surface-2);
+	color: var(--text);
+	border-radius: 999px;
+	padding: 6px 15px;
+	cursor: pointer;
+	font-size: 0.88rem;
+	font-weight: 500;
+	white-space: nowrap;
+	text-decoration: none;
+	transition:
+		transform 200ms cubic-bezier(0.3, 1.6, 0.5, 1),
+		background-color var(--ease);
+}
+
+.btn:hover {
+	background: color-mix(in srgb, var(--surface-2) 70%, var(--text) 8%);
+}
+
+.btn:active {
+	transform: scale(0.97);
+}
+
+.btn.primary {
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+}
+
+.btn.primary:hover {
+	background: color-mix(in srgb, var(--accent) 88%, var(--text) 12%);
+}
+
+.btn.small {
+	min-height: 30px;
+	padding: 3px 11px;
+	font-size: 0.8rem;
+}
+
+/* Pills: verdicts, health, flags. */
+.pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	border-radius: 999px;
+	padding: 2px 10px;
+	font-size: 0.78rem;
+	font-weight: 600;
+	white-space: nowrap;
+	line-height: 1.5;
+	border: 1px solid transparent;
+	text-decoration: none;
+}
+.pill.neutral {
+	background: var(--surface-2);
+	color: var(--text-2);
+}
+.pill.good {
+	background: var(--good-bg);
+	color: var(--good-ink);
+}
+.pill.warn {
+	background: var(--caution-bg);
+	color: var(--caution-ink);
+	border-color: var(--caution-border);
+}
+.pill.crit {
+	background: var(--warn-bg);
+	color: var(--warn-ink);
+	border-color: var(--warn-border);
+}
+.pill .dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+/* Big numbers with a label above. */
+.stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+	gap: 6px;
+}
+.stat {
+	display: grid;
+	align-content: start;
+	gap: 1px;
+	min-width: 0;
+	padding: 9px 11px 10px;
+	border-radius: 14px;
+	background: var(--surface-2);
+}
+.stat .v {
+	font-family: var(--font-num);
+	font-size: 1.2rem;
+	font-weight: 650;
+	letter-spacing: -0.02em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.stat .sub {
+	font-size: 0.72rem;
+	color: var(--text-3);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Label and value, one line each. */
+dl.kv {
+	margin: 0;
+	display: grid;
+}
+dl.kv > div {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	gap: 12px;
+	min-height: 2.2rem;
+	padding: 4px 4px;
+	border-top: 1px solid var(--grid);
+}
+dl.kv > div:first-child {
+	border-top: 0;
+}
+dl.kv dt {
+	font-size: 0.84rem;
+	color: var(--text-2);
+}
+dl.kv dd {
+	margin: 0;
+	text-align: right;
+	font-size: 0.88rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* A list of rows inside a card, divided by hairlines. */
+ul.rows {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+ul.rows > li {
+	padding: 10px 2px;
+	border-top: 1px solid var(--grid);
+	min-width: 0;
+}
+ul.rows > li:first-child {
+	border-top: 0;
+	padding-top: 2px;
+}
+
+/* Text for screen readers only. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
