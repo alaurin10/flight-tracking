@@ -1,8 +1,8 @@
-"""One full collecting cycle as a function: what `flighttrack run` and `serve` do.
+"""One full collecting cycle as a function: what `flighttrack run` does.
 
 expand → sweep (if enabled) → fetch → deals → alert → health → compact → html.
 The worker (scheduler.py) runs the same stages on their own schedules instead;
-this stays for debugging and for the interim `serve` command.
+this stays as a one-off full cycle for debugging.
 
 Stages are isolated: an exception in one is reported and the next still runs.
 A broken notification channel must never stop history from accumulating, and

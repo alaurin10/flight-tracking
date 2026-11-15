@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 
+from . import app_settings
 from .config import Config
 from .notifier import Notifier
 from .report import fmt_date, fmt_money
@@ -296,6 +297,7 @@ def run(
     sent again inside the dedup window.
     """
     stats = AlertStats()
+    cfg = app_settings.apply(conn, cfg)  # thresholds the owner changed in the app
     if not cfg.alerts.enabled:
         if verbose:
             log.info("[alert] disabled in config")

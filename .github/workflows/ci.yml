@@ -3,7 +3,8 @@ name: CI
 # Checks only. Nothing is deployed from here: the server builds its own image.
 # Actions are pinned to commits; Dependabot keeps them fresh.
 # No job talks to Google Flights or the deal feeds: tests use fakes and saved pages,
-# and the smoke-test container runs with no network at all.
+# the smoke-test API has nothing to fetch, and the compose check runs the worker with
+# FLIGHTTRACK_SOURCE=fake (no outside requests at all).
 on:
   pull_request:
   push:
@@ -32,6 +33,10 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy flighttrack
       - run: uv run pytest
+      - name: API schema is up to date
+        run: |
+          uv run flighttrack schema --out ../frontend/src/lib/api-schema.json
+          git diff --exit-code ../frontend/src/lib/api-schema.json
       - name: Offline doctor on the shipped config
         run: uv run flighttrack doctor --offline
       # The image installs the fast-flights fallback; the suite must pass with and without it.
@@ -63,41 +68,63 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f docker/Dockerfile --build-arg GIT_COMMIT=${{ github.sha }} -t flightwatch:ci .
       - name: Smoke test
+        # M5: livez 200; health 503 with no prices, 200 after `flighttrack demo`; the
+        # overview lists the demo trip; the CSP header is present; sign in and create a trip.
         run: |
           harden="--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true"
           docker run --rm flightwatch:ci flighttrack --help
           docker run --rm $harden flightwatch:ci flighttrack doctor --offline
           docker run --rm flightwatch:ci sh -c 'test "$GIT_COMMIT" = "${{ github.sha }}" && test "$(id -u)" = 1000'
-          # The image's default command serves the page and collects nothing;
-          # --network none keeps it from reaching anything anyway.
           mkdir -p /tmp/fw-data && chmod 777 /tmp/fw-data
-          docker run -d --name fw --network none $harden -v /tmp/fw-data:/data flightwatch:ci
-          probe() { docker exec fw python -c "import sys, urllib.request; sys.stdout.write(urllib.request.urlopen('http://localhost:8080$1', timeout=5).read().decode())"; }
-          for i in $(seq 1 30); do probe /status.json > /dev/null 2>&1 && break; sleep 1; done
-          probe /status.json | grep -q '"scheduler"'
-          probe / | grep -q '<html'
-          test -f /tmp/fw-data/flights.db
+          docker run -d --name fw $harden -p 8000:8000 -v /tmp/fw-data:/data \
+            -e OWNER_PASSWORD=ci-owner-password-123 flightwatch:ci
+          for i in $(seq 1 30); do curl -sf localhost:8000/api/livez && break; sleep 1; done
+          code() { curl -s -o /dev/null -w '%{http_code}' "localhost:8000$1"; }
+          test "$(code /api/health)" = 503
+          docker run --rm --network none $harden -v /tmp/fw-data:/data flightwatch:ci \
+            flighttrack demo --db /data/flights.db
+          test "$(code /api/health)" = 200
+          curl -sf localhost:8000/api/overview | grep -q '"slug":"tokyo-spring"'
+          curl -sf -D - -o /dev/null localhost:8000/api/overview | grep -qi '^content-security-policy:'
+          curl -sf -D - -o /dev/null localhost:8000/api/overview | grep -qi '^x-robots-tag: noindex'
+          curl -sf localhost:8000/robots.txt | grep -q 'Disallow: /'
+          curl -sf localhost:8000/ | grep -q '<html'
+          curl -sf localhost:8000/api/meta | grep -q '"commit":"${{ github.sha }}"'
+          test "$(code /api/admin/trips)" = 401
+          # Owner sign-in round trip (Origin as a browser sends it), then a new trip.
+          origin='Origin: http://localhost:8000'; json='Content-Type: application/json'
+          curl -sf -c /tmp/jar -H "$origin" -H "$json" -d '{"password":"ci-owner-password-123"}' \
+            localhost:8000/api/auth/login | grep -q '"is_owner":true'
+          trip="{\"name\":\"CI trip\",\"origin\":\"SEA\",\"destination\":\"LAX\",\"depart_date\":\"$(date -d '+60 days' +%F)\",\"return_date\":\"$(date -d '+63 days' +%F)\"}"
+          curl -sf -b /tmp/jar -H "$origin" -H "$json" -d "$trip" localhost:8000/api/admin/trips \
+            | grep -q '"slug":"ci-trip"'
+          curl -s -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'Origin: https://evil.example' \
+            -H "$json" -d "$trip" localhost:8000/api/admin/trips | grep -q 403
+          curl -sf -b /tmp/jar localhost:8000/api/admin/trips | grep -q '"slug":"ci-trip"'
           docker logs fw 2>&1 | head -1 | python3 -c 'import json, sys; json.loads(sys.stdin.read())'
-          docker logs fw 2>&1 | head -20
-      - name: Worker smoke test (fake source, no outside requests)
-        # M4 acceptance: `docker compose up -d worker` with FLIGHTTRACK_SOURCE=fake stores
-        # observations within two minutes and reports healthy.
+          docker logs fw 2>&1 | tail -20
+      - name: Compose check (both services healthy; fake source, no outside requests)
+        # M5 acceptance: `docker compose up -d` with only OWNER_PASSWORD set brings both
+        # services to healthy. FLIGHTTRACK_SOURCE=fake keeps the worker off Google and
+        # the feeds; it stores invented prices, so /api/health turns 200.
         run: |
           docker tag flightwatch:ci flightwatch:local
           mkdir -p data && chmod 777 data
-          docker compose run --rm --pull never worker flighttrack import-config /app/config/seed.example.yaml
-          FLIGHTTRACK_SOURCE=fake docker compose up -d --no-build worker
-          count() { docker compose exec -T worker python -c "import sqlite3; print(sqlite3.connect('/data/flights.db').execute('SELECT COUNT(*) FROM observations').fetchone()[0])"; }
+          echo "OWNER_PASSWORD=ci-owner-password-123" > .env
+          docker compose run --rm worker flighttrack import-config /app/config/seed.example.yaml
+          FLIGHTTRACK_SOURCE=fake docker compose up -d --no-build
+          health() { docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q "$1")"; }
           ok=""
-          for i in $(seq 1 24); do
-            n=$(count 2>/dev/null || echo 0)
-            status=$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q worker)")
-            echo "after $((i * 5)) s: $n observations, $status"
-            if [ "$n" -gt 0 ] && [ "$status" = healthy ]; then ok=1; break; fi
+          for i in $(seq 1 30); do
+            api=$(health api); worker=$(health worker)
+            fresh=$(curl -s -o /dev/null -w '%{http_code}' localhost:8091/api/health)
+            echo "after $((i * 5)) s: api $api, worker $worker, /api/health $fresh"
+            if [ "$api" = healthy ] && [ "$worker" = healthy ] && [ "$fresh" = 200 ]; then ok=1; break; fi
             sleep 5
           done
-          docker compose logs worker | head -20
+          docker compose logs | tail -30
           test -n "$ok"
+          curl -sf -D - -o /dev/null localhost:8091/api/livez | grep -qi '^strict-transport-security:'  # ENV=prod
+          curl -sf localhost:8091/api/overview | grep -q '"trips"'
           docker compose exec -T worker flighttrack health
-          docker compose exec -T worker flighttrack healthcheck worker
           docker compose down

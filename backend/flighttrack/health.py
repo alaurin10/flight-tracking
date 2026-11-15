@@ -16,6 +16,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from .config import Config
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
@@ -36,6 +37,8 @@ TITLE_DOWN = "⚠ Flight Watch has stopped collecting prices"
 TITLE_UP = "Flight Watch is collecting prices again"
 FEED_EMPTY_DAYS = 7
 PARSER_MISMATCH_WARN = 3
+# The worker touches its heartbeat file every 30 s; older than this, it has stopped.
+HEARTBEAT_MAX_AGE_S = 180
 
 
 @dataclass
@@ -66,6 +69,15 @@ class HealthReport:
         for i in self.info:
             out.append(f"  [info] {i}")
         return "\n".join(out)
+
+
+def heartbeat_age(path: Path, now: datetime | None = None) -> float | None:
+    """Seconds since the worker last touched its heartbeat file; None when there is none."""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    return max(0.0, (now or clock_now()).timestamp() - mtime)
 
 
 def _iso(dt: datetime) -> str:

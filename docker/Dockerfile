@@ -1,6 +1,6 @@
-# Flight Watch: one image for every service. docker-compose.yml runs the worker
-# (`flighttrack worker`, which collects) and the page server (`flighttrack serve
-# --no-schedule`); the API joins them in M5.
+# Flight Watch: one image for both services. docker-compose.yml runs the API
+# (uvicorn, the default command here) and the worker (`flighttrack worker`, which
+# collects). The frontend's Node build stage joins in M6.
 # Built on the server by `docker compose up -d --build`; CI only checks that it builds.
 # The base image is pinned by digest (Dependabot proposes updates).
 
@@ -36,8 +36,8 @@ ENV GIT_COMMIT=$GIT_COMMIT \
     PATH=/app/backend/.venv/bin:$PATH \
     DATA_DIR=/data \
     CONFIG_DIR=/app/config
-EXPOSE 8080
+EXPOSE 8000
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/status.json', timeout=8)"]
-# The page server. The worker service overrides the command and the health check.
-CMD ["flighttrack", "serve", "--no-schedule", "--host", "0.0.0.0", "--port", "8080"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/livez', timeout=8)"]
+# The API. The worker service overrides the command and the health check.
+CMD ["uvicorn", "--factory", "flighttrack.api.app:production_app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

@@ -1,0 +1,3072 @@
+{
+  "$defs": {
+    "AirportOut": {
+      "properties": {
+        "city": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "iata": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "iata",
+        "name",
+        "city",
+        "country"
+      ],
+      "title": "AirportOut",
+      "type": "object"
+    },
+    "AlertOut": {
+      "properties": {
+        "price": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sent_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sent_at",
+        "reason",
+        "price"
+      ],
+      "title": "AlertOut",
+      "type": "object"
+    },
+    "AlertSettings": {
+      "additionalProperties": false,
+      "description": "Alert thresholds the owner can change.",
+      "properties": {
+        "dedup_days": {
+          "description": "days before a date pair alerts again",
+          "maximum": 60,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "dedup_further_drop_pct": {
+          "description": "inside that window, alert again after a drop this large",
+          "maximum": 90,
+          "minimum": 0,
+          "type": "number"
+        },
+        "percentile_alerts": {
+          "description": "alert on prices in the route's cheapest 20%",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dedup_days",
+        "dedup_further_drop_pct",
+        "percentile_alerts"
+      ],
+      "title": "AlertSettings",
+      "type": "object"
+    },
+    "BackupOut": {
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "bytes",
+        "created_at"
+      ],
+      "title": "BackupOut",
+      "type": "object"
+    },
+    "BudgetOut": {
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "remaining": {
+          "type": "integer"
+        },
+        "used": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "limit",
+        "remaining"
+      ],
+      "title": "BudgetOut",
+      "type": "object"
+    },
+    "CanaryOut": {
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "result",
+        "detail"
+      ],
+      "title": "CanaryOut",
+      "type": "object"
+    },
+    "DatePairOut": {
+      "properties": {
+        "age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "airline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "calendar_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "calendar_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "duration_min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "description": "cheapest, under_target, at_low, estimate",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "low_30d": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "query_id": {
+          "type": "integer"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "detail",
+                "calendar"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "detail = a results-page fetch; calendar = the price graph, an estimate"
+        },
+        "stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "query_id",
+        "origin",
+        "destination",
+        "depart_date",
+        "return_date",
+        "price",
+        "source",
+        "price_at",
+        "age_hours",
+        "low_30d",
+        "calendar_price",
+        "calendar_at",
+        "airline",
+        "stops",
+        "duration_min",
+        "target_price",
+        "flags",
+        "link"
+      ],
+      "title": "DatePairOut",
+      "type": "object"
+    },
+    "DealFeed": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "minLength": 10,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "id",
+        "created_at"
+      ],
+      "title": "DealFeed",
+      "type": "object"
+    },
+    "DealFeedIn": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "minLength": 10,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "DealFeedIn",
+      "type": "object"
+    },
+    "DealOut": {
+      "properties": {
+        "feed": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seen_at": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "watch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "link",
+        "price",
+        "watch",
+        "feed",
+        "published_at",
+        "seen_at"
+      ],
+      "title": "DealOut",
+      "type": "object"
+    },
+    "DealTestIn": {
+      "properties": {
+        "headline": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "headline"
+      ],
+      "title": "DealTestIn",
+      "type": "object"
+    },
+    "DealTestOut": {
+      "properties": {
+        "matched": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the watch that would alert, if any"
+        },
+        "matches": {
+          "description": "every active watch the headline matches",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "price",
+        "matched",
+        "matches"
+      ],
+      "title": "DealTestOut",
+      "type": "object"
+    },
+    "DealWatch": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "keywords": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        "max_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "origins": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "DealWatch",
+      "type": "object"
+    },
+    "DealWatchIn": {
+      "additionalProperties": false,
+      "properties": {
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "keywords": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        "max_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "origins": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DealWatchIn",
+      "type": "object"
+    },
+    "DestinationOut": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/DatePairOut"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "pairs"
+      ],
+      "title": "DestinationOut",
+      "type": "object"
+    },
+    "FeedOut": {
+      "properties": {
+        "last_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_ok_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "name",
+        "last_at",
+        "last_ok_at",
+        "last_items",
+        "last_error"
+      ],
+      "title": "FeedOut",
+      "type": "object"
+    },
+    "HealthOut": {
+      "description": "`/api/health`: 200 when `status` is ok, 503 otherwise.",
+      "properties": {
+        "age_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_age_s": {
+          "type": "integer"
+        },
+        "newest_price_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "stale",
+            "no_data",
+            "worker_stopped"
+          ],
+          "type": "string"
+        },
+        "worker_heartbeat_age_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "newest_price_at",
+        "age_s",
+        "max_age_s",
+        "worker_heartbeat_age_s"
+      ],
+      "title": "HealthOut",
+      "type": "object"
+    },
+    "HealthSummary": {
+      "properties": {
+        "cooldown_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_success_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "problems": {
+          "items": {
+            "$ref": "#/$defs/ProblemOut"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ok",
+        "problems",
+        "last_success_at",
+        "cooldown_until"
+      ],
+      "title": "HealthSummary",
+      "type": "object"
+    },
+    "HistoryOut": {
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "calendar": {
+          "items": {
+            "$ref": "#/$defs/PricePoint"
+          },
+          "type": "array"
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/PricePoint"
+          },
+          "type": "array"
+        },
+        "query_id": {
+          "type": "integer"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "query_id",
+        "origin",
+        "destination",
+        "depart_date",
+        "return_date",
+        "active",
+        "target_price",
+        "points",
+        "calendar",
+        "link"
+      ],
+      "title": "HistoryOut",
+      "type": "object"
+    },
+    "JobIn": {
+      "properties": {
+        "kind": {
+          "enum": [
+            "fetch_trip",
+            "fetch_search",
+            "poll_deals",
+            "run_batch"
+          ],
+          "type": "string"
+        },
+        "search": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "slug, for fetch_search"
+        },
+        "trip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "slug, for fetch_trip"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "JobIn",
+      "type": "object"
+    },
+    "JobOut": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "requested_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "done",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "payload",
+        "status",
+        "requested_by",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "error"
+      ],
+      "title": "JobOut",
+      "type": "object"
+    },
+    "LayoverOut": {
+      "properties": {
+        "airport": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "minutes",
+        "airport"
+      ],
+      "title": "LayoverOut",
+      "type": "object"
+    },
+    "LivezOut": {
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "title": "LivezOut",
+      "type": "object"
+    },
+    "LoginIn": {
+      "properties": {
+        "password": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "password"
+      ],
+      "title": "LoginIn",
+      "type": "object"
+    },
+    "Me": {
+      "properties": {
+        "is_owner": {
+          "type": "boolean"
+        },
+        "owner_login_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "is_owner",
+        "owner_login_enabled"
+      ],
+      "title": "Me",
+      "type": "object"
+    },
+    "MetaOut": {
+      "properties": {
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "home_airport": {
+          "type": "string"
+        },
+        "owner_login_enabled": {
+          "type": "boolean"
+        },
+        "push_enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "commit",
+        "home_airport",
+        "currency",
+        "owner_login_enabled",
+        "push_enabled"
+      ],
+      "title": "MetaOut",
+      "type": "object"
+    },
+    "NotificationOut": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "body",
+        "url",
+        "created_at"
+      ],
+      "title": "NotificationOut",
+      "type": "object"
+    },
+    "OfferOut": {
+      "description": "One itinerary from the newest fetch.",
+      "properties": {
+        "airline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrives": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "departs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "layovers": {
+          "items": {
+            "$ref": "#/$defs/LayoverOut"
+          },
+          "type": "array"
+        },
+        "price": {
+          "type": "integer"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/SegmentOut"
+          },
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "price",
+        "airline",
+        "stops",
+        "duration_min",
+        "departs",
+        "arrives",
+        "layovers",
+        "segments",
+        "source"
+      ],
+      "title": "OfferOut",
+      "type": "object"
+    },
+    "OkOut": {
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "title": "OkOut",
+      "type": "object"
+    },
+    "OverviewOut": {
+      "properties": {
+        "deals": {
+          "items": {
+            "$ref": "#/$defs/DealOut"
+          },
+          "type": "array"
+        },
+        "generated_at": {
+          "type": "string"
+        },
+        "health": {
+          "$ref": "#/$defs/HealthSummary"
+        },
+        "home_airport": {
+          "type": "string"
+        },
+        "notifications": {
+          "items": {
+            "$ref": "#/$defs/NotificationOut"
+          },
+          "type": "array"
+        },
+        "searches": {
+          "items": {
+            "$ref": "#/$defs/SearchSummary"
+          },
+          "type": "array"
+        },
+        "trips": {
+          "items": {
+            "$ref": "#/$defs/TripSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "generated_at",
+        "home_airport",
+        "trips",
+        "searches",
+        "notifications",
+        "deals",
+        "health"
+      ],
+      "title": "OverviewOut",
+      "type": "object"
+    },
+    "PricePoint": {
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "price": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "price"
+      ],
+      "title": "PricePoint",
+      "type": "object"
+    },
+    "ProblemOut": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "crit",
+            "warn"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "title": "ProblemOut",
+      "type": "object"
+    },
+    "RequestDay": {
+      "properties": {
+        "day": {
+          "type": "string"
+        },
+        "outcomes": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "day",
+        "outcomes"
+      ],
+      "title": "RequestDay",
+      "type": "object"
+    },
+    "RunOut": {
+      "properties": {
+        "attempted": {
+          "type": "integer"
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "failed": {
+          "type": "integer"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skipped": {
+          "type": "boolean"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "succeeded": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "started_at",
+        "finished_at",
+        "attempted",
+        "succeeded",
+        "failed",
+        "blocked",
+        "skipped",
+        "notes"
+      ],
+      "title": "RunOut",
+      "type": "object"
+    },
+    "Search": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "depart_dows": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "type": "array"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "min_days_ahead": {
+          "anyOf": [
+            {
+              "maximum": 365,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nights": {
+          "maximum": 60,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "priority": {
+          "default": 2,
+          "maximum": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "slug",
+        "origin",
+        "destinations",
+        "depart_dows",
+        "nights",
+        "id",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Search",
+      "type": "object"
+    },
+    "SearchIn": {
+      "additionalProperties": false,
+      "properties": {
+        "depart_dows": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "type": "array"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "min_days_ahead": {
+          "anyOf": [
+            {
+              "maximum": 365,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nights": {
+          "maximum": 60,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "priority": {
+          "default": 2,
+          "maximum": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "slug": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "origin",
+        "destinations",
+        "depart_dows",
+        "nights"
+      ],
+      "title": "SearchIn",
+      "type": "object"
+    },
+    "SearchOut": {
+      "properties": {
+        "best": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatePairOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depart_dows": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "grid": {
+          "items": {
+            "$ref": "#/$defs/DestinationOut"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "min_days_ahead": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "nights": {
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "pairs": {
+          "type": "integer"
+        },
+        "priced": {
+          "type": "integer"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "slug",
+        "name",
+        "origin",
+        "destinations",
+        "depart_dows",
+        "nights",
+        "status",
+        "target_price",
+        "pairs",
+        "priced",
+        "best",
+        "id",
+        "window_start",
+        "window_end",
+        "min_days_ahead",
+        "max_stops",
+        "priority",
+        "grid"
+      ],
+      "title": "SearchOut",
+      "type": "object"
+    },
+    "SearchSaved": {
+      "properties": {
+        "job_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "search": {
+          "$ref": "#/$defs/Search"
+        }
+      },
+      "required": [
+        "search",
+        "job_id"
+      ],
+      "title": "SearchSaved",
+      "type": "object"
+    },
+    "SearchSummary": {
+      "properties": {
+        "best": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatePairOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depart_dows": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nights": {
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "pairs": {
+          "type": "integer"
+        },
+        "priced": {
+          "type": "integer"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "slug",
+        "name",
+        "origin",
+        "destinations",
+        "depart_dows",
+        "nights",
+        "status",
+        "target_price",
+        "pairs",
+        "priced",
+        "best"
+      ],
+      "title": "SearchSummary",
+      "type": "object"
+    },
+    "SegmentOut": {
+      "properties": {
+        "aircraft": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrives": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "departs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flight": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "origin",
+        "destination",
+        "departs",
+        "arrives",
+        "minutes",
+        "flight",
+        "aircraft"
+      ],
+      "title": "SegmentOut",
+      "type": "object"
+    },
+    "StatusIn": {
+      "properties": {
+        "status": {
+          "enum": [
+            "active",
+            "paused",
+            "booked",
+            "archived"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "StatusIn",
+      "type": "object"
+    },
+    "StatusOut": {
+      "properties": {
+        "active_pairs": {
+          "type": "integer"
+        },
+        "backups": {
+          "items": {
+            "$ref": "#/$defs/BackupOut"
+          },
+          "type": "array"
+        },
+        "blocked_streak": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetOut"
+        },
+        "canary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CanaryOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checked_at": {
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cooldown_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "database_bytes": {
+          "type": "integer"
+        },
+        "feeds": {
+          "items": {
+            "$ref": "#/$defs/FeedOut"
+          },
+          "type": "array"
+        },
+        "generated_at": {
+          "type": "string"
+        },
+        "info": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "jobs_queued": {
+          "type": "integer"
+        },
+        "last_success_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_sweep_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "newest_price_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_batch_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observations": {
+          "type": "integer"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "problems": {
+          "items": {
+            "$ref": "#/$defs/ProblemOut"
+          },
+          "type": "array"
+        },
+        "recent_runs": {
+          "items": {
+            "$ref": "#/$defs/RunOut"
+          },
+          "type": "array"
+        },
+        "requests_by_day": {
+          "items": {
+            "$ref": "#/$defs/RequestDay"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        },
+        "worker_heartbeat_age_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "generated_at",
+        "version",
+        "commit",
+        "ok",
+        "checked_at",
+        "problems",
+        "info",
+        "last_success_at",
+        "newest_price_at",
+        "cooldown_until",
+        "blocked_streak",
+        "next_batch_at",
+        "last_sweep_at",
+        "budget",
+        "requests_by_day",
+        "recent_runs",
+        "feeds",
+        "canary",
+        "backups",
+        "database_bytes",
+        "observations",
+        "active_pairs",
+        "jobs_queued",
+        "worker_heartbeat_age_s"
+      ],
+      "title": "StatusOut",
+      "type": "object"
+    },
+    "Trip": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "type": "string"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "booked",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "slug",
+        "origin",
+        "destination",
+        "depart_date",
+        "id",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Trip",
+      "type": "object"
+    },
+    "TripIn": {
+      "additionalProperties": false,
+      "properties": {
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "type": "string"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slug": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "paused",
+            "booked",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "origin",
+        "destination",
+        "depart_date"
+      ],
+      "title": "TripIn",
+      "type": "object"
+    },
+    "TripOut": {
+      "properties": {
+        "advice": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VerdictOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alerts": {
+          "items": {
+            "$ref": "#/$defs/AlertOut"
+          },
+          "type": "array"
+        },
+        "all_time_low": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "change_7d_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "days_to_departure": {
+          "type": "integer"
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "low_30d": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observations": {
+          "type": "integer"
+        },
+        "offers": {
+          "items": {
+            "$ref": "#/$defs/OfferOut"
+          },
+          "type": "array"
+        },
+        "offers_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the newest price; None until the first fetch"
+        },
+        "price_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "query_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "series": {
+          "description": "the newest points, oldest first",
+          "items": {
+            "$ref": "#/$defs/PricePoint"
+          },
+          "type": "array"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "BOOK, LEAN BOOK, HOLD or WAIT; None when not active"
+        }
+      },
+      "required": [
+        "slug",
+        "name",
+        "origin",
+        "destination",
+        "label",
+        "depart_date",
+        "return_date",
+        "status",
+        "target_price",
+        "max_stops",
+        "price",
+        "price_at",
+        "change_7d_pct",
+        "verdict",
+        "all_time_low",
+        "low_30d",
+        "observations",
+        "days_to_departure",
+        "series",
+        "link",
+        "id",
+        "notes",
+        "query_id",
+        "offers",
+        "offers_at",
+        "advice",
+        "alerts"
+      ],
+      "title": "TripOut",
+      "type": "object"
+    },
+    "TripSaved": {
+      "properties": {
+        "job_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the fetch job queued for it, if it is active"
+        },
+        "trip": {
+          "$ref": "#/$defs/Trip"
+        }
+      },
+      "required": [
+        "trip",
+        "job_id"
+      ],
+      "title": "TripSaved",
+      "type": "object"
+    },
+    "TripSummary": {
+      "properties": {
+        "all_time_low": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "change_7d_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "days_to_departure": {
+          "type": "integer"
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "low_30d": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "observations": {
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the newest price; None until the first fetch"
+        },
+        "price_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "series": {
+          "description": "the newest points, oldest first",
+          "items": {
+            "$ref": "#/$defs/PricePoint"
+          },
+          "type": "array"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "BOOK, LEAN BOOK, HOLD or WAIT; None when not active"
+        }
+      },
+      "required": [
+        "slug",
+        "name",
+        "origin",
+        "destination",
+        "label",
+        "depart_date",
+        "return_date",
+        "status",
+        "target_price",
+        "max_stops",
+        "price",
+        "price_at",
+        "change_7d_pct",
+        "verdict",
+        "all_time_low",
+        "low_30d",
+        "observations",
+        "days_to_departure",
+        "series",
+        "link"
+      ],
+      "title": "TripSummary",
+      "type": "object"
+    },
+    "VerdictOut": {
+      "description": "`report.advise` for one date pair: arithmetic on the history, not a forecast.",
+      "properties": {
+        "all_time_low": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "change_7d_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "days_to_departure": {
+          "type": "integer"
+        },
+        "observations": {
+          "type": "integer"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "route_p20": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route_p50": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdict": {
+          "enum": [
+            "BOOK",
+            "LEAN BOOK",
+            "HOLD",
+            "WAIT"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict",
+        "reasons",
+        "days_to_departure",
+        "observations",
+        "all_time_low",
+        "route_p20",
+        "route_p50",
+        "change_7d_pct"
+      ],
+      "title": "VerdictOut",
+      "type": "object"
+    }
+  },
+  "description": "Every request and response shape, exported as one JSON Schema for the frontend.",
+  "properties": {
+    "admin_deal_feeds": {
+      "items": {
+        "$ref": "#/$defs/DealFeed"
+      },
+      "type": "array"
+    },
+    "admin_deal_watches": {
+      "items": {
+        "$ref": "#/$defs/DealWatch"
+      },
+      "type": "array"
+    },
+    "admin_searches": {
+      "items": {
+        "$ref": "#/$defs/Search"
+      },
+      "type": "array"
+    },
+    "admin_trips": {
+      "items": {
+        "$ref": "#/$defs/Trip"
+      },
+      "type": "array"
+    },
+    "airports": {
+      "items": {
+        "$ref": "#/$defs/AirportOut"
+      },
+      "type": "array"
+    },
+    "alert_settings": {
+      "$ref": "#/$defs/AlertSettings"
+    },
+    "deal_feed_in": {
+      "$ref": "#/$defs/DealFeedIn"
+    },
+    "deal_test_in": {
+      "$ref": "#/$defs/DealTestIn"
+    },
+    "deal_test_out": {
+      "$ref": "#/$defs/DealTestOut"
+    },
+    "deal_watch_in": {
+      "$ref": "#/$defs/DealWatchIn"
+    },
+    "deals": {
+      "items": {
+        "$ref": "#/$defs/DealOut"
+      },
+      "type": "array"
+    },
+    "health": {
+      "$ref": "#/$defs/HealthOut"
+    },
+    "history": {
+      "$ref": "#/$defs/HistoryOut"
+    },
+    "job": {
+      "$ref": "#/$defs/JobOut"
+    },
+    "job_in": {
+      "$ref": "#/$defs/JobIn"
+    },
+    "livez": {
+      "$ref": "#/$defs/LivezOut"
+    },
+    "login_in": {
+      "$ref": "#/$defs/LoginIn"
+    },
+    "me": {
+      "$ref": "#/$defs/Me"
+    },
+    "meta": {
+      "$ref": "#/$defs/MetaOut"
+    },
+    "ok": {
+      "$ref": "#/$defs/OkOut"
+    },
+    "overview": {
+      "$ref": "#/$defs/OverviewOut"
+    },
+    "search": {
+      "$ref": "#/$defs/SearchOut"
+    },
+    "search_in": {
+      "$ref": "#/$defs/SearchIn"
+    },
+    "search_saved": {
+      "$ref": "#/$defs/SearchSaved"
+    },
+    "status": {
+      "$ref": "#/$defs/StatusOut"
+    },
+    "status_in": {
+      "$ref": "#/$defs/StatusIn"
+    },
+    "trip": {
+      "$ref": "#/$defs/TripOut"
+    },
+    "trip_in": {
+      "$ref": "#/$defs/TripIn"
+    },
+    "trip_saved": {
+      "$ref": "#/$defs/TripSaved"
+    }
+  },
+  "required": [
+    "livez",
+    "health",
+    "meta",
+    "overview",
+    "trip",
+    "search",
+    "history",
+    "deals",
+    "status",
+    "airports",
+    "me",
+    "login_in",
+    "trip_in",
+    "admin_trips",
+    "trip_saved",
+    "search_in",
+    "admin_searches",
+    "search_saved",
+    "deal_watch_in",
+    "admin_deal_watches",
+    "deal_feed_in",
+    "admin_deal_feeds",
+    "status_in",
+    "deal_test_in",
+    "deal_test_out",
+    "alert_settings",
+    "job_in",
+    "job",
+    "ok"
+  ],
+  "title": "ApiTypes",
+  "type": "object"
+}
