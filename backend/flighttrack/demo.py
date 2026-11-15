@@ -13,6 +13,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 from . import expand as expand_mod
+from . import watches
 from .config import Config
 from .store.db import set_state
 
@@ -28,6 +29,76 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def seed_watches(conn: sqlite3.Connection, cfg: Config, today: date) -> bool:
+    """Invented trips, searches and deal watches, when the database has none yet."""
+    if watches.list_trips(conn) or watches.list_searches(conn):
+        return False
+    home = cfg.home
+    depart = today + timedelta(days=150)
+    depart += timedelta(days=(5 - depart.weekday()) % 7)  # a Saturday
+    watches.create_trip(
+        conn,
+        cfg,
+        {
+            "name": "Tokyo in spring",
+            "slug": "tokyo-spring",
+            "origin": home,
+            "destination": "HND",
+            "depart_date": depart.isoformat(),
+            "return_date": (depart + timedelta(days=14)).isoformat(),
+            "target_price": 80000,
+        },
+        today=today,
+        expand=False,
+    )
+    watches.create_search(
+        conn,
+        cfg,
+        {
+            "name": "Ski weekends",
+            "slug": "ski-weekends",
+            "origin": home,
+            "destinations": ["SLC"],
+            "depart_dows": ["FRI"],
+            "nights": 3,
+            "target_price": 14000,
+            "priority": 1,
+        },
+        today=today,
+        expand=False,
+    )
+    watches.create_search(
+        conn,
+        cfg,
+        {
+            "name": "A week in Tokyo",
+            "slug": "tokyo-week",
+            "origin": home,
+            "destinations": ["HND", "NRT"],
+            "depart_dows": ["SAT"],
+            "nights": 7,
+            "target_price": 65000,
+            "priority": 1,
+        },
+        today=today,
+        expand=False,
+    )
+    for name, dest, cents in (
+        ("Europe from Seattle", "europe", 60000),
+        ("Japan from anywhere US", "japan", 70000),
+    ):
+        watches.create_deal_watch(
+            conn,
+            {
+                "name": name,
+                "origins": ["Seattle", "SEA", "West Coast", "US cities", "U.S. cities"],
+                "destinations": [dest],
+                "max_price": cents,
+            },
+        )
+    return True
+
+
 def seed(
     conn: sqlite3.Connection,
     cfg: Config,
@@ -35,9 +106,11 @@ def seed(
     today: date | None = None,
     rng_seed: int = 7,
 ) -> dict:
-    """Expand the grid for `cfg`, then fabricate `days` of daily observations."""
+    """Expand the grid (inventing watches if there are none), then fabricate `days` of
+    daily observations."""
     rng = random.Random(rng_seed)
     today = today or date.today()
+    seed_watches(conn, cfg, today)
     expand_mod.expand(conn, cfg, today=today, build_links=True)
 
     rows = conn.execute(

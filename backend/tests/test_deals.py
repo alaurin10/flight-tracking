@@ -44,9 +44,8 @@ def _cfg(tmp_path, **over):
     cfg = make_config(notify={"channel": "file", "file": {"path": str(tmp_path / "digest.md")}})
     return replace(
         cfg,
-        deals=Deals(
-            enabled=True, feeds=("https://rss/feed", "https://atom/feed"), watches=watches, **over
-        ),
+        deals=Deals(enabled=True, feeds=("https://rss/feed", "https://atom/feed"), **over),
+        deal_watches=list(watches),
     )
 
 
@@ -68,12 +67,12 @@ def test_price_and_region_matching(tmp_path):
     cfg = _cfg(tmp_path)
     items = {i.guid: i for i in deals.parse_feed(RSS, "f")}
     assert deals.price_from_text(items["d4"].title) == 124000
-    assert deals.first_match(items["d1"], cfg.deals.watches).name == "Europe"
-    assert deals.first_match(items["d2"], cfg.deals.watches).name == "Japan any price"
-    assert deals.first_match(items["d3"], cfg.deals.watches) is None  # Chicago
-    assert deals.first_match(items["d4"], cfg.deals.watches) is None  # over max price
+    assert deals.first_match(items["d1"], cfg.deal_watches).name == "Europe"
+    assert deals.first_match(items["d2"], cfg.deal_watches).name == "Japan any price"
+    assert deals.first_match(items["d3"], cfg.deal_watches) is None  # Chicago
+    assert deals.first_match(items["d4"], cfg.deal_watches) is None  # over max price
     rome = deals.parse_feed(ATOM, "f")[0]
-    assert deals.first_match(rome, cfg.deals.watches).name == "Europe"  # region word + West Coast
+    assert deals.first_match(rome, cfg.deal_watches).name == "Europe"  # region word + West Coast
 
 
 def test_word_boundaries_avoid_substring_hits():

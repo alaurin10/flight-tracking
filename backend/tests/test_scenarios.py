@@ -3,10 +3,10 @@
 from datetime import date
 
 import pytest
-from helpers import add_obs, make_config, make_db
+from helpers import add_obs, load_old, make_config, make_db
 
 from flighttrack import alert, expand
-from flighttrack.config import ConfigError, Pattern, Trip, load
+from flighttrack.config import ConfigError, Pattern, Trip
 
 TODAY = date(2026, 9, 17)
 
@@ -23,10 +23,7 @@ def test_ski_weekends_window_and_multiple_weekdays(tmp_path):
         window_end="2027-03-31",
     )
     cfg = make_config(patterns=[ski], max_days_ahead=60)  # horizon alone would end in November
-    conn, cfg = make_db(tmp_path, cfg)
-    conn.execute("DELETE FROM queries")
-    conn.commit()
-    expand.expand(conn, cfg, today=TODAY, build_links=False)
+    conn, cfg = make_db(tmp_path, cfg, today=TODAY)
     rows = conn.execute(
         "SELECT r.destination, q.depart_date, q.return_date FROM queries q JOIN routes r ON r.id "
         "= q.route_id WHERE q.active = 1"
@@ -95,7 +92,7 @@ notify:
 def _load(tmp_path, extra):
     p = tmp_path / "c.yaml"
     p.write_text(BASE + extra)
-    return load(p, strict_secrets=False)
+    return load_old(p, strict_secrets=False)
 
 
 def test_config_scenario_blocks_parse(tmp_path):
@@ -139,7 +136,7 @@ fetch:
         and p.min_days_ahead == 7
     )
     assert cfg.trips[0].target_price == 80000 and cfg.trips[0].ret == "2027-04-24"
-    assert cfg.calendar.enabled and cfg.deals.watches[0].destinations == ("europe",)
+    assert cfg.calendar.enabled and cfg.deal_watches[0].destinations == ("europe",)
     assert cfg.fetch.sources == ("google_html",) and cfg.fetch.cooldown_hours == (2.0, 8.0)
 
 
@@ -169,11 +166,6 @@ fetch:
             "[kayak]\n",
             "unknown source",
         ),
-        (
-            "patterns:\n  - name: p\n    depart_dow: FRI\n    nights: 3\ndeals:\n  enabled: true\n",
-            "deals.feeds is empty",
-        ),
-        ("", "at least one pattern or trip"),
     ],
 )
 def test_config_rejects_bad_scenario_values(tmp_path, extra, match):
@@ -181,45 +173,54 @@ def test_config_rejects_bad_scenario_values(tmp_path, extra, match):
         _load(tmp_path, extra)
 
 
-def _shipped(tmp_path):
+FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"
+
+
+def _shipped_tunables(tmp_path):
+    from flighttrack.config import load
     from flighttrack.settings import REPO_ROOT, Settings
 
     settings = Settings(config_dir=REPO_ROOT / "config", data_dir=tmp_path)
-    return load(REPO_ROOT / "config.yaml", strict_secrets=False, settings=settings)
+    return load(strict_secrets=False, settings=settings)
 
 
-def test_shipped_config_is_valid_and_covers_all_three_scenarios(tmp_path):
-    cfg = _shipped(tmp_path)
+def test_old_shipped_config_covers_all_three_scenarios(tmp_path):
+    cfg = load_old(FIXTURES / "config_m1.yaml", strict_secrets=False)
     assert any(p.window_start for p in cfg.patterns), "a windowed (ski) pattern"
     assert cfg.trips, "a fixed trip"
-    assert cfg.deals.watches, "a deal watch"
+    assert cfg.deal_watches, "a deal watch"
+
+
+def test_shipped_tunables(tmp_path):
+    cfg = _shipped_tunables(tmp_path)
     # M1: ntfy is gone, the dead and Europe-only feeds are gone, the cap is conservative.
     assert cfg.notify["channel"] == "file"
+    assert cfg.deals.enabled
     assert cfg.deals.feeds == (
         "https://www.theflightdeal.com/feed/",
         "https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/",
     )
     assert cfg.fetch.max_queries_per_run == 25
-
-
-def test_shipped_files_split_tunables_from_watches(tmp_path):
-    """M2: config/flighttrack.yaml holds only tunables; config.yaml only what is tracked."""
-    import yaml
-
-    from flighttrack.settings import REPO_ROOT
-
-    tunables = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
-    watches = yaml.safe_load((REPO_ROOT / "config.yaml").read_text())
-    assert set(tunables) == {
-        "search", "fetch", "calendar", "alerts", "health", "retention", "horizon", "notify",
-        "deals",
-    }  # fmt: skip
-    assert set(tunables["deals"]) == {"feeds", "max_alerts_per_run", "lookback_days"}
-    assert set(watches) == {"home", "routes", "trips", "patterns", "deals"}
-    assert set(watches["deals"]) == {"enabled", "watches"}
-
-    cfg = _shipped(tmp_path)
     assert cfg.db_path == str(tmp_path / "flights.db")
     assert cfg.html_path == str(tmp_path / "out" / "index.html")
     assert cfg.failure_dir == str(tmp_path / "failures")
     assert cfg.notify["file"]["path"] == str(tmp_path / "out" / "digest.md")
+
+
+def test_nothing_personal_is_shipped():
+    """M3: the tunables file holds no watches, there is no config.yaml, and the seed
+    example is a valid import file."""
+    import yaml
+
+    from flighttrack.config import read_watch_file
+    from flighttrack.settings import REPO_ROOT
+
+    tunables = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
+    assert set(tunables) == {
+        "search", "fetch", "calendar", "alerts", "health", "retention", "horizon", "notify",
+        "deals",
+    }  # fmt: skip
+    assert set(tunables["deals"]) == {"enabled", "feeds", "max_alerts_per_run", "lookback_days"}
+    assert not (REPO_ROOT / "config.yaml").exists()
+    seed = read_watch_file(REPO_ROOT / "config" / "seed.example.yaml")
+    assert seed.trips and seed.patterns and seed.deal_watches

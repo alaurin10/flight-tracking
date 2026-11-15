@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     config_dir: Path = REPO_ROOT / "config"
     static_dir: Path | None = None
 
+    # The default origin for new trips and searches, and for `doctor`.
+    home_airport: str = "SEA"
+
     # Used from later milestones; harmless until then.
-    home_airport: str = ""
     owner_password: str = ""
     public_url: str = ""
     trusted_proxy: bool = False

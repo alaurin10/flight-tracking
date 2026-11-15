@@ -20,6 +20,7 @@ import re
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -28,6 +29,7 @@ from .config import Config, DealWatch
 from .gflights.transport import Transport, TransportError, default_transport
 from .notify import NotifyError, notify
 from .report import fmt_money
+from .watches import active_deal_watches, active_feed_urls
 
 log = logging.getLogger(__name__)
 
@@ -420,7 +422,7 @@ def matches(item: FeedItem, watch: DealWatch) -> bool:
     return True
 
 
-def first_match(item: FeedItem, watches) -> DealWatch | None:
+def first_match(item: FeedItem, watches: Iterable[DealWatch]) -> DealWatch | None:
     for w in watches:
         if matches(item, w):
             return w
@@ -445,8 +447,9 @@ def poll(
     stamp = _iso(now)
     transport = transport or default_transport("urllib")
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
+    watches = active_deal_watches(conn)
 
-    for i, feed in enumerate(cfg.deals.feeds):
+    for i, feed in enumerate(active_feed_urls(conn, cfg)):
         if i:
             sleeper(1.0)
         stats.feeds += 1
@@ -479,7 +482,7 @@ def poll(
         for it in items:
             if it.published and it.published < cutoff:
                 continue
-            watch = first_match(it, cfg.deals.watches)
+            watch = first_match(it, watches)
             cur = conn.execute(
                 """
                 INSERT INTO deal_posts

@@ -1,8 +1,9 @@
 """Config validation must fail loudly at load, never at 3am inside cron."""
 
 import pytest
+from helpers import load_old as load
 
-from flighttrack.config import ConfigError, load
+from flighttrack.config import ConfigError
 
 BASE = """
 home: SEA
@@ -47,10 +48,7 @@ def test_missing_file(tmp_path):
     "text,match",
     [
         (BASE.replace("home: SEA", "home: SEATTLE"), "not a 3-letter IATA"),
-        (
-            "home: SEA\nroutes: []\npatterns:\n  - name: t\n    depart_dow: THU\n    nights: 4\n",
-            "non-empty list",
-        ),
+        ("home: SEA\nroutes: HND\n", "routes: must be a list"),
         (BASE.replace("dest: HND", "dest: SEA"), "same as home"),
         (BASE.replace("target_price: 65000", "target_price: -5"), "positive integer"),
         (BASE.replace("target_price: 65000", "target_price: 450.50"), "positive integer"),

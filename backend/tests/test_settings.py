@@ -12,30 +12,13 @@ from flighttrack.config import ConfigError, load
 from flighttrack.logs import JsonFormatter, setup_logging
 from flighttrack.settings import Settings
 
-WATCHES = """
-home: SEA
-routes:
-  - dest: SLC
-    label: Salt Lake City
-patterns:
-  - name: fri
-    depart_dow: FRI
-    nights: 3
-"""
 
-
-def _settings(tmp_path: Path, tunables: str | None = None) -> Settings:
+def _settings(tmp_path: Path, tunables: str | None = None, **over: object) -> Settings:
     config_dir = tmp_path / "config"
     config_dir.mkdir(exist_ok=True)
     if tunables is not None:
         (config_dir / "flighttrack.yaml").write_text(tunables)
-    return Settings(data_dir=tmp_path / "data", config_dir=config_dir)
-
-
-def _watch_file(tmp_path: Path, extra: str = "") -> Path:
-    p = tmp_path / "watches.yaml"
-    p.write_text(WATCHES + extra)
-    return p
+    return Settings(data_dir=tmp_path / "data", config_dir=config_dir, **over)  # type: ignore[arg-type]
 
 
 def test_settings_defaults_and_derived_paths(
@@ -47,57 +30,57 @@ def test_settings_defaults_and_derived_paths(
     assert s.html_path == tmp_path / "out" / "index.html"
     assert s.failure_dir == tmp_path / "failures"
     assert s.env == "dev" and s.trusted_proxy is False and s.owner_password == ""
+    assert s.home_airport == "SEA"
 
     monkeypatch.setenv("DB_PATH", str(tmp_path / "elsewhere.db"))
     monkeypatch.setenv("TRUSTED_PROXY", "1")
     monkeypatch.setenv("GIT_COMMIT", "abc1234")
+    monkeypatch.setenv("HOME_AIRPORT", "pdx")
     s = Settings()
     assert s.database == tmp_path / "elsewhere.db"
     assert s.trusted_proxy is True and s.git_commit == "abc1234"
+    assert load(settings=s).home == "PDX"
 
 
-def test_watch_file_merges_over_tunables_section_by_section(tmp_path: Path) -> None:
+def test_tunables_are_read_from_config_dir(tmp_path: Path) -> None:
     settings = _settings(
         tmp_path,
-        "fetch:\n  max_queries_per_run: 25\n  min_sleep_seconds: 4\n"
-        "deals:\n  feeds: [https://feeds.example/a]\n  lookback_days: 5\n"
-        "calendar:\n  enabled: false\n",
+        "fetch:\n  max_queries_per_run: 25\n"
+        "deals:\n  enabled: true\n  feeds: [https://feeds.example/a]\n  lookback_days: 5\n",
     )
-    cfg = load(
-        _watch_file(
-            tmp_path,
-            "fetch:\n  min_sleep_seconds: 6\n  max_sleep_seconds: 9\n"
-            "deals:\n  enabled: true\n  watches:\n    - name: w\n      origins: [Seattle]\n",
-        ),
-        settings=settings,
-    )
-    assert cfg.fetch.max_queries_per_run == 25  # from the tunables
-    assert cfg.fetch.min_sleep_seconds == 6.0  # the watch file wins, key by key
-    assert cfg.deals.feeds == ("https://feeds.example/a",) and cfg.deals.lookback_days == 5
-    assert cfg.deals.enabled and cfg.deals.watches[0].name == "w"
-    assert cfg.calendar.enabled is False
+    cfg = load(settings=settings)
+    assert cfg.fetch.max_queries_per_run == 25 and cfg.fetch.min_sleep_seconds == 4.0
+    assert cfg.deals.enabled and cfg.deals.feeds == ("https://feeds.example/a",)
+    assert cfg.deals.lookback_days == 5
+
+
+def test_watches_in_the_tunables_file_are_refused(tmp_path: Path) -> None:
+    """M3: what is tracked lives in the database; the message says how to load it."""
+    for text in ("home: SEA\n", "patterns: []\n", "deals:\n  watches: []\n"):
+        with pytest.raises(ConfigError, match="import-config"):
+            load(settings=_settings(tmp_path, text))
 
 
 def test_missing_tunables_file_means_code_defaults(tmp_path: Path) -> None:
-    cfg = load(_watch_file(tmp_path), settings=_settings(tmp_path))
+    cfg = load(settings=_settings(tmp_path))
     assert cfg.fetch.max_queries_per_run == 60 and cfg.deals.enabled is False
 
 
 def test_bad_tunables_file_is_a_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="tunables file"):
-        load(_watch_file(tmp_path), settings=_settings(tmp_path, "- just\n- a list\n"))
+        load(settings=_settings(tmp_path, "- just\n- a list\n"))
     with pytest.raises(ConfigError, match="not valid YAML"):
-        load(_watch_file(tmp_path), settings=_settings(tmp_path, "fetch: [unclosed\n"))
+        load(settings=_settings(tmp_path, "fetch: [unclosed\n"))
+    with pytest.raises(ConfigError, match="HOME_AIRPORT"):
+        load(settings=_settings(tmp_path, "", home_airport="Seattle"))
 
 
 def test_paths_come_from_settings_and_output_is_ignored(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    settings = _settings(tmp_path)
+    settings = _settings(tmp_path, "output:\n  db_path: /somewhere/else.db\n")
     with caplog.at_level(logging.WARNING):
-        cfg = load(
-            _watch_file(tmp_path, "output:\n  db_path: /somewhere/else.db\n"), settings=settings
-        )
+        cfg = load(settings=settings)
     assert cfg.db_path == str(tmp_path / "data" / "flights.db")
     assert cfg.html_path == str(tmp_path / "data" / "out" / "index.html")
     assert cfg.failure_dir == str(tmp_path / "data" / "failures")
@@ -106,27 +89,23 @@ def test_paths_come_from_settings_and_output_is_ignored(
 
 def test_file_channel_writes_under_data_dir(tmp_path: Path) -> None:
     settings = _settings(tmp_path, "notify:\n  channel: file\n  file:\n    path: out/digest.md\n")
-    cfg = load(_watch_file(tmp_path), settings=settings)
+    cfg = load(settings=settings)
     assert cfg.notify["file"]["path"] == str(tmp_path / "data" / "out" / "digest.md")
     absolute = tmp_path / "abs.md"
-    cfg = load(
-        _watch_file(tmp_path, f"notify:\n  channel: file\n  file:\n    path: {absolute}\n"),
-        settings=settings,
-    )
-    assert cfg.notify["file"]["path"] == str(absolute)
+    settings = _settings(tmp_path, f"notify:\n  channel: file\n  file:\n    path: {absolute}\n")
+    assert load(settings=settings).notify["file"]["path"] == str(absolute)
 
 
 def test_serpapi_key_falls_back_to_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("SERPAPI_KEY", raising=False)
-    tunables = "fetch:\n  serpapi:\n    api_key: ${SERPAPI_KEY}\n"
-    settings = _settings(tmp_path, tunables)
-    assert load(_watch_file(tmp_path), settings=settings).fetch.serpapi_key is None
+    settings = _settings(tmp_path, "fetch:\n  serpapi:\n    api_key: ${SERPAPI_KEY}\n")
+    assert load(settings=settings).fetch.serpapi_key is None
     settings = settings.model_copy(update={"serpapi_key": "from-dotenv"})
-    assert load(_watch_file(tmp_path), settings=settings).fetch.serpapi_key == "from-dotenv"
+    assert load(settings=settings).fetch.serpapi_key == "from-dotenv"
     monkeypatch.setenv("SERPAPI_KEY", "from-env")
-    assert load(_watch_file(tmp_path), settings=settings).fetch.serpapi_key == "from-env"
+    assert load(settings=settings).fetch.serpapi_key == "from-env"
 
 
 def test_json_formatter_writes_one_object_per_line() -> None:

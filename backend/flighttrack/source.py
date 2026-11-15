@@ -165,9 +165,10 @@ def price_is_plausible(cents: int) -> bool:
 
 
 def build_query(cfg: Config, route: Route, depart: str, ret: str | None) -> Query:
-    legs = [Leg(depart, cfg.home, route.dest, max_stops=route.max_stops)]
+    origin = route.origin_or(cfg.home)
+    legs = [Leg(depart, origin, route.dest, max_stops=route.max_stops)]
     if ret:
-        legs.append(Leg(ret, route.dest, cfg.home, max_stops=route.max_stops))
+        legs.append(Leg(ret, route.dest, origin, max_stops=route.max_stops))
     return Query(
         legs=tuple(legs),
         seat=cfg.search.seat,
@@ -250,7 +251,7 @@ class GoogleHtmlSource:
         self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
     ) -> list[Offer]:
         q = build_query(cfg, route, depart, ret)
-        label = f"{cfg.home}-{route.dest}-{depart}"
+        label = f"{route.origin_or(cfg.home)}-{route.dest}-{depart}"
         try:
             resp = self.transport.get(
                 SEARCH_URL, params=q.params(), headers=BASE_HEADERS, timeout=self.timeout
@@ -373,7 +374,10 @@ class FastFlightsSource:
 
         legs = [
             FlightQuery(
-                date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops
+                date=depart,
+                from_airport=route.origin_or(cfg.home),
+                to_airport=route.dest,
+                max_stops=route.max_stops,
             )
         ]
         if ret:
@@ -381,7 +385,7 @@ class FastFlightsSource:
                 FlightQuery(
                     date=ret,
                     from_airport=route.dest,
-                    to_airport=cfg.home,
+                    to_airport=route.origin_or(cfg.home),
                     max_stops=route.max_stops,
                 )
             )
@@ -469,7 +473,7 @@ class SerpApiSource:
     def params(self, cfg: Config, route: Route, depart: str, ret: str | None) -> dict[str, str]:
         p = {
             "engine": "google_flights",
-            "departure_id": cfg.home,
+            "departure_id": route.origin_or(cfg.home),
             "arrival_id": route.dest,
             "outbound_date": depart,
             "type": "1" if ret else "2",

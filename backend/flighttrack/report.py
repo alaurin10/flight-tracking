@@ -11,6 +11,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from .watches import TARGET_SQL
+
 SPARK = "▁▂▃▄▅▆▇█"
 DOW_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -129,7 +131,7 @@ def grid(
         SELECT q.id, r.destination, r.label, q.pattern, q.depart_date, q.return_date,
                l.price_cents AS current_cents, l.observed_at AS current_at,
                lo.low_cents, l.airline, l.stops, l.duration_min,
-               r.target_price, q.deep_link,
+               {TARGET_SQL} AS target_price, q.deep_link,
                s.price_cents AS sweep_cents, s.observed_at AS sweep_at
         FROM queries q
         JOIN routes r ON r.id = q.route_id
@@ -339,7 +341,6 @@ def advise(
     window_days: int = 30,
     route_window_days: int = 60,
     today: datetime | None = None,
-    targets: dict[str, int] | None = None,
 ) -> list[Advice]:
     """Score each priced date pair on its own history and its route's.
 
@@ -384,7 +385,7 @@ def advise(
         reasons: list[str] = []
         points = 0
 
-        target = (targets or {}).get(r.pattern, r.target_price)
+        target = r.target_price  # the date pair's own target (see watches.target_for)
         if target and r.current_cents <= target:
             reasons.append(f"at or under your {fmt_money(target)} target")
             points += 2

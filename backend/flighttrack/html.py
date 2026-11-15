@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .health import check as health_check
 from .report import Advice, GridRow, advise, fmt_date, fmt_money, grid, history
+from .watches import list_trips
 
 # ---------------------------------------------------------------------------
 # Tokens. The chart colours are the validated reference palette (blue
@@ -425,23 +426,24 @@ def _verdict_pill(v: str) -> str:
 
 
 def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
-    if cfg is None or not cfg.trips:
+    trips = list_trips(conn, status="active")
+    if not trips:
         return ""
+    route_window = cfg.alerts.percentile_window_days if cfg is not None else 60
     cards = []
-    for trip in cfg.trips:
+    for trip in trips:
         items = advise(
-            conn,
-            pattern=trip.name,
-            window_days=window_days,
-            route_window_days=cfg.alerts.percentile_window_days,
-            targets={trip.name: trip.target_price} if trip.target_price else None,
+            conn, pattern=trip.slug, window_days=window_days, route_window_days=route_window
         )
-        route = cfg.route(trip.dest)
-        label = route.label if route else trip.dest
+        row = conn.execute(
+            "SELECT label FROM routes WHERE origin = ? AND destination = ?",
+            (trip.origin, trip.destination),
+        ).fetchone()
+        label = row["label"] if row else trip.destination
         if not items:
             cards.append(
-                f'<div class="trip" data-label="{e(label)}"><div class="head"><div><div class="name">{e(trip.name.replace("_", " ").title())} · {e(trip.dest)}</div>'
-                f'<div class="dates">{e(fmt_date(trip.depart))} → {e(fmt_date(trip.ret))}</div></div></div>'
+                f'<div class="trip" data-label="{e(label)}"><div class="head"><div><div class="name">{e(trip.name)} · {e(trip.destination)}</div>'
+                f'<div class="dates">{e(fmt_date(trip.depart_date))} → {e(fmt_date(trip.return_date))}</div></div></div>'
                 f'<p class="empty">No price yet — the next run will fetch it.</p></div>'
             )
             continue
@@ -456,10 +458,10 @@ def trip_cards(conn: sqlite3.Connection, cfg, window_days: int) -> str:
                 f'<span class="delta {cls}">{arrow} {abs(a.trend_7d_pct):.0f}% vs a week ago</span>'
             )
         reasons = "".join(f"<li>{e(x)}</li>" for x in a.reasons)
-        target = trip.target_price or r.target_price
+        target = r.target_price  # the trip's own, else the route's (watches.target_for)
         cards.append(
             f'<div class="trip" data-label="{e(label)}">'
-            f'<div class="head"><div><div class="name">{e(label)} · {e(trip.dest)}</div>'
+            f'<div class="head"><div><div class="name">{e(label)} · {e(trip.destination)}</div>'
             f'<div class="dates">{e(fmt_date(r.depart_date))} → {e(fmt_date(r.return_date))} · {a.days_to_departure} days out</div></div>'
             f"{_verdict_pill(a.verdict)}</div>"
             f'<div class="hero"><span class="price">{fmt_money(r.current_cents)}</span>{delta_html}</div>'
@@ -728,7 +730,7 @@ def render(
         except Exception:  # the page must never fail because a check did
             rep = None
 
-    trip_patterns = {t.name for t in cfg.trips} if cfg else set()
+    trip_patterns = {t.slug for t in list_trips(conn, status="active")}
     labels = [
         r["label"]
         for r in conn.execute("SELECT DISTINCT label FROM routes WHERE active = 1 ORDER BY label")

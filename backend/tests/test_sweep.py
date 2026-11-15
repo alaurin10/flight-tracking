@@ -24,8 +24,9 @@ def _cfg(**cal):
     return replace(cfg, calendar=Calendar(enabled=True, **cal))
 
 
-def test_plan_covers_each_route_pattern_window():
-    jobs = sweep.plan(_cfg(), TODAY)
+def test_plan_covers_each_route_pattern_window(tmp_path):
+    conn, cfg = make_db(tmp_path, _cfg(), today=TODAY)
+    jobs = sweep.plan(conn, cfg, TODAY)
     assert len(jobs) == 1 and jobs[0].route.dest == "SLC" and jobs[0].pattern.name == "wknd"
     assert jobs[0].start >= "2026-10-08"
 
@@ -96,8 +97,8 @@ def test_rotation_across_runs(tmp_path):
         make_config(patterns=[Pattern("a", "FRI", 3), Pattern("b", "SAT", 7)], max_days_ahead=40),
         calendar=Calendar(enabled=True, max_calls_per_run=2),
     )
-    conn, cfg = make_db(tmp_path, cfg)
-    jobs = sweep.plan(cfg, TODAY)
+    conn, cfg = make_db(tmp_path, cfg, today=TODAY)
+    jobs = sweep.plan(conn, cfg, TODAY)
     assert len(jobs) == 6
     first = sweep._rotate(jobs, conn, 2)
     second = sweep._rotate(jobs, conn, 2)

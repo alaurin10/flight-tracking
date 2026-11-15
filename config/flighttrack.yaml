@@ -1,14 +1,17 @@
 # Flight Watch tunables. Committed; nothing personal belongs here.
 #
-# What is tracked (home airport, routes, trips, patterns, deal watches) is in
-# the watch file given with --config (config.yaml at the repository root until
-# milestone 3). Secrets and per-install values are in .env (see .env.example).
+# What is tracked (trips, flexible searches, deal watches and feeds) lives in
+# the database: load an old config file with `flighttrack import-config <file>`
+# (config/seed.example.yaml is an example), back it up with `export-config`.
+# Secrets and per-install values, including HOME_AIRPORT, are in .env.
 # Every key has a default in code, so a missing key or a missing file is fine.
 
 # ---------------------------------------------------------------------------
-# Deal feeds (the watches that match against them are in the watch file).
+# Announced deals. The watches that match posts are in the database. These
+# feeds are polled until a feed is added there (then the database's list wins).
 # ---------------------------------------------------------------------------
 deals:
+  enabled: true
   # Checked 2026-11-14: both return 16 items. The same post can appear in
   # both; it is stored and alerted once. (secretflying.com's feed now
   # redirects to its home page; fly4free.com lists Europe-origin fares.)

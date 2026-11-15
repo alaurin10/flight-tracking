@@ -182,7 +182,7 @@ def select_due(
     rows = conn.execute(
         f"""
         SELECT q.id, q.depart_date, q.return_date, q.pattern, q.last_fetch_at,
-               r.destination, r.label, r.target_price, r.priority, r.max_stops
+               r.origin, r.destination, r.label, r.target_price, r.priority, r.max_stops
         FROM queries q
         JOIN routes r ON r.id = q.route_id
         WHERE q.active = 1 AND r.active = 1 AND q.depart_date >= ?{extra}
@@ -209,6 +209,7 @@ def select_due(
                     target_price=row["target_price"],
                     priority=row["priority"],
                     max_stops=row["max_stops"],
+                    origin=row["origin"],
                 ),
                 depart_date=row["depart_date"],
                 return_date=row["return_date"],
@@ -334,7 +335,7 @@ def run(
             sleeper(random.uniform(cfg.fetch.min_sleep_seconds, cfg.fetch.max_sleep_seconds))
 
         stats.attempted += 1
-        leg = f"{cfg.home}→{item.route.dest} {item.depart_date}"
+        leg = f"{item.route.origin_or(cfg.home)}→{item.route.dest} {item.depart_date}"
         if item.return_date:
             leg += f"/{item.return_date}"
 

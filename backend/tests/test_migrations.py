@@ -76,10 +76,12 @@ def test_m1_database_is_adopted_intact(tmp_path: Path, with_legacy_columns: bool
     before = _snapshot(sqlite3.connect(path))
 
     conn = db.connect(path)
-    assert db.migrate(conn) == ["001_init"]
+    # 001 is recorded without running; the later ones run as usual.
+    files = sorted(p.stem for p in db.MIGRATIONS_DIR.glob("*.sql"))
+    assert db.migrate(conn) == files and files[:2] == ["001_init", "002_watches"]
 
-    recorded = [r[0] for r in conn.execute("SELECT version FROM schema_migrations")]
-    assert recorded == ["001_init"]
+    recorded = [r[0] for r in conn.execute("SELECT version FROM schema_migrations ORDER BY 1")]
+    assert recorded == files
     assert _snapshot(conn) == before  # every row intact
     for table, column, _ in db.LEGACY_COLUMNS:
         assert column in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
