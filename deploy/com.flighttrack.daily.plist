@@ -3,7 +3,7 @@
   macOS launchd job — the "run it on my Mac" option.
 
     cp deploy/com.flighttrack.daily.plist ~/Library/LaunchAgents/
-    # edit the paths below to your checkout and venv, and set your NTFY_TOPIC
+    # edit the paths below to your checkout and venv
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.flighttrack.daily.plist
     launchctl kickstart -k gui/$(id -u)/com.flighttrack.daily   # run once now
 
@@ -22,10 +22,6 @@
     <string>run</string>
   </array>
   <key>WorkingDirectory</key><string>/Users/YOU/flight-tracking</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>NTFY_TOPIC</key><string>replace-with-a-long-random-topic</string>
-  </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>15</integer></dict>
   <key>StandardOutPath</key><string>/Users/YOU/flight-tracking/log/run.log</string>

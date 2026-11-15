@@ -93,7 +93,7 @@ timedatectl set-timezone America/Los_Angeles
 ## 4. Secrets and config (5 min)
 
 ```bash
-nano /etc/flighttrack.env          # NTFY_TOPIC=<long random string>
+nano /etc/flighttrack.env          # optional: SERPAPI_KEY, SMTP_* for email alerts
 nano /opt/flighttrack/config.yaml  # your trips, patterns, deal watches, targets
 systemctl restart flighttrack-serve
 ```
@@ -102,7 +102,7 @@ What to edit in `config.yaml`:
 
 - `trips:` — the Japan dates are placeholders; put your real ones and a target.
 - `patterns:` — the ski weekends are Jan–Mar 2027 Fri→Mon and Thu→Mon to SLC.
-- `deals.watches` — origins/regions/price ceilings for announced-deal pushes.
+- `deals.watches` — origins/regions/price ceilings for announced-deal alerts.
 - `routes[].target_price` — in cents; guesses until a season of data exists.
 - Leave `calendar.enabled: false` until step 5 says otherwise.
 
@@ -138,19 +138,16 @@ curl -X POST http://localhost:8080/run
 journalctl -u flighttrack-serve -f
 ```
 
-## 6. Notifications on your phone (3 min)
+## 6. Notifications (3 min)
 
-You already plan ntfy for Uptime Kuma (home-hub `docs/09-roadmap.md` M1);
-this uses the same app.
+The shipped config appends alerts to `out/digest.md` (`notify.channel: file`).
+For email, set `notify.channel: smtp` and the `SMTP_*` lines in
+`/etc/flighttrack.env`. The web app replaces both with browser push.
 
-1. Install **ntfy** (iOS/Android). Subscribe to the topic you put in
-   `/etc/flighttrack.env`. Topics on ntfy.sh are public to anyone who guesses
-   the name — make it long and random, or point `notify.ntfy.server` at a
-   self-hosted ntfy container on the Docker VM later.
-2. Test: `ft alert --dry-run` prints what would send; `ft health --notify`
-   sends a real push only if the collector is unhealthy.
+Test: `ft alert --dry-run` prints what would send; `ft health --notify`
+sends one only if the collector is unhealthy.
 
-Three kinds of push, all documented in `docs/using.md`: a price alert, a
+Three kinds of alert, all documented in `docs/using.md`: a price alert, a
 matched deal post, and a health warning. Expect the first weeks to be quiet.
 
 ## 7. Reaching the report
@@ -180,13 +177,9 @@ matched deal post, and a health warning. Expect the first weeks to be quiet.
 
 ## 8. Watch the watcher
 
-- **Uptime Kuma** (roadmap M1): an HTTP monitor on
-  `http://192.168.1.60:8080/status.json`, expect 200, keyword `"healthy": true`.
-  That catches both "the service is down" and "the collector has stopped
-  collecting" from outside the guest.
-- The app also pushes its own health warning through ntfy when nothing has
-  succeeded for 36 h, every request fails, or the page layout changes
-  (`health:` in `config.yaml`).
+- The app sends its own health warning when nothing has succeeded for 36 h,
+  every request fails, or the page layout changes (`health:` in `config.yaml`).
+- `http://192.168.1.60:8080/status.json` reports `"healthy"` for a quick look.
 - `systemctl status flighttrack-serve flighttrack-update.timer` and
   `journalctl -u flighttrack-serve -n 100` are the local view.
 
@@ -196,7 +189,7 @@ If you skip the LXC, on the Docker VM:
 
 ```bash
 git clone https://github.com/alaurin10/flight-tracking /opt/flight-tracking && cd /opt/flight-tracking
-cp .env.example .env && nano .env config.yaml        # NTFY_TOPIC, TZ, your trips
+cp .env.example .env && nano .env config.yaml        # TZ, your trips
 docker compose up -d && docker compose logs -f
 ```
 
@@ -207,7 +200,7 @@ poll-and-deploy timer pattern from `apps/dashboard/systemd/` applies.
 ## 10. Snapshot, then forget it
 
 `pct snapshot 110 baseline` after the first successful run, per your snapshot
-policy. From here on the only recurring work is reading pushes and, once a
+policy. From here on the only recurring work is reading alerts and, once a
 season, revising `target_price` values from what `advise` and the grids have
 shown you.
 
@@ -218,12 +211,10 @@ shown you.
 - [ ] LAN IP chosen and reserved on the router
 - [ ] LXC created (`pct-create.sh`) and in the vzdump backup job
 - [ ] `install.sh` run; timezone set
-- [ ] `/etc/flighttrack.env` has a long random `NTFY_TOPIC`; ntfy app subscribed
 - [ ] `config.yaml`: real trip dates, targets, watches
 - [ ] `doctor` passes; price units confirmed against Google Flights
 - [ ] `doctor --calendar` checked; `calendar.enabled` set accordingly
 - [ ] `calibrate` run; `fetch.max_queries_per_run` set below the measured limit
 - [ ] first run triggered; report loads at `http://<ip>:8080/`
 - [ ] Pi-hole record `flights.home.arpa`; Tailscale and/or `flights.<domain>` + Access
-- [ ] Uptime Kuma monitor on `/status.json`
 - [ ] Snapshot taken

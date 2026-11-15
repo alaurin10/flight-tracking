@@ -100,7 +100,7 @@ def test_digest_replaces_a_flood(tmp_path):
 
 def test_delivery_failure_is_not_recorded_as_sent(tmp_path):
     """Otherwise the dedup window would suppress the retry."""
-    cfg = replace(_cfg(), notify={"channel": "ntfy", "ntfy": {"topic": None}})
+    cfg = replace(_cfg(), notify={"channel": "smtp", "smtp": {"host": None}})
     conn, cfg = make_db(tmp_path, cfg)
     add_obs(conn, first_query_id(conn, "SLC"), 13000)
 

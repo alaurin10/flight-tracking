@@ -18,7 +18,7 @@ import yaml
 
 DOW = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
 SEATS = {"economy", "premium-economy", "business", "first"}
-CHANNELS = {"ntfy", "smtp", "file", "none"}
+CHANNELS = {"smtp", "file", "none"}
 SOURCES = {"google_html", "fast_flights", "serpapi"}
 TRANSPORTS = {"auto", "primp", "urllib"}
 _IATA = re.compile(r"^[A-Z]{3}$")
@@ -486,11 +486,14 @@ def load(path: str | Path, strict_secrets: bool = True) -> Config:
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
     channel = str(n.get("channel", "none"))
+    _require(channel != "ntfy", "notify.channel ntfy has been removed — use file, smtp or none "
+                                "(alerts move to browser push in the web app)")
     _require(channel in CHANNELS, f"notify.channel must be one of {sorted(CHANNELS)}")
-    if channel == "ntfy" and alerts.enabled and strict_secrets:
-        topic = (n.get("ntfy") or {}).get("topic")
-        _require(bool(topic), "notify.ntfy.topic is empty — set the NTFY_TOPIC environment variable "
-                              "(or hard-code a topic) before enabling alerts")
+    if channel == "smtp" and alerts.enabled and strict_secrets:
+        smtp = n.get("smtp") or {}
+        _require(bool(smtp.get("host")) and bool(smtp.get("to")),
+                 "notify.smtp.host or notify.smtp.to is empty — set SMTP_HOST and SMTP_TO "
+                 "(or hard-code them) before enabling alerts")
 
     out = raw.get("output") or {}
     return Config(

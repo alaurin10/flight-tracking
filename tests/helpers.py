@@ -84,8 +84,8 @@ def make_itinerary(price, segments=None, codes=("AS",)):
 
 def make_payload(best=(), other=(), airlines=(("AS", "Alaska"), ("DL", "Delta"), ("JL", "Japan Airlines"))):
     payload = [None] * 8
-    payload[2] = [list(other)] if other is not None else None
-    payload[3] = [list(best)] if best is not None else None
+    payload[2] = [list(best)] if best is not None else None      # "Top departing flights"
+    payload[3] = [list(other)] if other is not None else None    # "Other departing flights"
     payload[7] = [None, [[["STAR", "Star Alliance"]], [list(a) for a in airlines]]]
     return payload
 

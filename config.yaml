@@ -101,10 +101,12 @@ patterns:
 # ---------------------------------------------------------------------------
 deals:
   enabled: true
+  # Checked 2026-11-14: both return 16 items. The same post can appear in
+  # both; it is stored and alerted once. (secretflying.com's feed now
+  # redirects to its home page; fly4free.com lists Europe-origin fares.)
   feeds:
-    - https://www.secretflying.com/feed/
     - https://www.theflightdeal.com/feed/
-    - https://www.fly4free.com/feed/
+    - https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/
   watches:
     - name: Europe from Seattle
       origins: [Seattle, SEA, "West Coast", "US cities", "U.S. cities", nationwide]
@@ -156,7 +158,7 @@ fetch:
   transport: auto
   serpapi:
     api_key: ${SERPAPI_KEY}   # leave unset to disable; ~$50/mo for daily use
-  max_queries_per_run: 60
+  max_queries_per_run: 25    # until the home address's limit has been measured (`calibrate`)
   min_sleep_seconds: 4.0
   max_sleep_seconds: 8.0
   abort_after_consecutive_failures: 2
@@ -197,7 +199,7 @@ alerts:
   history_days_required: 30
 
 # ---------------------------------------------------------------------------
-# Health watchdog. `flighttrack run` and `flighttrack health --notify` push a
+# Health watchdog. `flighttrack run` and `flighttrack health --notify` send a
 # notification when nothing has succeeded for max_hours_without_success, when
 # every request is failing, or when the page layout appears to have changed.
 # ---------------------------------------------------------------------------
@@ -220,14 +222,11 @@ retention:
 
 # ---------------------------------------------------------------------------
 # Notification. ${VAR} is expanded from the environment at load time.
-# Topics on the public ntfy.sh are world-readable to anyone who guesses the
-# name — use a long random topic, or self-host and set `server`.
+# `file` appends every alert to a Markdown digest; `smtp` sends email. The web
+# app replaces both with browser push.
 # ---------------------------------------------------------------------------
 notify:
-  channel: ntfy              # ntfy | smtp | file | none
-  ntfy:
-    server: https://ntfy.sh
-    topic: ${NTFY_TOPIC}
+  channel: file              # file | smtp | none
   smtp:
     host: ${SMTP_HOST}
     port: 587

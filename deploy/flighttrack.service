@@ -5,7 +5,7 @@
 # isolated, so one failure never hides another.
 #
 #   sudo cp deploy/flighttrack.{service,timer} /etc/systemd/system/
-#   sudo systemctl edit flighttrack.service   # add Environment=NTFY_TOPIC=...
+#   sudo systemctl edit flighttrack.service   # optional: Environment=SMTP_HOST=... for notify.channel: smtp
 #   sudo systemctl enable --now flighttrack.timer
 #   journalctl -u flighttrack -n 100
 

@@ -1,6 +1,7 @@
 """The report page: sections, escaping, both skeleton modes, and (optionally) its JS."""
 
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -10,12 +11,14 @@ from flighttrack.config import Trip
 from flighttrack.db import connect
 from helpers import make_config, make_db
 
+TODAY = date(2026, 11, 14)
+
 
 def _demo(tmp_path):
     cfg = make_config(trips=[Trip("japan", "HND", "2027-04-10", "2027-04-24", target_price=80000)],
                       max_days_ahead=90, notify={"channel": "none"})
     conn = connect(tmp_path / "demo.db")
-    demo.seed(conn, cfg, days=20)
+    demo.seed(conn, cfg, days=20, today=TODAY)   # pinned: the 2027 trip must still be ahead
     return conn, cfg
 
 

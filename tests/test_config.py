@@ -84,30 +84,30 @@ def test_duplicate_destination_rejected(tmp_path):
 
 
 def test_env_expansion(tmp_path, monkeypatch):
-    monkeypatch.setenv("MY_TOPIC", "s3cret-topic")
+    monkeypatch.setenv("MY_TO", "me@example.test")
     text = BASE.replace(
         "notify:\n  channel: none",
-        "notify:\n  channel: ntfy\n  ntfy:\n    topic: ${MY_TOPIC}",
+        "notify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
     )
     cfg = load(write(tmp_path, text))
-    assert cfg.notify["ntfy"]["topic"] == "s3cret-topic"
+    assert cfg.notify["smtp"]["to"] == "me@example.test"
 
 
 def test_unset_env_for_required_secret_is_an_error(tmp_path, monkeypatch):
-    monkeypatch.delenv("MY_TOPIC", raising=False)
+    monkeypatch.delenv("MY_TO", raising=False)
     text = BASE.replace(
         "notify:\n  channel: none",
-        "notify:\n  channel: ntfy\n  ntfy:\n    topic: ${MY_TOPIC}",
+        "notify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
     )
-    with pytest.raises(ConfigError, match="ntfy.topic is empty"):
+    with pytest.raises(ConfigError, match="smtp.host or notify.smtp.to is empty"):
         load(write(tmp_path, text))
 
 
 def test_secret_is_not_required_when_alerts_are_off(tmp_path, monkeypatch):
-    monkeypatch.delenv("MY_TOPIC", raising=False)
+    monkeypatch.delenv("MY_TO", raising=False)
     text = BASE.replace(
         "notify:\n  channel: none",
-        "alerts:\n  enabled: false\nnotify:\n  channel: ntfy\n  ntfy:\n    topic: ${MY_TOPIC}",
+        "alerts:\n  enabled: false\nnotify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
     )
     assert load(write(tmp_path, text)).alerts.enabled is False
 
@@ -119,14 +119,20 @@ def test_sleep_bounds_must_be_ordered(tmp_path):
 
 
 def test_lenient_mode_allows_a_missing_secret(tmp_path, monkeypatch):
-    """Read-only and diagnostic commands must not be blocked by an unset topic."""
-    monkeypatch.delenv("MY_TOPIC", raising=False)
+    """Read-only and diagnostic commands must not be blocked by an unset recipient."""
+    monkeypatch.delenv("MY_TO", raising=False)
     text = BASE.replace(
         "notify:\n  channel: none",
-        "notify:\n  channel: ntfy\n  ntfy:\n    topic: ${MY_TOPIC}",
+        "notify:\n  channel: smtp\n  smtp:\n    host: mail.example\n    to: ${MY_TO}",
     )
     cfg = load(write(tmp_path, text), strict_secrets=False)
-    assert cfg.notify["ntfy"]["topic"] is None
+    assert cfg.notify["smtp"]["to"] is None
 
-    with pytest.raises(ConfigError, match="ntfy.topic is empty"):
+    with pytest.raises(ConfigError, match="smtp.host or notify.smtp.to is empty"):
         load(write(tmp_path, text), strict_secrets=True)
+
+
+def test_ntfy_channel_is_refused_with_a_pointer(tmp_path):
+    text = BASE.replace("notify:\n  channel: none", "notify:\n  channel: ntfy")
+    with pytest.raises(ConfigError, match="ntfy has been removed"):
+        load(write(tmp_path, text))

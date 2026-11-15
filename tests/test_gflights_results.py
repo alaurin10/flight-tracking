@@ -1,6 +1,6 @@
 """Itinerary extraction: both lists, defensive indices, round-trip stops."""
 
-from flighttrack.gflights.results import airline_directory, has_itinerary_lists, itineraries
+from flighttrack.gflights.results import Layover, airline_directory, has_itinerary_lists, itineraries, page_min_price
 from helpers import make_itinerary, make_payload, make_segment
 
 
@@ -61,3 +61,44 @@ def test_empty_lists_are_distinguishable_from_missing_lists():
 def test_airline_directory():
     assert airline_directory(make_payload())["JL"] == "Japan Airlines"
     assert airline_directory([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# M1: Google's own trip total, layovers, labels, the page's own cheapest price
+# ---------------------------------------------------------------------------
+
+def test_trip_time_prefers_googles_total_with_layovers():
+    it = make_itinerary(394, segments=[make_segment(dest="DEN", minutes=169), make_segment(origin="DEN", minutes=98)])
+    it[0][9] = 532
+    it[0][13] = [[265, "DEN", "DEN", None, "Denver International Airport", "Denver"]]
+    parsed = itineraries(make_payload(other=[it]))[0]
+    assert parsed.duration_min == 532 and parsed.total_min == 532
+    assert parsed.layovers == [Layover(minutes=265, airport="DEN")]
+
+
+def test_trip_time_falls_back_to_the_segments():
+    it = make_itinerary(394, segments=[make_segment(minutes=169), make_segment(minutes=98)])
+    for bad in (None, 0, -5, "532", True):
+        it[0][9] = bad
+        assert itineraries(make_payload(best=[it]))[0].duration_min == 267
+    it[0][13] = "not a list"
+    assert itineraries(make_payload(best=[it]))[0].layovers == []
+
+
+def test_labels_follow_the_page():
+    payload = [None] * 8
+    payload[2] = [[make_itinerary(447)]]          # "Top departing flights"
+    payload[3] = [[make_itinerary(394)]]          # "Other departing flights"
+    by_price = {i.price: i.bucket for i in itineraries(payload)}
+    assert by_price == {447: "best", 394: "other"}
+
+
+def test_page_min_price():
+    payload = make_payload(best=[make_itinerary(394)])
+    assert page_min_price(payload) is None
+    payload += [None] * 18
+    payload[25] = [[None, 394]]
+    assert page_min_price(payload) == 394
+    for bad in ([[None, None]], [[None, "394"]], [[None, 0]], [], None, [[None, True]]):
+        payload[25] = bad
+        assert page_min_price(payload) is None

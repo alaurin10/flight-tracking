@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 # Browser TLS fingerprinting for the HTTP transport — the most effective
 # single measure against bot heuristics. Compiled wheel; optional.
-impersonate = ["primp>=0.9"]
+impersonate = ["primp>=2,<3"]
 # An independent second parser of the same Google page, used only when ours
 # cannot read it. Pinned: an unpinned upgrade could change the response shape.
 fallback = ["fast-flights==3.1.0", "typing_extensions>=4.7"]

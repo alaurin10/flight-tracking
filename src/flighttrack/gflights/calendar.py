@@ -6,9 +6,11 @@ and is 30–60× cheaper than fetching each weekend's results page. It turns a
 week-long rotation into a daily sweep.
 
 Why it is experimental: it is an internal batchexecute endpoint. The request
-body layout below is reconstructed from open-source clients that use it and
-from browser traffic; it was NOT verified against live Google from the
-environment this was written in (egress blocked). Run
+body layout below was reconstructed from open-source clients and browser
+traffic. It was checked against live Google from a cloud sandbox on
+2026-11-14 (HTTP 200, 31 dated prices for a 31-day window, the first equal to
+the results page with the same bag filter), but it can change without notice.
+Run
 
     flighttrack doctor --calendar
 
@@ -17,6 +19,10 @@ shape-agnostic: it walks the decoded response for `[date, …, price]` tuples
 instead of trusting fixed indices, so modest changes in the envelope do not
 break it, and `doctor --calendar --dump` saves the raw response for a human
 to look at when it does.
+
+Calendar prices include basic economy (the exclude-basic slot is not known),
+so they are compared only with other calendar prices, never with the tracked
+results-page series.
 
 Numbers from this endpoint are Google's cached "lowest price" per date; they
 are indicative, not a quote. The fetcher records them with source
@@ -46,6 +52,11 @@ RPC_HEADERS = {
     "Origin": "https://www.google.com",
     "Referer": "https://www.google.com/travel/flights",
 }
+
+# Filter-array slot for "exclude basic economy", once someone finds it (see
+# docs/PLAN.md, "Calendar filter slots"). None = unknown, so calendar prices
+# include basic economy fares.
+EXCLUDE_BASIC_SLOT: int | None = None
 
 # Largest window observed to come back fully populated. Larger requests are
 # chunked by `windows()`.
@@ -78,8 +89,16 @@ def build_body(
     adults: int = 1,
     max_stops: int | None = None,
     currency: str = "USD",
+    carry_on_bags: int = 0,
+    checked_bags: int = 0,
 ) -> str:
-    """The `f.req=` form body. `nights=None` means one-way."""
+    """The `f.req=` form body. `nights=None` means one-way.
+
+    Filter slot 10 is `[carry_on, checked]` bags (verified live 2026-11-14:
+    `[1, 0]` moved SEA→SLC Jan 15 from $304 to $347, the carry-on results
+    price). The slot for "exclude basic economy" is not known yet; see
+    docs/PLAN.md, "Calendar filter slots".
+    """
     round_trip = nights is not None
     trip_type = 1 if round_trip else 2
     anchor_out = start
@@ -87,11 +106,12 @@ def build_body(
     segments = [_segment(origin, dest, anchor_out, max_stops)]
     if round_trip:
         segments.append(_segment(dest, origin, anchor_back, max_stops))
+    bags = [carry_on_bags, checked_bags] if (carry_on_bags or checked_bags) else None
     inner = [
         None,
         [
             None, None, trip_type, None, [], SEATS[seat], [adults, 0, 0, 0],
-            None, None, None, None, None, None, segments,
+            None, None, None, bags, None, None, segments,
             None, None, None, 1, None, None, None, None, None, [],
         ],
         [start, end],

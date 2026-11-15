@@ -8,16 +8,16 @@ system, what each one is good for, how it fails, and the layered design that cam
 
 | Layer | Source | Role | Status |
 |---|---|---|---|
-| 1 | **Our own Google Flights client** (`gflights/`) | primary, no third-party scraper, no key | built; encoder proven byte-identical to a working library; live call verified on your host by `doctor` |
+| 1 | **Our own Google Flights client** (`gflights/`) | primary, no third-party scraper, no key | built; **verified live on 2026-11-14**: every itinerary and price equal to the page rendered in Chromium |
 | 2 | `fast-flights` library | independent second parser of the same page | optional fallback, pinned |
-| 3 | **Calendar-graph RPC** (`sweep`) | one call prices ~2 months of dates; makes daily whole-grid coverage cheap | experimental; verify with `doctor --calendar` before enabling |
+| 3 | **Calendar-graph RPC** (`sweep`) | one call prices ~2 months of dates; makes daily whole-grid coverage cheap | off by default; request and parser **verified live on 2026-11-14**; prices include basic economy, so they are estimates |
 | 4 | **SerpApi** `google_flights` | paid JSON API on someone else's IP | built; active only when a key is set |
-| 5 | **RSS deal feeds** (`deals`) | announced deals to a region | built; the only fully sanctioned, stable input |
+| 5 | **RSS deal feeds** (`deals`) | announced deals to a region | built; two feeds from The Flight Deal, checked 2026-11-14; the only fully sanctioned, stable input |
 | 6 | `ingest` | anything else (a browser session, the Expedia connector in Claude, a friend's screenshot) | built |
 
 **The single scraper the first version relied on was not enough.** It was one parser, one
-transport, one maintainer, reading only Google's "best" list (which systematically overstates
-the minimum fare), with no way to tell a rate limit from a layout change from a network blip.
+transport, one maintainer, reading only one of the page's two itinerary lists (so it can miss
+the cheapest fare), with no way to tell a rate limit from a layout change from a network blip.
 Everything below exists to remove one of those single points of failure.
 
 ---
@@ -44,8 +44,10 @@ have heard of is downstream of it one way or another.
 4. *Bot heuristics on the TLS handshake.* A Python TLS fingerprint is not a Chrome one.
 
 **What `fast-flights` 3.1.0 gets wrong for our purpose** (read from its source, not its README):
-- it reads only `payload[3][0]` ("top departing flights") and ignores `payload[2][0]`
-  ("other departing flights"), which is usually where the cheapest itinerary is;
+- it reads only `payload[3][0]` (the page's "Other departing flights") and ignores
+  `payload[2][0]` ("Top departing flights"), so a fare that appears only in the top list is
+  missed. Earlier versions of this document had the two labels the wrong way round; they were
+  checked against the rendered page on 2026-11-14;
 - `parser.css_first("script.ds:1").text()` raises `AttributeError` on any page without that
   element, so a captcha, a consent page and a redesign all surface as the same exception;
 - for round trips it lists outbound segments priced at the round-trip total, which the
@@ -62,14 +64,26 @@ have heard of is downstream of it one way or another.
 - `page.py` — classifies every response as one of **results / no-results / consent / blocked /
   error-status / layout-unknown**. The data blob is looked for first (by element class, then by
   callback name), so a stray word like "recaptcha" in a script can never trigger a false block.
-- `results.py` — reads **both** itinerary lists, de-duplicates, tolerates a shifted index by
-  degrading one field instead of failing the fetch, keeps the raw row.
+- `results.py` — reads **both** itinerary lists (`payload[2][0]` → `best`, `payload[3][0]` →
+  `other`), de-duplicates, tolerates a shifted index by degrading one field instead of failing
+  the fetch, keeps the raw row. Trip time is Google's own total (`row[0][9]`, layovers
+  included) and layovers are kept (`row[0][13]`).
+- A self-check: the page states its own cheapest price (`payload[25]`). When it differs from the
+  lowest parsed price the offers carry `raw.page_min`, the run counts a parser mismatch, and
+  `health` warns at three in 24 hours, because a moved index can otherwise turn a field into
+  `None` without any error.
 - Unreadable pages are saved to `data/failures/` (rotating, last 20). When it breaks, the
   evidence is on disk, not in a log line.
 
-**What is not verified.** The environment this was built in cannot reach Google. The encoder
-and parser are proven against fixtures and against a library that works live; the live request
-itself is proven the first time you run `flighttrack doctor` on your box.
+**What was verified live (2026-11-14, from a cloud sandbox).** SEA→SLC, Jan 15–18 2027, with
+the shipped filters: 12 itineraries, cheapest $394, every row and price equal to the page
+rendered in Chromium. The same fetch through `primp` 2.0.1 (`chrome_145`) worked (SEA→HND:
+9 itineraries, $1,089 nonstop). The bag and fare filters in `tfs` are honoured: no filters $304,
+carry-on only $347, exclude basic $394, both $394. Google answered HTTP 429 with a redirect to
+`/sorry/index` on roughly every fourth to sixth request from the sandbox, and `classify()` called
+each one `blocked`. The captured responses are regression tests
+(`tests/fixtures/live-20261114/`, `tests/test_live_fixtures.py`). A cloud address being blocked
+says nothing about a home address, whose limit is still unmeasured (`flighttrack calibrate`).
 
 ### B. Google Flights, the calendar-graph RPC (`sweep`)
 
@@ -84,7 +98,12 @@ calls**, and only the interesting dates get a confirming results-page fetch
 (**sweep → confirm → alert**: nothing alerts on a calendar number alone).
 
 **Risk.** It is an undocumented internal RPC; the request layout was reconstructed from
-open-source clients and browser traffic, not verified live from here. So:
+open-source clients and browser traffic. On 2026-11-14 it answered HTTP 200 with 31 dated prices
+for a 31-day window, and the bag filter (slot 10, `[1, 0]`) moved the first date to the carry-on
+results price. The slot for "exclude basic economy" is not known, so calendar prices include
+basic economy fares and are judged only against other calendar prices (`sweep.promising`),
+never against the tracked series. Each stored calendar price records its filters in
+`raw.filters`. So:
 - it is **off by default** (`calendar.enabled: false`);
 - `flighttrack doctor --calendar` makes one call and prints what came back;
 - the parser is shape-agnostic — it walks the response for `[date, …, price]` tuples rather than
@@ -114,9 +133,12 @@ as an observation with `source='expedia'`, and joins the history and the alerts.
 
 ### E. Deal feeds (RSS)
 
-Secret Flying, The Flight Deal, Fly4free and similar sites publish RSS feeds *on purpose*. This
-is the one input that is fully sanctioned, needs no key, has no rate limit worth mentioning and
-has not changed shape in a decade. It answers question 3 directly: a watch is a list of origin
+Deal sites publish RSS feeds *on purpose*. This is the one input that is fully sanctioned,
+needs no key and has no rate limit worth mentioning. The shipped feeds are The Flight Deal's
+main feed and its Seattle feed (16 items each on 2026-11-14). Secret Flying's feed now redirects
+to its HTML home page, which `deals.poll` reports as "feed returned a web page, not a feed";
+Fly4free lists Europe-origin fares in € and £. `health` warns when a feed has failed for 48
+hours or returned nothing for seven days. It answers question 3 directly: a watch is a list of origin
 words, destination words (or a named region), and a maximum price, matched against headlines.
 Going (formerly Scott's Cheap Flights) is email-only and paid; not included.
 
@@ -141,12 +163,13 @@ Robustness here is not "retry harder". It is:
 4. **Every request logged** (`fetch_attempts`: outcome, latency, source). Reliability is
    measured continuously, not once by `calibrate`.
 5. **Failure artifacts** on disk for the pages we could not read.
-6. **A watchdog** (`health`) that pushes a notification when nothing has succeeded for 36h, when
+6. **A watchdog** (`health`) that sends a notification when nothing has succeeded for 36h, when
    every request is failing, when the page appears to have changed, or when a feed is dead —
    deduplicated so it nags once a day, not once a run. *The absence of alerts is never mistaken
    for the absence of deals.*
-7. **Offline-provable parts are proven offline.** 187 tests, none touch the network, and the
-   suite passes with and without the optional dependencies.
+7. **Offline-provable parts are proven offline.** 239 tests, none touch the network, and
+   the suite passes with and without the optional dependencies and with the clock moved years
+   ahead.
 
 ## What to run on the host
 

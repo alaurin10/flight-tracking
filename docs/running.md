@@ -30,7 +30,7 @@ process: the daily job on a schedule plus the report server.
 ```bash
 git clone https://github.com/alaurin10/flight-tracking.git
 cd flight-tracking
-cp .env.example .env          # set NTFY_TOPIC (long, random) and TZ
+cp .env.example .env          # set TZ
 # edit config.yaml: your trips, patterns, watches
 docker compose up -d
 docker compose logs -f        # first run happens at 03:15 local; trigger one now:
@@ -59,7 +59,6 @@ Install [Tailscale](https://tailscale.com) on the box and on your phone and open
 ```bash
 python3 -m venv .venv && . .venv/bin/activate && pip install -e '.[full]'
 sudo cp deploy/flighttrack.service deploy/flighttrack.timer /etc/systemd/system/
-sudo systemctl edit flighttrack.service     # add Environment=NTFY_TOPIC=...
 sudo systemctl enable --now flighttrack.timer
 ```
 
@@ -87,7 +86,7 @@ it on your phone over the LAN.
 
 ```bash
 flighttrack status      # runs, request outcomes, health
-flighttrack health      # exit 1 if the collector is unwell (also pushed to your phone)
+flighttrack health      # exit 1 if the collector is unwell (also sent as a notification)
 ```
 
 If `status` shows a cooldown or layout failures, `flighttrack doctor` says which
