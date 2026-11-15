@@ -95,7 +95,7 @@ Earlier sessions could not reach Google. This one could, so these are facts, not
 | Calendar call | HTTP 200, 31 dated prices for a 31-day window |
 | Block detection | Google answered HTTP 429 with a redirect to `/sorry/index` on roughly every fourth to sixth request from the sandbox. `classify()` returned `blocked` each time |
 | `expand` on the shipped config | 154 queries (1 trip, 128 Tokyo dates, 25 Salt Lake City dates) |
-| Test suite | 195 pass, 2 fail, 1 skipped |
+| Test suite | 194 pass, 3 fail, 1 skipped on CI's clock. The three were date-dependent and are fixed in the pull request that added this plan (197 pass) |
 
 The captured responses are in `tests/fixtures/live-20261114/` with their expected values.
 
@@ -107,7 +107,7 @@ The captured responses are in `tests/fixtures/live-20261114/` with their expecte
 | 2 | **Two of three deal feeds are useless.** `secretflying.com/feed/` now redirects to the HTML home page. `fly4free.com/feed/` lists Europe-origin fares in € and £, which never match a Seattle watch. Only `theflightdeal.com/feed/` works | Fetched all three with `deals.parse_feed` | M1 |
 | 3 | **The calendar sweep ignores the bag and fare filters**, so its prices are not comparable with the tracked series ($304 against $394 for the same dates). `sweep.promising()` compares the two and would flag false bargains every day | Calendar $304 equals the unfiltered results page | M1 |
 | 4 | **The request limit is close.** A handful of requests a few seconds apart drew a block in the sandbox. The home address will tolerate more, but nobody has measured it | See table above | M1, M4, B |
-| 5 | **CI is red.** `tests/test_deals.py` uses September 2026 dates against a three-day lookback measured from the real clock | `pytest` | M1 |
+| 5 | **Tests depend on today's date.** Three failed on `main` and are fixed (two in `tests/test_deals.py`, one in `tests/test_sweep.py`). Two more pass today and will fail later: `tests/test_scenarios.py::test_window_reactivates_a_previously_expired_row` within about six weeks, and `tests/test_page.py::test_page_has_every_section_and_trip_target` once its 2027 trip date has passed | Suite run with the clock moved 7 to 800 days ahead | M1 |
 | 6 | **The scheduler loses days.** One burst at 03:15. A block ends the run and nothing resumes when the cooldown ends. A restart during the run skips the day. Nothing catches up after downtime | `serve.Scheduler` | M1 (start-up catch-up), M4 |
 | 7 | Trip time for connecting flights leaves out the layover (267 min recorded, 532 real) | `Itinerary.duration_min` sums segments; the total is at `raw[0][9]` | M1 |
 | 8 | The "best" and "other" labels are swapped. `payload[2]` is the page's "Top departing flights" and `payload[3]` is "Other departing flights"; `results.itineraries` labels them the other way round. Prices are unaffected | Fixture against the rendered page | M1 |
@@ -325,12 +325,16 @@ so the collector can run unattended on the mini PC while the web app is built.
      an exception.
    - Change `notify.channel` in the shipped `config.yaml` to `file`. ntfy stays available for
      anyone who sets a topic, until M8 removes it.
-2. **Clock-independent tests.**
-   - `deals.poll` already takes `now`; give `deals.pending_alerts`, `deals.alert` and
-     `deals.run` the same parameter and pass a fixed time in `tests/test_deals.py`.
-   - Run the whole suite once with the clock moved 400 days ahead (`time-machine` or
-     `libfaketime`, not added as a dependency) and fix whatever else fails. Say in the pull
-     request what was found.
+2. **Clock-independent tests.** The pattern is already in the suite: pass a fixed `now` to the
+   function under test, and a fixed `today` to `make_db` (`tests/helpers.py`).
+   - Fix `tests/test_scenarios.py::test_window_reactivates_a_previously_expired_row` (fails
+     from 45 days ahead) and `tests/test_page.py::test_page_has_every_section_and_trip_target`
+     (fails from 400 days ahead).
+   - Give `deals.pending_alerts`, `deals.alert` and `deals.run` a `now` parameter like
+     `deals.poll` has, so nothing in `deals.py` needs the real clock under test.
+   - Prove it: run the suite with the clock moved 7, 45, 120, 400 and 800 days ahead
+     (`time-machine` started from a small pytest plugin outside the repository; do not add it
+     as a dependency). All must pass. Put the five result lines in the pull request.
 3. **Deal feeds.**
    - Shipped `deals.feeds` becomes `https://www.theflightdeal.com/feed/` and
      `https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/`. Both
@@ -385,7 +389,8 @@ so the collector can run unattended on the mini PC while the web app is built.
 **Not in this milestone.** Moving files, new dependencies, the web app, the new scheduler.
 
 **Acceptance.**
-- `pip install -e '.[dev]' && pytest -q`: all pass, at least 205 tests.
+- `pip install -e '.[dev]' && pytest -q`: all pass, at least 205 tests, and again with the
+  clock moved ahead as in task 2.
 - `pip install -e . pytest && pytest -q`: all pass without the optional packages.
 - `flighttrack doctor --offline` exits 0.
 - If Google is reachable: `flighttrack doctor --dest SLC --depart <today+60> --ret <today+63> --calendar`
