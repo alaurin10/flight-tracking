@@ -17,7 +17,7 @@ Update this table in the same pull request that finishes a milestone.
 | M1 | Collector fixes | done | [#5](https://github.com/alaurin10/flight-tracking/pull/5) | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | done | [#6](https://github.com/alaurin10/flight-tracking/pull/6) | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
-| M3 | Database as the source of truth | in review | | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
+| M3 | Database as the source of truth | in review | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
 | M4 | The worker | not started | | |
 | M5 | API and deploy kit | not started | | |
 | B | Owner: go live at flights.andrewlaurin.com | not started | | |
