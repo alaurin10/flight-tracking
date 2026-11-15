@@ -35,7 +35,7 @@ class StderrHandler(logging.StreamHandler[TextIO]):
 
 
 def setup_logging(level: int = logging.INFO, *, json_lines: bool = True) -> None:
-    """JSON lines for `serve` (and later the worker and API); the bare message for
+    """JSON lines for the worker and the API; the bare message for
     commands a person runs in a terminal."""
     handler = StderrHandler()
     handler.setFormatter(JsonFormatter() if json_lines else logging.Formatter("%(message)s"))

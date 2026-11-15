@@ -8,9 +8,11 @@ sorted, and is that a good price by this route's own history."
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from .store.db import now as clock_now
 from .watches import TARGET_SQL
 
 SPARK = "▁▂▃▄▅▆▇█"
@@ -52,7 +54,7 @@ class GridRow:
 
 
 def _cutoff(days: int) -> str:
-    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (clock_now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fmt_money(cents: int | None) -> str:
@@ -81,14 +83,17 @@ def grid(
     window_days: int = 30,
     include_unpriced: bool = False,
     sort: str = "date",
+    query_ids: Collection[int] | None = None,
 ) -> list[GridRow]:
     """The date grid: current price per date pair plus its trailing low.
 
     `is_best = 1` rows are the canonical price series for a query — one point
     per fetch, the cheapest offer of that fetch. Calendar-sweep prices
     (source 'google_calendar', is_best 0) ride along as `sweep_cents`.
-    `sort` is 'date' (default) or 'price'.
+    `sort` is 'date' (default) or 'price'. `query_ids` keeps only those date pairs.
     """
+    if query_ids is not None and not query_ids:
+        return []
     where = ["q.active = 1", "r.active = 1"]
     params: list[object] = [_cutoff(window_days)]
 
@@ -104,6 +109,10 @@ def grid(
     if month:
         where.append("substr(q.depart_date, 1, 7) = ?")
         params.append(month)
+    if query_ids is not None:
+        ids = sorted({int(i) for i in query_ids})
+        where.append(f"q.id IN ({','.join('?' * len(ids))})")
+        params.extend(ids)
 
     sql = f"""
         WITH latest AS (
@@ -341,6 +350,7 @@ def advise(
     window_days: int = 30,
     route_window_days: int = 60,
     today: datetime | None = None,
+    query_ids: Collection[int] | None = None,
 ) -> list[Advice]:
     """Score each priced date pair on its own history and its route's.
 
@@ -349,7 +359,15 @@ def advise(
     front of you, done consistently every day.
     """
     now = today or datetime.now(UTC)
-    rows = grid(conn, dest=dest, label=label, pattern=pattern, month=month, window_days=window_days)
+    rows = grid(
+        conn,
+        dest=dest,
+        label=label,
+        pattern=pattern,
+        month=month,
+        window_days=window_days,
+        query_ids=query_ids,
+    )
     out: list[Advice] = []
     route_cache: dict[str, tuple[int | None, int | None]] = {}
     cutoff = (now - timedelta(days=route_window_days)).strftime("%Y-%m-%dT%H:%M:%SZ")

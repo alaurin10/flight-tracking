@@ -19,7 +19,7 @@ Update this table in the same pull request that finishes a milestone.
 | M2 | Restructure to the Snow Watch layout | done | [#6](https://github.com/alaurin10/flight-tracking/pull/6) | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
 | M3 | Database as the source of truth | done | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
 | M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
-| M5 | API and deploy kit | not started | | |
+| M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
 | B | Owner: go live at flights.andrewlaurin.com | not started | | |
 | M6 | Frontend: read-only app | not started | | |
 | M7 | Manage | not started | | |
@@ -147,6 +147,46 @@ Decisions log (add a line when a milestone departs from this document, with the 
   Problem 13 is still unassigned: `fetch.run` treats an `errorHasStatus` page as before.
 - 2026-11-15 (M4): `docker build` could not run in the cloud session (Docker Hub answered 429 for
   the base image). CI's `docker` job builds the image and runs the compose worker check.
+- 2026-11-15 (M5): the API and the deploy kit are one pull request. The image built in the cloud
+  session this time (with the sandbox's proxy passed as build arguments), and the CI smoke test
+  and compose check were run against it there before CI ran them.
+- 2026-11-15 (M5): `/api/health` is 503 for no price at all (`no_data`), a newest price older than
+  `health.max_hours_without_success` (`stale`), or a heartbeat file that exists and is over three
+  minutes old (`worker_stopped`, the same limit as `healthcheck worker`). A missing heartbeat file
+  is ignored, so the API on its own with fresh prices (the CI smoke test, a demo) is healthy; a
+  worker that never started leaves no prices, which is `no_data`. `livez` is not rate limited (the
+  container health check calls it).
+- 2026-11-15 (M5): sign-in is at `/api/auth/me|login|logout` as this plan says (Snow Watch has
+  `/api/me`). The API does not create the database: the worker does, and so does the first
+  sign-in or admin write (`open_db`). An existing database is migrated when the API starts.
+- 2026-11-15 (M5): admin paths take numeric ids (`/api/admin/trips/{id}`), public paths take slugs
+  (`/api/trips/{slug}`). "Change status" is `PUT /api/admin/<kind>/{id}/status` with
+  `{"status": …}`. Validation errors and limit errors are both 422 with a one-sentence `detail`
+  (Snow Watch answers 409 for a limit); request-shape errors are rewritten into the same sentence
+  form. A trip or search saved as active queues `fetch_trip` / `fetch_search` with its slug.
+- 2026-11-15 (M5): `GET`/`PUT /api/admin/settings` store `dedup_days`, `dedup_further_drop_pct` and
+  `percentile_alerts` (`alerts.percentile_phase2_enabled`) in the `settings` table under
+  `alerts.*` keys (`app_settings.py`). `alert.run` applies them over the tunables file, so the
+  worker honours them now; M7 only adds the form.
+- 2026-11-15 (M5): a trip's page finds its date pair by route and dates, not `watch_queries`, so a
+  paused or booked trip still shows its history; the verdict is only worked out for active trips.
+  A search's "best" date prefers a detail price over a calendar estimate. `report.grid` and
+  `advise` gained a `query_ids` filter, and `grid`'s 30-day cutoff now reads the injectable
+  clock (`store.db.now`).
+- 2026-11-15 (M5): `flighttrack schema --out` writes `frontend/src/lib/api-schema.json`, where M6
+  reads it, so `frontend/` starts with that one file. A test and a CI step both fail when it is
+  stale.
+- 2026-11-15 (M5): Compose's `flighttrack` service is now `api` (uvicorn, also the image's default
+  command, `--no-access-log`; the app's middleware logs requests and uvicorn's own lines go out
+  as JSON). The worker has no `build:` of its own (`pull_policy: never`). `serve.py`,
+  `tests/test_serve.py` and the `serve` command are gone; `html` and the demo page stay until M6.
+  The `api` modules and `app_settings` pass strict mypy.
+- 2026-11-15 (M5): CI's compose check runs the worker with `FLIGHTTRACK_SOURCE=fake`, so no job
+  sends a request to Google or the feeds; `.env` holds only `OWNER_PASSWORD`.
+- 2026-11-15 (M5): `docs/using.md` needed no change (nothing in it named `serve` or the old docs).
+  Under `time-machine`, `tests/test_cli.py::test_healthcheck_worker_reads_the_heartbeat` fails on
+  `main` as well: the clock moves but file modification times do not. It is not a date
+  dependency; every other test passes 7 to 800 days ahead.
 
 ## How to work from this document
 

@@ -38,13 +38,13 @@ over days, so daily resolution is plenty.
 | Book-or-wait advisor, price-sorted reports, `ingest` | ✅ |
 | Report: trip cards with history charts and verdicts, best-of-grid, calendar heatmaps, deals, collector | ✅ light/dark, phone-first, no external requests |
 | `worker`: collects in small batches under a rolling 24 h request budget, recovers from blocks and downtime by itself, daily canary, nightly backups | ✅ Docker Compose service with a heartbeat health check (M4) |
-| `serve --no-schedule`: the report page and `/status.json` | ✅ until the API replaces it (M5) |
+| Web API (FastAPI): public reads, owner sign-in, admin endpoints, rate limits, strict headers; the page at `/` until the app replaces it | ✅ Docker Compose `api` service on port 8091 (M5); [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | `demo`: synthetic history to see the UI today | ✅ |
 | Rate-limit calibration | ⬜ not measured from a home address; a cloud sandbox was blocked every 4–6 requests. `flighttrack calibrate` on the always-on box |
 
 The results page, the `primp` transport, the search filters, the calendar call and block
 detection were checked against live Google on 2026-11-14; `docs/PLAN.md` has the table.
-329 offline tests pass with and without the optional dependencies and with the clock moved
+368 offline tests pass with and without the optional dependencies and with the clock moved
 years ahead. **`docs/data-sources.md`** is the full analysis of every data source considered and
 why the system is layered the way it is.
 
@@ -52,10 +52,10 @@ why the system is layered the way it is.
 
 On an always-on box at home with a residential IP: a mini PC, NAS or Raspberry Pi
 running `docker compose up -d`, which starts two containers from one image: the worker,
-which collects on its own all day in small batches, and a page server on port 8091 (LAN
-only: it has no sign-in yet). Cloud IPs get captcha'd. **`docs/using.md`** is the day-to-day guide. The other files in `deploy/`
-and `docs/running.md`, `docs/deploy-proxmox.md` predate the move to `backend/` (milestone 2 of
-`docs/PLAN.md`) and are replaced by the deploy kit in milestone 5.
+which collects on its own all day in small batches, and the API on port 8091, which serves
+the site and `/api` (public and read-only, with one owner password that unlocks editing).
+Cloud IPs get captcha'd. **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** is how to install
+it, put HTTPS in front and keep it updated; **`docs/using.md`** is the day-to-day guide.
 Storage is light: one SQLite file, ~100 MB/year unbounded or ~35 MB bounded with the default
 weekly retention (`flighttrack compact`), which never touches the cheapest-offer price series.
 
@@ -83,15 +83,16 @@ google.com/travel/flights for the same search; if they match, price normalizatio
 ```bash
 git clone https://github.com/alaurin10/flight-tracking.git
 cd flight-tracking
-cp .env.example .env                       # set TZ; the rest is for later milestones
+cp .env.example .env                       # set TZ and OWNER_PASSWORD (12+ characters)
 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
-docker compose exec flighttrack flighttrack doctor --offline
+docker compose exec worker flighttrack doctor --offline
 docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" worker \
     flighttrack import-config /tmp/t.yaml     # what to track; see Configuration
-docker compose ps                          # the worker should say (healthy) within a minute
+docker compose ps                          # both should say (healthy) within a minute
 ```
 
-The page is at `http://<host>:8091/`. The database, the page, nightly backups and saved failure pages live in
+The site is at `http://<host>:8091/` (put HTTPS in front before opening it to the internet:
+`docs/DEPLOYMENT.md`). The database, nightly backups and saved failure pages live in
 `./data` (owned by uid 1000; `sudo chown -R 1000:1000 data` if an older install made it as
 root). The container's root file system is read-only. What is tracked lives in the database;
 keep your own trips file out of the repository, which is public.
@@ -106,6 +107,7 @@ uv sync --frozen                  # add --extra fallback for the fast-flights fa
 uv run flighttrack import-config ../config/seed.example.yaml   # or your own file
 uv run flighttrack doctor         # one real request
 uv run flighttrack worker         # collect on a schedule (Ctrl-C to stop)
+uv run uvicorn --factory flighttrack.api.app:production_app --port 8091   # the site and /api
 uv run flighttrack run            # or one full cycle now, for debugging
 uv run flighttrack report --pattern denver-weekends --sort price
 uv run flighttrack advise --pattern lisbon-autumn
@@ -120,7 +122,7 @@ Commands write under `data/` at the repository root wherever they are run from
 |---|---|
 | Secrets and per-install values | `.env`, never committed (`.env.example` lists them) |
 | Tunables: search filters, pacing, alerts, health, retention, deal feeds | `config/flighttrack.yaml` |
-| What is tracked: trips, flexible searches, deal watches and feeds | the database (`flighttrack import-config`; the app's Manage page from milestone 7) |
+| What is tracked: trips, flexible searches, deal watches and feeds | the database (`flighttrack import-config` or the owner endpoints under `/api/admin/`; the app's Manage page from milestone 7) |
 
 ---
 
@@ -190,7 +192,8 @@ and spends the detail budget on the dates that look interesting.
 | `worker` | The collector: one long-running process (see Scheduling). Logs one JSON object per line. |
 | `healthcheck worker` | Exit 0 when the worker's heartbeat is under three minutes old (the container health check). |
 | `run` | One full cycle now, for debugging: expand → sweep → fetch → deals → alert → health → compact → html. Stages are isolated. |
-| `serve` | A web server for the report (`/`, `/status.json`). `--no-schedule` (what Compose runs) serves only; without it, it also runs `run` daily as before M4. |
+| `owner logout-all` | End every owner session (after changing `OWNER_PASSWORD`). |
+| `schema` | Write the API's JSON Schema (`--out ../frontend/src/lib/api-schema.json`); CI fails when the committed copy is stale. |
 | `demo` | Seed synthetic history into `data/demo.db` and render `data/out/demo.html`. No network. |
 | `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; the worker does it nightly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
@@ -209,7 +212,7 @@ and spends the detail budget on the dates that look interesting.
 
 ### The report
 
-`flighttrack serve` draws `data/out/index.html` (again on request once it is a minute old): trip cards with today's
+The API serves it at `/`, drawn from the database at most once a minute: trip cards with today's
 price, a book-or-wait verdict and reasons, and the price history charted against your target;
 the best date in each grid; every tracked departure as a calendar heatmap with the cheapest
 outlined and a table twin; announced deals; and the collector's own health. Light and dark,
@@ -293,7 +296,7 @@ recorded, so the dedup window still holds and it is not sent twice.
 | deals | every 3 h | poll the feeds, record matches |
 | health | hourly | notify when collecting stops, and when it recovers |
 | canary | once a day | one known-busy search, checked for layout drift |
-| job queue | every 15 s | "check now" requests (from the app, M5) |
+| job queue | every 15 s | "check now" requests from the API (`POST /api/admin/jobs`, and every saved trip or search) |
 | backup, retention | nightly | the database copy and export; old runner-ups, logs, notifications |
 
 All Google requests share one rolling 24-hour budget. Nothing depends on the clock: after a
@@ -338,14 +341,16 @@ cd backend
 uv sync --frozen
 uv run ruff check . && uv run ruff format --check .
 uv run mypy flighttrack       # strict; modules from before M2 are listed as exceptions
-uv run pytest                 # 329 tests, all offline; also with `uv sync --frozen --extra fallback`
+uv run pytest                 # 368 tests, all offline; also with `uv sync --frozen --extra fallback`
+uv run flighttrack schema --out ../frontend/src/lib/api-schema.json   # after changing an API model
 FLIGHTTRACK_BROWSER_TESTS=1 uv run pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
 docker build -f docker/Dockerfile .   # from the repository root
 ```
 
 `FakeSource` and `FakeTransport` make every path testable without a request. The encoder test
-against `fast-flights` skips if that extra is not installed. Logs from the long-running `worker`
-and `serve` are one JSON object per line; commands a person runs print plain text.
+against `fast-flights` skips if that extra is not installed. The API tests use FastAPI's
+`TestClient` on a database seeded by `demo.seed`. Logs from the long-running `worker` and the
+API are one JSON object per line; commands a person runs print plain text.
 
 ## Terms of service
 

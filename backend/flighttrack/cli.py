@@ -318,45 +318,52 @@ def cmd_run(args: argparse.Namespace) -> int:
     return result.rc
 
 
-def cmd_serve(args: argparse.Namespace) -> int:
-    """The static page and /status.json; with no `--no-schedule`, also the daily job."""
-    from .cycle import run_daily
-    from .serve import needs_catchup, serve
+# ---------------------------------------------------------------------------
+# the web API: schema, owner sessions (the server itself is uvicorn, see compose)
+# ---------------------------------------------------------------------------
 
-    cfg = _load(args, strict_secrets=False)
-    conn = open_db(cfg.db_path)  # apply schema up front so the first GET has tables
-    try:
-        catchup, why = needs_catchup(conn)
-    finally:
-        conn.close()
-    if args.no_schedule:
-        log.info("[serve] page only: the worker collects (`flighttrack worker`)")
-        serve(cfg, None, host=args.host, port=args.port, log=log.info)
-        return 0
-    run_on_start = args.run_on_start or catchup
-    if catchup and not args.run_on_start:
-        log.info(f"[serve] catching up at start: {why}")
 
-    def job() -> None:
-        conn = _db(cfg)
-        try:
-            result = run_daily(
-                conn, cfg, _source, limit=args.limit, dry_run=args.dry_run, log=log.info
-            )
-            log.info(f"[run] {result.summary()}")
-        finally:
-            conn.close()
+def api_schema() -> str:
+    """JSON Schema of every API request and response, for the generated TypeScript types."""
+    from .api.models import ApiTypes
 
-    serve(
-        cfg,
-        job,
-        host=args.host,
-        port=args.port,
-        at=args.at,
-        jitter_minutes=args.jitter,
-        run_on_start=run_on_start,
-        log=log.info,
-    )
+    schema = ApiTypes.model_json_schema()
+
+    def strip_field_titles(node: object) -> None:
+        # Pydantic titles every field; the TypeScript generator would turn each into
+        # its own alias. Keep titles only on the model definitions.
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    for prop in value.values():
+                        if isinstance(prop, dict):
+                            prop.pop("title", None)
+                strip_field_titles(value)
+        elif isinstance(node, list):
+            for item in node:
+                strip_field_titles(item)
+
+    strip_field_titles(schema)
+    return json.dumps(schema, indent=2, sort_keys=True) + "\n"
+
+
+def cmd_schema(args: argparse.Namespace) -> int:
+    text = api_schema()
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_owner(args: argparse.Namespace) -> int:
+    """`logout-all` ends every owner session (do it after changing OWNER_PASSWORD)."""
+    from .api.auth import logout_all
+
+    conn = open_db(args.settings.database)
+    n = logout_all(conn)
+    print(f"ended {n} owner session{'s' if n != 1 else ''}")
     return 0
 
 
@@ -384,12 +391,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 def cmd_healthcheck(args: argparse.Namespace) -> int:
     """Exit 0 if the worker's scheduler touched its heartbeat in the last 3 minutes."""
-    path = args.settings.heartbeat_path
-    try:
-        age: float | None = time.time() - path.stat().st_mtime
-    except OSError:
-        age = None
-    ok = age is not None and age < 180
+    age = health_mod.heartbeat_age(args.settings.heartbeat_path)
+    ok = age is not None and age < health_mod.HEARTBEAT_MAX_AGE_S
     print(f"worker heartbeat {'missing' if age is None else f'{age:.0f} s old'}")
     return 0 if ok else 1
 
@@ -1021,27 +1024,15 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("--dry-run", action="store_true", help="print alerts instead of sending them")
     rn.set_defaults(func=cmd_run)
 
-    sv = sub.add_parser(
-        "serve",
-        help="serve the report; without --no-schedule also run the daily job (one process)",
+    api = sub.add_parser(
+        "schema", help="write the API's JSON Schema (the frontend's types are built from it)"
     )
-    sv.add_argument("--host", default="0.0.0.0")
-    sv.add_argument("--port", type=int, default=8080)
-    sv.add_argument("--at", default="03:15", help="local time HH:MM for the daily run")
-    sv.add_argument("--jitter", type=int, default=45, help="random delay after --at, minutes")
-    sv.add_argument(
-        "--run-on-start",
-        action="store_true",
-        help="run once immediately, then on schedule (automatic when nothing succeeded in 20h)",
-    )
-    sv.add_argument("--limit", type=int, default=None)
-    sv.add_argument("--dry-run", action="store_true")
-    sv.add_argument(
-        "--no-schedule",
-        action="store_true",
-        help="serve the page and status only; `flighttrack worker` does the collecting",
-    )
-    sv.set_defaults(func=cmd_serve)
+    api.add_argument("--out", default=None, help="file to write; default: print it")
+    api.set_defaults(func=cmd_schema)
+
+    ow = sub.add_parser("owner", help="owner sign-in: `owner logout-all` ends every session")
+    ow.add_argument("action", choices=["logout-all"])
+    ow.set_defaults(func=cmd_owner)
 
     wk = sub.add_parser(
         "worker", help="collect on a schedule (batches, sweep, deals, alerts, health, backups)"
@@ -1137,7 +1128,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.settings = Settings()
     # JSON lines for the long-running process; plain text for a person at a terminal.
-    setup_logging(json_lines=args.cmd in ("serve", "worker"))
+    setup_logging(json_lines=args.cmd == "worker")
     if args.cmd in ("doctor", "calibrate"):
         _default_dates(args)
     try:
