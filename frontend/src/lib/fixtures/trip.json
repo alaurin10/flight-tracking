@@ -1,0 +1,260 @@
+{
+	"slug": "tokyo-spring",
+	"name": "Tokyo in spring",
+	"origin": "SEA",
+	"destination": "HND",
+	"label": "Tokyo",
+	"depart_date": "2027-04-17",
+	"return_date": "2027-05-01",
+	"status": "active",
+	"target_price": 80000,
+	"max_stops": null,
+	"price": 103600,
+	"price_at": "2026-11-15T10:00:00Z",
+	"change_7d_pct": -8.6,
+	"verdict": "WAIT",
+	"all_time_low": 84300,
+	"low_30d": 84300,
+	"observations": 46,
+	"days_to_departure": 153,
+	"series": [
+		{
+			"at": "2026-10-01T10:00:00Z",
+			"price": 117200
+		},
+		{
+			"at": "2026-10-02T10:00:00Z",
+			"price": 120500
+		},
+		{
+			"at": "2026-10-03T10:00:00Z",
+			"price": 121000
+		},
+		{
+			"at": "2026-10-04T10:00:00Z",
+			"price": 120400
+		},
+		{
+			"at": "2026-10-05T10:00:00Z",
+			"price": 118200
+		},
+		{
+			"at": "2026-10-06T10:00:00Z",
+			"price": 121600
+		},
+		{
+			"at": "2026-10-07T10:00:00Z",
+			"price": 114100
+		},
+		{
+			"at": "2026-10-08T10:00:00Z",
+			"price": 125500
+		},
+		{
+			"at": "2026-10-09T10:00:00Z",
+			"price": 121800
+		},
+		{
+			"at": "2026-10-10T10:00:00Z",
+			"price": 121700
+		},
+		{
+			"at": "2026-10-11T10:00:00Z",
+			"price": 120500
+		},
+		{
+			"at": "2026-10-12T10:00:00Z",
+			"price": 89000
+		},
+		{
+			"at": "2026-10-13T10:00:00Z",
+			"price": 120000
+		},
+		{
+			"at": "2026-10-14T10:00:00Z",
+			"price": 112900
+		},
+		{
+			"at": "2026-10-15T10:00:00Z",
+			"price": 114600
+		},
+		{
+			"at": "2026-10-16T10:00:00Z",
+			"price": 126400
+		},
+		{
+			"at": "2026-10-17T10:00:00Z",
+			"price": 119000
+		},
+		{
+			"at": "2026-10-18T10:00:00Z",
+			"price": 116600
+		},
+		{
+			"at": "2026-10-19T10:00:00Z",
+			"price": 123200
+		},
+		{
+			"at": "2026-10-20T10:00:00Z",
+			"price": 123900
+		},
+		{
+			"at": "2026-10-21T10:00:00Z",
+			"price": 120900
+		},
+		{
+			"at": "2026-10-22T10:00:00Z",
+			"price": 119700
+		},
+		{
+			"at": "2026-10-23T10:00:00Z",
+			"price": 121400
+		},
+		{
+			"at": "2026-10-24T10:00:00Z",
+			"price": 119800
+		},
+		{
+			"at": "2026-10-25T10:00:00Z",
+			"price": 117400
+		},
+		{
+			"at": "2026-10-26T10:00:00Z",
+			"price": 120100
+		},
+		{
+			"at": "2026-10-27T10:00:00Z",
+			"price": 117900
+		},
+		{
+			"at": "2026-10-28T10:00:00Z",
+			"price": 113900
+		},
+		{
+			"at": "2026-10-29T10:00:00Z",
+			"price": 111600
+		},
+		{
+			"at": "2026-10-30T10:00:00Z",
+			"price": 112100
+		},
+		{
+			"at": "2026-10-31T10:00:00Z",
+			"price": 116100
+		},
+		{
+			"at": "2026-11-01T10:00:00Z",
+			"price": 122500
+		},
+		{
+			"at": "2026-11-02T10:00:00Z",
+			"price": 104200
+		},
+		{
+			"at": "2026-11-03T10:00:00Z",
+			"price": 116900
+		},
+		{
+			"at": "2026-11-04T10:00:00Z",
+			"price": 116200
+		},
+		{
+			"at": "2026-11-05T10:00:00Z",
+			"price": 111500
+		},
+		{
+			"at": "2026-11-06T10:00:00Z",
+			"price": 112700
+		},
+		{
+			"at": "2026-11-07T10:00:00Z",
+			"price": 111400
+		},
+		{
+			"at": "2026-11-08T10:00:00Z",
+			"price": 113400
+		},
+		{
+			"at": "2026-11-09T10:00:00Z",
+			"price": 116800
+		},
+		{
+			"at": "2026-11-10T10:00:00Z",
+			"price": 112900
+		},
+		{
+			"at": "2026-11-11T10:00:00Z",
+			"price": 113200
+		},
+		{
+			"at": "2026-11-12T10:00:00Z",
+			"price": 84300
+		},
+		{
+			"at": "2026-11-13T10:00:00Z",
+			"price": 108400
+		},
+		{
+			"at": "2026-11-14T10:00:00Z",
+			"price": 113100
+		},
+		{
+			"at": "2026-11-15T10:00:00Z",
+			"price": 103600
+		}
+	],
+	"link": "https://www.google.com/travel/flights/search?tfs=GhoSCjIwMjctMDQtMTdqBRIDU0VBcgUSA0hORBoaEgoyMDI3LTA1LTAxagUSA0hORHIFEgNTRUFCAQFIAWoEEAEYAJgBAcgBAQ&hl=en&curr=USD",
+	"id": 1,
+	"notes": null,
+	"query_id": 1,
+	"offers": [
+		{
+			"price": 103600,
+			"airline": "Delta",
+			"stops": 0,
+			"duration_min": 640,
+			"departs": null,
+			"arrives": null,
+			"layovers": [],
+			"segments": [],
+			"source": "demo"
+		},
+		{
+			"price": 109016,
+			"airline": "ANA",
+			"stops": 1,
+			"duration_min": 640,
+			"departs": null,
+			"arrives": null,
+			"layovers": [],
+			"segments": [],
+			"source": "demo"
+		},
+		{
+			"price": 113759,
+			"airline": "Japan Airlines",
+			"stops": 2,
+			"duration_min": 640,
+			"departs": null,
+			"arrives": null,
+			"layovers": [],
+			"segments": [],
+			"source": "demo"
+		}
+	],
+	"offers_at": "2026-11-15T10:00:00Z",
+	"advice": {
+		"verdict": "WAIT",
+		"reasons": [
+			"down 9% over the last week \u2014 still falling",
+			"153 days out \u2014 plenty of runway"
+		],
+		"days_to_departure": 153,
+		"observations": 46,
+		"all_time_low": 84300,
+		"route_p20": 99000,
+		"route_p50": 110500,
+		"change_7d_pct": -8.6
+	},
+	"alerts": []
+}

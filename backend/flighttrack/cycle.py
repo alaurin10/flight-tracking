@@ -1,6 +1,6 @@
 """One full collecting cycle as a function: what `flighttrack run` does.
 
-expand → sweep (if enabled) → fetch → deals → alert → health → compact → html.
+expand → sweep (if enabled) → fetch → deals → alert → health → compact.
 The worker (scheduler.py) runs the same stages on their own schedules instead;
 this stays as a one-off full cycle for debugging.
 
@@ -22,14 +22,13 @@ from . import deals as deals_mod
 from . import expand as expand_mod
 from . import fetch as fetch_mod
 from . import health as health_mod
-from . import html as html_mod
 from . import sweep as sweep_mod
 from .config import Config
 from .source import Source
 
 log = logging.getLogger(__name__)
 
-STAGES = ("expand", "sweep", "fetch", "deals", "alert", "health", "compact", "html")
+STAGES = ("expand", "sweep", "fetch", "deals", "alert", "health", "compact")
 
 
 @dataclass
@@ -71,7 +70,7 @@ def run_daily(
     verbose: bool = True,
     log: Callable[[str], None] = print,
 ) -> DailyResult:
-    """expand → sweep (if enabled) → fetch → deals → alert → health → compact → html."""
+    """expand → sweep (if enabled) → fetch → deals → alert → health → compact."""
     result = DailyResult()
     source: Source | None = None
     say = log
@@ -139,12 +138,6 @@ def run_daily(
             say(f"[compact] {st.summary()}")
         return 0, st.summary()
 
-    def do_html() -> tuple[int, str]:
-        p = html_mod.write(conn, cfg.html_path, cfg=cfg)
-        if verbose:
-            say(f"[html] wrote {p}")
-        return 0, str(p)
-
     stage("expand", do_expand)
     stage("sweep", do_sweep)
     stage("fetch", do_fetch)
@@ -152,5 +145,4 @@ def run_daily(
     stage("alert", do_alert)
     stage("health", do_health)
     stage("compact", do_compact)
-    stage("html", do_html)
     return result

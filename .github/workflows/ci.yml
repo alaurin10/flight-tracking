@@ -45,6 +45,54 @@ jobs:
           uv sync --frozen --extra fallback
           uv run pytest
 
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          # Node 24 ships npm 11; npm 10 has a peer-dependency bug with this tree.
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Generated types match the API schema
+        run: |
+          npm run types
+          git diff --exit-code src/lib/types.gen.ts
+      - run: npm run lint
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    # The built app in a real browser against the API, on a database seeded by
+    # `flighttrack demo` (synthetic history, no network).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --frozen
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm run e2e
+        working-directory: frontend
+
   audit:
     # Known vulnerabilities in dependencies. Reported, not blocking: a new advisory
     # shouldn't turn every open PR red; Dependabot opens the fix.
@@ -60,6 +108,12 @@ jobs:
         run: |
           uv export --frozen --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt > /tmp/req.txt
           uvx pip-audit -r /tmp/req.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - name: npm dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev
 
   docker:
     # Proves the image builds and starts. Nothing is pushed anywhere.
@@ -70,6 +124,7 @@ jobs:
       - name: Smoke test
         # M5: livez 200; health 503 with no prices, 200 after `flighttrack demo`; the
         # overview lists the demo trip; the CSP header is present; sign in and create a trip.
+        # M6: / and app routes return the app shell.
         run: |
           harden="--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true"
           docker run --rm flightwatch:ci flighttrack --help
@@ -88,7 +143,14 @@ jobs:
           curl -sf -D - -o /dev/null localhost:8000/api/overview | grep -qi '^content-security-policy:'
           curl -sf -D - -o /dev/null localhost:8000/api/overview | grep -qi '^x-robots-tag: noindex'
           curl -sf localhost:8000/robots.txt | grep -q 'Disallow: /'
-          curl -sf localhost:8000/ | grep -q '<html'
+          # M6: the app shell at / and at any app route (the SPA fallback), with its
+          # start-up script's hash in the CSP; the old page is gone.
+          for p in / /status /trip/tokyo-spring; do
+            curl -sf "localhost:8000$p" | grep -q '<title>Flight Watch</title>'
+            curl -sf "localhost:8000$p" | grep -q '/_app/immutable/'
+          done
+          curl -sf -D - -o /dev/null localhost:8000/ | grep -qi "^content-security-policy:.*script-src 'self' 'sha256-"
+          test "$(code /api/no-such-endpoint)" = 404
           curl -sf localhost:8000/api/meta | grep -q '"commit":"${{ github.sha }}"'
           test "$(code /api/admin/trips)" = 401
           # Owner sign-in round trip (Origin as a browser sends it), then a new trip.
@@ -126,5 +188,7 @@ jobs:
           test -n "$ok"
           curl -sf -D - -o /dev/null localhost:8091/api/livez | grep -qi '^strict-transport-security:'  # ENV=prod
           curl -sf localhost:8091/api/overview | grep -q '"trips"'
+          curl -sf localhost:8091/ | grep -q '<title>Flight Watch</title>'
+          curl -sf localhost:8091/status | grep -q '<title>Flight Watch</title>'
           docker compose exec -T worker flighttrack health
           docker compose down

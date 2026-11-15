@@ -1,0 +1,10 @@
+# Package Managers
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lock
+bun.lockb
+
+# Generated (npm run types / flighttrack schema)
+src/lib/types.gen.ts
+src/lib/api-schema.json

@@ -21,7 +21,7 @@ Update this table in the same pull request that finishes a milestone.
 | M4 | The worker | done | [#13](https://github.com/alaurin10/flight-tracking/pull/13) | 329 tests; the sweep runs in the batch slots and flags dates instead of confirming them itself; Docker image built by CI only (Docker Hub refused the cloud session) |
 | M5 | API and deploy kit | done | [#14](https://github.com/alaurin10/flight-tracking/pull/14) | 368 tests; one PR for both halves; `/api/health` ignores a missing heartbeat file; schema at `frontend/src/lib/api-schema.json`; image and compose checked locally and in CI |
 | B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
-| M6 | Frontend: read-only app | not started | | |
+| M6 | Frontend: read-only app | done | (this PR) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
 | M7 | Manage | not started | | |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
@@ -212,6 +212,40 @@ Decisions log (add a line when a milestone departs from this document, with the 
   app's Manage page (M7), not `import-config` or the API by hand. Until then nothing is
   tracked, so no price history accumulates and `/api/health` stays 503 `no_data`; the worker
   still polls the deal feeds and runs the daily canary.
+- 2026-11-15 (M6): `html.py`, the `html` command, `--no-html` on `fetch` and `sweep`, the `html`
+  stage of `flighttrack run`, `Config.html_path` and `Settings.out_dir`/`html_path` are gone.
+  `flighttrack demo` only seeds a database now (`--out` is gone), and it also records an
+  `alerts_sent` row at the trip's lowest price and two `notifications` (a price and a deal), so
+  the app and the e2e tests have recent alerts to show. `tests/test_page.py` became
+  `tests/test_demo.py`.
+- 2026-11-15 (M6): without a frontend build (`STATIC_DIR` unset or empty) the API answers `/api`
+  only and `/` is 404; the CSP then allows no inline script. The image always has the build.
+- 2026-11-15 (M6): public reads per client per minute became a setting, `READS_PER_MINUTE`
+  (default 60, as before). `frontend/e2e/serve.sh` sets it to 10000, because every browser in
+  the e2e run is the same client and the suite went over 60 a minute.
+- 2026-11-15 (M6): the More page has no sign-in link yet: there is no sign-in page until M7
+  ("Not in this milestone: sign-in pages"), so it says the sign-in arrives with Manage, or that
+  owner sign-in isn't set up when `/api/meta` says so.
+- 2026-11-15 (M6): the theme is Auto, Light or Dark only (no theme families, no live sky: the
+  sky is a still gradient). The accent is teal (`#0b7a73`; `#6fd8cc` in dark). Inter, Manrope and
+  Snow Watch's tokens, glass, panels, rail and tab bar are kept.
+- 2026-11-15 (M6): the trip cards' sparklines have no table twin: they are decoration beside the
+  card's own numbers, with a text label, and the trip page has the full chart and its table. The
+  price history and requests-per-day charts are keyboard reachable (`role="application"`, arrow
+  keys, Home, End, Escape) and each has its table in a `<details>` underneath.
+- 2026-11-15 (M6): a search's calendar shows every month from its first departure to its last,
+  so a rolling seven-month search with two destinations is long on a phone (about 5,700 px).
+  It reads well and scrolls without sideways movement; a denser phone layout can come later.
+- 2026-11-15 (M6): the frontend imports `src/lib` by relative path, as Snow Watch does
+  (SvelteKit 3 has no `$lib` alias). It needs Node 24 (npm 11) for `npm ci`, as Snow Watch's CI
+  notes; CI's `audit` job also runs `npm audit --omit=dev`, and Dependabot watches `/frontend`.
+  The frontend's own version (`0.6.0`, shown on More and Status) is separate from the backend's.
+- 2026-11-15 (M6): the screenshots for the pull request are committed as JPEGs under
+  `docs/screenshots/m6/` (2.9 MB), because a cloud session cannot upload images to a pull
+  request; the README rewrite in M9 can reuse or replace them.
+- 2026-11-15 (M6): `docker build` ran in the cloud session (`dockerd` started by hand, the
+  sandbox's proxy passed as build arguments), and CI's smoke test and compose check passed
+  against that image before CI ran them.
 
 ## How to work from this document
 

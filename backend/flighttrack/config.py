@@ -236,7 +236,6 @@ class Config:
     alerts: Alerts
     notify: dict[str, Any] = field(default_factory=dict)
     db_path: str = "data/flights.db"
-    html_path: str = "out/index.html"
     calendar: Calendar = field(default_factory=Calendar)
     deals: Deals = field(default_factory=Deals)
     health: Health = field(default_factory=Health)
@@ -750,7 +749,6 @@ def load(
         alerts=alerts,
         notify=n,
         db_path=str(settings.database),
-        html_path=str(settings.html_path),
         calendar=calendar,
         deals=deals,
         health=health,

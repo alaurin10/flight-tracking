@@ -27,7 +27,6 @@ def test_settings_defaults_and_derived_paths(
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     s = Settings()
     assert s.database == tmp_path / "flights.db"
-    assert s.html_path == tmp_path / "out" / "index.html"
     assert s.failure_dir == tmp_path / "failures"
     assert s.env == "dev" and s.trusted_proxy is False and s.owner_password == ""
     assert s.home_airport == "SEA"
@@ -82,7 +81,6 @@ def test_paths_come_from_settings_and_output_is_ignored(
     with caplog.at_level(logging.WARNING):
         cfg = load(settings=settings)
     assert cfg.db_path == str(tmp_path / "data" / "flights.db")
-    assert cfg.html_path == str(tmp_path / "data" / "out" / "index.html")
     assert cfg.failure_dir == str(tmp_path / "data" / "failures")
     assert "output: section is ignored" in caplog.text
 

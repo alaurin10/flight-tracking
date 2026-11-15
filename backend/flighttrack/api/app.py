@@ -1,5 +1,5 @@
-"""FastAPI app: JSON under /api, plus the page (M5: the old static page; M6: the
-built frontend with an SPA fallback). Copied from Snow Watch's api/app.py.
+"""FastAPI app: JSON under /api, plus the built frontend (SvelteKit, static adapter)
+with an SPA fallback. Copied from Snow Watch's api/app.py.
 
 Run by `uvicorn --factory flighttrack.api.app:production_app`. The API only
 reads prices; it writes what is tracked, jobs and owner sessions. The worker
@@ -21,11 +21,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from .. import __version__, watches
 from .. import config as config_mod
-from .. import html as html_mod
 from ..config import Config
 from ..settings import Settings, get_settings
 from ..store.db import connect, migrate
@@ -38,16 +37,10 @@ from .ratelimit import LoginThrottle, RateLimiter
 log = logging.getLogger("flighttrack.api")
 access = logging.getLogger("flighttrack.access")
 
-# Public reads: 60 a minute per client; the airport search: 30 a minute.
-READS_PER_MINUTE = 60
+# Public reads: 60 a minute per client (`READS_PER_MINUTE` in .env changes it); the
+# airport search: 30 a minute.
 AIRPORTS_PER_MINUTE = 30
-# The interim page (until M6) is drawn again when it is older than this.
-PAGE_MAX_AGE_S = 60.0
 ROBOTS = "User-agent: *\nDisallow: /\n"
-
-
-def _sha256(text: str) -> str:
-    return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode()).digest()).decode() + "'"
 
 
 def inline_script_hashes(index: Path) -> list[str]:
@@ -56,7 +49,11 @@ def inline_script_hashes(index: Path) -> list[str]:
         return []
     html = index.read_text(encoding="utf-8")
     scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
-    return [_sha256(s) for s in scripts if s.strip()]
+    return [
+        "'sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode() + "'"
+        for s in scripts
+        if s.strip()
+    ]
 
 
 def content_security_policy(script_hashes: list[str]) -> str:
@@ -64,7 +61,7 @@ def content_security_policy(script_hashes: list[str]) -> str:
     return "; ".join(
         [
             "default-src 'self'",
-            "script-src 'self' " + " ".join(script_hashes),
+            "script-src " + " ".join(["'self'", *script_hashes]),
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
             "font-src 'self' data:",
@@ -133,8 +130,6 @@ def create_app(
     static = settings.static_dir
     spa = static is not None and (static / "index.html").exists()
     hashes = inline_script_hashes(static / "index.html") if spa and static else []
-    if not spa:
-        hashes = [_sha256(html_mod.JS)]  # the interim page's one inline script
     security_headers = {
         "Content-Security-Policy": content_security_policy(hashes),
         "X-Content-Type-Options": "nosniff",
@@ -220,7 +215,7 @@ def create_app(
     app.include_router(make_auth_router(throttle))
     app.include_router(
         make_router(
-            RateLimiter(rate=READS_PER_MINUTE / 60, burst=READS_PER_MINUTE),
+            RateLimiter(rate=settings.reads_per_minute / 60, burst=settings.reads_per_minute),
             RateLimiter(rate=AIRPORTS_PER_MINUTE / 60, burst=AIRPORTS_PER_MINUTE),
         )
     )
@@ -243,31 +238,9 @@ def create_app(
             return FileResponse(root / "index.html", headers=fresh)
 
     else:
-        # Until the frontend exists (M6): the old static page, drawn from the
-        # database at most once a minute.
-        page: dict[str, tuple[float, str]] = {}
-
-        @app.get("/", include_in_schema=False)
-        def index() -> HTMLResponse:
-            headers = {"Cache-Control": "no-cache"}
-            hit = page.get("/")
-            if hit is not None and time.monotonic() - hit[0] < PAGE_MAX_AGE_S:
-                return HTMLResponse(hit[1], headers=headers)
-            if not settings.database.exists():
-                return HTMLResponse(
-                    "<!DOCTYPE html><html lang=en><head><meta charset=utf-8>"
-                    "<title>Flight Watch</title></head><body><p>Flight Watch is starting: "
-                    "no prices yet.</p></body></html>",
-                    status_code=503,
-                    headers=headers,
-                )
-            conn = connect(settings.database, readonly=True)
-            try:
-                body = html_mod.render(conn, cfg=cfg)
-            finally:
-                conn.close()
-            page["/"] = (time.monotonic(), body)
-            return HTMLResponse(body, headers=headers)
+        # No build (development, the API on its own): /api only. `npm run dev` in
+        # frontend/ serves the app and proxies /api here.
+        log.info("no frontend build at %s; serving the API only", static)
 
     return app
 

@@ -26,7 +26,6 @@ from . import deals as deals_mod
 from . import expand as expand_mod
 from . import fetch as fetch_mod
 from . import health as health_mod
-from . import html as html_mod
 from . import report as report_mod
 from . import sweep as sweep_mod
 from .config import Config, ConfigError, Route, load, read_watch_file
@@ -204,11 +203,6 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         conn, cfg, _source(cfg), limit=args.limit, respect_cooldown=not args.ignore_cooldown
     )
     print(f"[fetch] {stats.summary()}")
-
-    if not args.no_html:
-        path = html_mod.write(conn, cfg.html_path, cfg=cfg)
-        print(f"[fetch] wrote {path}")
-
     return _fetch_exit(stats)
 
 
@@ -255,8 +249,6 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     print(f"[sweep] {stats.summary()}")
     if stats.confirm_stats:
         print(f"[sweep] confirm: {stats.confirm_stats.summary()}")
-    if not args.no_html:
-        html_mod.write(conn, cfg.html_path, cfg=cfg)
     return 1 if stats.blocked or (stats.calls and stats.ok == 0) else 0
 
 
@@ -308,7 +300,7 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
+    """expand → sweep (if enabled) → fetch → deals → alert → health → compact, stages isolated."""
     from .cycle import run_daily
 
     cfg = _load(args, strict_secrets=False)
@@ -409,7 +401,7 @@ def cmd_compact(args: argparse.Namespace) -> int:
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
-    """Seed synthetic history and render the report, to see the UI before real data exists."""
+    """Seed synthetic history, to see the app before real data exists."""
     from . import demo as demo_mod
 
     cfg = _load(args, strict_secrets=False)
@@ -421,18 +413,20 @@ def cmd_demo(args: argparse.Namespace) -> int:
         db_path.unlink()
     conn = open_db(db_path)
     stats = demo_mod.seed(conn, cfg, days=args.days)
-    out = html_mod.write(conn, args.out or args.settings.out_dir / "demo.html", cfg=cfg)
     print(
         f"[demo] {stats['queries']} queries, {stats['observations']} synthetic observations over "
         f"{stats['days']} days"
     )
-    print(f"[demo] database {db_path}\n[demo] report   {out}")
-    print("[demo] open the report in a browser; every number in it is synthetic (source='demo').")
+    print(f"[demo] database {db_path}")
+    print(
+        "[demo] serve it with DB_PATH set to that file; every number in it is synthetic "
+        "(source='demo')."
+    )
     return 0
 
 
 # ---------------------------------------------------------------------------
-# report / advise / html / status
+# report / advise / status
 # ---------------------------------------------------------------------------
 
 
@@ -486,14 +480,6 @@ def cmd_advise(args: argparse.Namespace) -> int:
         route_window_days=cfg.alerts.percentile_window_days,
     )
     print(report_mod.render_advice(items, _title(cfg, args) + " — book or wait?"))
-    return 0
-
-
-def cmd_html(args: argparse.Namespace) -> int:
-    cfg = _load(args)
-    conn = _db(cfg)
-    path = html_mod.write(conn, args.out or cfg.html_path, window_days=args.window, cfg=cfg)
-    print(f"[html] wrote {path}")
     return 0
 
 
@@ -983,7 +969,6 @@ def build_parser() -> argparse.ArgumentParser:
     f = sub.add_parser("fetch", help="fetch due queries and append observations")
     f.add_argument("--limit", type=int, default=None, help="override max queries this run")
     f.add_argument("--dry-run", action="store_true", help="show what would be fetched")
-    f.add_argument("--no-html", action="store_true", help="skip regenerating the HTML report")
     f.add_argument(
         "--ignore-cooldown",
         action="store_true",
@@ -996,7 +981,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sw.add_argument("--dry-run", action="store_true")
     sw.add_argument("--force", action="store_true", help="run even if calendar.enabled is false")
-    sw.add_argument("--no-html", action="store_true")
     sw.set_defaults(func=cmd_sweep)
 
     a = sub.add_parser("alert", help="evaluate fresh observations and notify")
@@ -1049,9 +1033,8 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--yes", action="store_true")
     cp.set_defaults(func=cmd_compact)
 
-    dm = sub.add_parser("demo", help="seed synthetic history and render the report (no network)")
+    dm = sub.add_parser("demo", help="seed a database with synthetic history (no network)")
     dm.add_argument("--db", default=None, help="default: <DATA_DIR>/demo.db")
-    dm.add_argument("--out", default=None, help="default: <DATA_DIR>/out/demo.html")
     dm.add_argument("--days", type=int, default=45)
     dm.add_argument("--force", action="store_true")
     dm.set_defaults(func=cmd_demo)
@@ -1077,11 +1060,6 @@ def build_parser() -> argparse.ArgumentParser:
     ad.add_argument("--month")
     ad.add_argument("--window", type=int, default=30)
     ad.set_defaults(func=cmd_advise)
-
-    h = sub.add_parser("html", help="regenerate the static HTML report")
-    h.add_argument("--out", help="output path (default from config)")
-    h.add_argument("--window", type=int, default=30)
-    h.set_defaults(func=cmd_html)
 
     s = sub.add_parser("status", help="run history and health")
     s.add_argument("--limit", type=int, default=10)

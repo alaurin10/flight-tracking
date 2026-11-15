@@ -89,9 +89,9 @@ def test_run_orchestrates_all_stages_offline(tmp_path, capsys, monkeypatch):
     rc = cli.main(["run", "--limit", "2", "--dry-run"])
     out = capsys.readouterr().out
     assert rc == 0
-    for stage in ("expand", "sweep", "fetch", "deals", "alert", "health", "html"):
+    for stage in ("expand", "sweep", "fetch", "deals", "alert", "health", "compact"):
         assert f"== {stage} ==" in out
-    assert (tmp_path / "out" / "index.html").exists()
+    assert "== html ==" not in out and not (tmp_path / "out").exists()
 
 
 def test_import_config_twice_then_export(tmp_path, capsys):
