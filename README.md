@@ -21,6 +21,11 @@ over days, so daily resolution is plenty.
 
 ## Status
 
+> **Next:** this collector is becoming a web app at `flights.andrewlaurin.com`.
+> [`docs/PLAN.md`](docs/PLAN.md) is the milestone plan, and it lists what a live check on
+> 2026-11-14 found working and broken. Where it disagrees with the table below, the plan is
+> newer.
+
 | Piece | State |
 |---|---|
 | Own Google Flights client (no third-party scraper) | ✅ built; encoder byte-identical to a live-proven library; **live call verified by `doctor` on your box** |
