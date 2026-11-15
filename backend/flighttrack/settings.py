@@ -2,7 +2,7 @@
 
 Secrets and per-install values live here. Tunables (search filters, pacing,
 alert thresholds) live in `config/flighttrack.yaml`; what is tracked lives in
-the watch file given with `--config` (the database, from M3).
+the database.
 
 Everything the app writes goes under `data_dir`, because the container's root
 file system is read-only.
@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # The git commit this build came from (set by the Docker build).
     git_commit: str = ""
 
+    # FLIGHTTRACK_SOURCE=fake: invented prices and no outside requests at all (no
+    # Google, no deal feeds), for tests and demos. Empty = the real sources.
+    flighttrack_source: str = ""
+
     @property
     def database(self) -> Path:
         return self.db_path or self.data_dir / "flights.db"
@@ -62,6 +66,20 @@ class Settings(BaseSettings):
     def failure_dir(self) -> Path:
         """Pages the parser could not read, kept for diagnosis."""
         return self.data_dir / "failures"
+
+    @property
+    def backup_dir(self) -> Path:
+        """Nightly database copies and watch exports (the newest 14 are kept)."""
+        return self.data_dir / "backups"
+
+    @property
+    def heartbeat_path(self) -> Path:
+        """Touched by the worker every 30 s; `flighttrack healthcheck worker` reads it."""
+        return self.data_dir / "worker.heartbeat"
+
+    @property
+    def fake_source(self) -> bool:
+        return self.flighttrack_source.strip().lower() == "fake"
 
     @property
     def tunables_path(self) -> Path:

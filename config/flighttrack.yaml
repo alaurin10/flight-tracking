@@ -72,6 +72,29 @@ fetch:
   offers_per_fetch: 5        # store the cheapest N offers, not just the minimum
 
 # ---------------------------------------------------------------------------
+# The worker (`flighttrack worker`). Every request to Google (results pages,
+# calendar calls, the canary) counts against one rolling 24-hour budget.
+# Detail fetches go out in batches of batch_size with a random gap between
+# batches; the calendar sweep runs daily at sweep_at (local time, TZ) in
+# groups of four calls with the same gaps.
+#
+# daily_request_budget  50 until the home address's limit has been measured
+#                       with `calibrate`; then about half of it, at most 80.
+# trip_refresh_hours    an active trip older than this is fetched first; each
+#                       search's top_dates_per_search cheapest dates likewise.
+# canary_dest           the daily canary: HOME_AIRPORT → here, one way, 30
+#                       days out. A busy nonstop route that always has results.
+# ---------------------------------------------------------------------------
+collect:
+  daily_request_budget: 50
+  batch_size: 5
+  batch_gap_minutes: [25, 45]
+  sweep_at: "04:10"
+  trip_refresh_hours: 20
+  top_dates_per_search: 3
+  canary_dest: LAX
+
+# ---------------------------------------------------------------------------
 # Calendar sweep (EXPERIMENTAL). One RPC prices ~2 months of departure dates
 # for a route/pattern, so the whole grid is refreshed daily and the most
 # promising dates are confirmed with a real fetch. Verify on your host first:

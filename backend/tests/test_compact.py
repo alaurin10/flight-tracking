@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from helpers import make_config
 
-from flighttrack import compact, demo, jobs
+from flighttrack import compact, cycle, demo
 from flighttrack.config import Retention
 from flighttrack.source import FakeSource
 from flighttrack.store.db import get_state, open_db
@@ -71,10 +71,10 @@ def test_zero_days_means_keep_forever(tmp_path):
 def test_weekly_gating_in_the_daily_job(tmp_path):
     conn, cfg = _seeded(tmp_path, runner_up_days=30, attempts_days=30)
     assert compact.due(conn, cfg)
-    res = jobs.run_daily(conn, cfg, lambda c: FakeSource(), verbose=False, dry_run=True)
+    res = cycle.run_daily(conn, cfg, lambda c: FakeSource(), verbose=False, dry_run=True)
     names = {s.name: s for s in res.stages}
     assert "compact" in names and "deleted" in names["compact"].summary
     assert not compact.due(conn, cfg)
-    res = jobs.run_daily(conn, cfg, lambda c: FakeSource(), verbose=False, dry_run=True)
+    res = cycle.run_daily(conn, cfg, lambda c: FakeSource(), verbose=False, dry_run=True)
     assert {s.name: s for s in res.stages}["compact"].summary == "not due"
     assert not compact.due(conn, replace(cfg, retention=Retention(enabled=False)))

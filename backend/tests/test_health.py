@@ -87,7 +87,7 @@ def test_notification_is_deduped_and_resent_on_change(tmp_path):
     digest = tmp_path / "digest.md"
 
     rep, sent = health.run(conn, cfg, verbose=False)
-    assert sent and not rep.ok and "not collecting" in digest.read_text()
+    assert sent and not rep.ok and "stopped collecting" in digest.read_text()
     rep, sent = health.run(conn, cfg, verbose=False)
     assert not sent  # same problems, inside renotify window
 

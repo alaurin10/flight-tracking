@@ -672,6 +672,14 @@ def build_source(
     return ChainSource(built) if len(built) != 1 else built[0]
 
 
+def make_source(cfg: Config, *, fake: bool = False) -> Source:
+    """What the commands and the worker fetch with: the chain in `fetch.sources`, or
+    invented prices and no network at all when `fake` (FLIGHTTRACK_SOURCE=fake)."""
+    if fake:
+        return FakeSource()
+    return build_source(cfg, failure_dir=cfg.failure_dir)
+
+
 # ---------------------------------------------------------------------------
 # Offline source for tests
 # ---------------------------------------------------------------------------

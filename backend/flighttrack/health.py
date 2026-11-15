@@ -11,21 +11,29 @@ Everything here is a read of tables the other modules already write:
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from .config import Config
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
-from .notify import NotifyError, notify
+from .notifier import Notifier
 from .store.db import get_state, parse_ts, set_state, utcnow
+from .store.db import now as clock_now
 from .watches import active_feed_urls
 
 log = logging.getLogger(__name__)
 
 STATE_LAST_HEALTH_ALERT = "last_health_alert_at"
 STATE_LAST_HEALTH_SIG = "last_health_signature"
+# Set while a "not collecting" notification is outstanding, so recovery is told once.
+STATE_HEALTH_DOWN = "health_down_since"
+# Written by the canary (canary.py) when the results page stops looking as expected.
+STATE_LAYOUT_DRIFT = "layout_drift"
+TITLE_DOWN = "⚠ Flight Watch has stopped collecting prices"
+TITLE_UP = "Flight Watch is collecting prices again"
 FEED_EMPTY_DAYS = 7
 PARSER_MISMATCH_WARN = 3
 
@@ -70,7 +78,7 @@ def _hours_since(ts: str | None, now: datetime) -> float | None:
 
 
 def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> HealthReport:
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     rep = HealthReport(checked_at=_iso(now))
 
     n_active = conn.execute(
@@ -255,6 +263,23 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
                     )
                 )
 
+    # --- the daily canary ---------------------------------------------------------
+    drift = get_state(conn, STATE_LAYOUT_DRIFT)
+    if drift:
+        try:
+            info = json.loads(drift)
+            detail = "; ".join(info.get("reasons") or []) or "see the saved page"
+            when = info.get("at", "?")
+        except (ValueError, AttributeError):
+            detail, when = drift, "?"
+        rep.problems.append(
+            Problem(
+                "layout_drift",
+                f"the daily canary search failed its checks at {when}: {detail} — Google's "
+                f"results page may have changed; see {cfg.failure_dir}",
+            )
+        )
+
     # --- parser self-check -----------------------------------------------------
     # The results page states its own cheapest price; a fetch whose parsed
     # minimum differs from it records `page_min` in the observation's raw JSON.
@@ -277,15 +302,21 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
     return rep
 
 
+def _clear_down(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM state WHERE key = ?", (STATE_HEALTH_DOWN,))
+
+
 def run(
     conn: sqlite3.Connection,
     cfg: Config,
     dry_run: bool = False,
     verbose: bool = True,
     now: datetime | None = None,
+    notifier: Notifier | None = None,
 ) -> tuple[HealthReport, bool]:
-    """Check, print, and notify once per problem-set per `renotify_hours`."""
-    now = now or datetime.now(UTC)
+    """Check, log, and notify once per problem-set per `renotify_hours`; and once when
+    the collector recovers. Returns (report, whether a notification was recorded)."""
+    now = now or clock_now()
     rep = check(conn, cfg, now)
     if verbose:
         log.info(f"[health] {'ok' if rep.ok else 'NOT OK'}: {len(rep.problems)} problem(s)")
@@ -294,14 +325,27 @@ def run(
                 f"[health] {p.severity}: {p.message}"
             )
 
-    if rep.ok and not rep.problems:
-        # Fully clean: forget the last alert so a recurrence notifies promptly.
-        set_state(conn, STATE_LAST_HEALTH_SIG, None)
-        return rep, False
     if rep.ok:
-        return rep, False  # warnings only: visible in `status`, not worth a push
+        if not rep.problems:
+            # Fully clean: forget the last alert so a recurrence notifies promptly.
+            set_state(conn, STATE_LAST_HEALTH_SIG, None)
+        if get_state(conn, STATE_HEALTH_DOWN) is None or not cfg.health.notify:
+            return rep, False  # warnings only: visible in `status`, not worth a message
+        if dry_run:
+            if verbose:
+                print(f"  [dry-run] would notify: {TITLE_UP}")
+            return rep, True
+        down_since = get_state(conn, STATE_HEALTH_DOWN)
+        (notifier or Notifier.from_config(cfg)).send(
+            conn,
+            "health",
+            TITLE_UP,
+            f"Prices are being stored again (problems first reported at {down_since}).",
+            record=_clear_down,
+        )
+        return rep, True
 
-    if not cfg.health.notify or (cfg.notify or {}).get("channel", "none") == "none":
+    if not cfg.health.notify:
         return rep, False
 
     last = _hours_since(get_state(conn, STATE_LAST_HEALTH_ALERT), now)
@@ -309,19 +353,27 @@ def run(
     if last is not None and last < cfg.health.renotify_hours and not sig_changed:
         return rep, False
 
-    subject = "⚠ flighttrack is not collecting prices"
     body = "\n".join(f"- {p.message}" for p in rep.problems if p.severity == "crit")
-    body += "\n\nRun `flighttrack status` and `flighttrack doctor` on the host."
+    body += "\n\nSee the status page, or run `flighttrack status` and `flighttrack doctor`."
     if dry_run:
         if verbose:
-            print(f"  [dry-run] would notify: {subject}\n{body}")
+            print(f"  [dry-run] would notify: {TITLE_DOWN}\n{body}")
         return rep, True
-    try:
-        notify(cfg.notify, subject, body)
-    except NotifyError as exc:
-        if verbose:
-            log.warning(f"[health] notification failed: {exc}")
-        return rep, False
-    set_state(conn, STATE_LAST_HEALTH_ALERT, utcnow())
-    set_state(conn, STATE_LAST_HEALTH_SIG, rep.signature)
+    stamp = utcnow()
+
+    def remember(c: sqlite3.Connection) -> None:
+        for key, value in (
+            (STATE_LAST_HEALTH_ALERT, stamp),
+            (STATE_LAST_HEALTH_SIG, rep.signature),
+        ):
+            c.execute(
+                "INSERT INTO state (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+        c.execute(
+            "INSERT OR IGNORE INTO state (key, value) VALUES (?, ?)", (STATE_HEALTH_DOWN, stamp)
+        )
+
+    (notifier or Notifier.from_config(cfg)).send(conn, "health", TITLE_DOWN, body, record=remember)
     return rep, True

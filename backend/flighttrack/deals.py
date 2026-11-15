@@ -24,11 +24,13 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from functools import partial
 
 from .config import Config, DealWatch
 from .gflights.transport import Transport, TransportError, default_transport
-from .notify import NotifyError, notify
+from .notifier import Notifier
 from .report import fmt_money
+from .store.db import now as clock_now
 from .watches import active_deal_watches, active_feed_urls
 
 log = logging.getLogger(__name__)
@@ -443,7 +445,7 @@ def poll(
     sleeper: Callable[[float], None] = time.sleep,
 ) -> DealStats:
     stats = DealStats()
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     stamp = _iso(now)
     transport = transport or default_transport("urllib")
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
@@ -514,7 +516,7 @@ def poll(
 def pending_alerts(
     conn: sqlite3.Connection, cfg: Config, now: datetime | None = None
 ) -> list[sqlite3.Row]:
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
     return conn.execute(
         """
@@ -531,51 +533,61 @@ def _line(row: sqlite3.Row) -> str:
     return f"[{row['watch']}] {row['title']}{price}"
 
 
+def _mark_alerted(conn: sqlite3.Connection, ids: list[int], stamp: str) -> None:
+    conn.executemany("UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(stamp, i) for i in ids])
+
+
 def alert(
     conn: sqlite3.Connection,
     cfg: Config,
     dry_run: bool = False,
     verbose: bool = True,
     now: datetime | None = None,
+    notifier: Notifier | None = None,
 ) -> DealStats:
+    """Record matched posts as notifications. `deal_posts.alerted_at` is written with
+    the notification row; a channel failure is reported in `delivery_error`."""
     stats = DealStats()
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     rows = pending_alerts(conn, cfg, now)
     if not rows:
         return stats
-    try:
-        if len(rows) <= cfg.deals.max_alerts_per_run:
-            for r in rows:
-                subject = f"✈ deal: {r['title'][:90]}"
-                if dry_run:
-                    print(f"  [dry-run] {_line(r)}")
-                else:
-                    notify(
-                        cfg.notify,
-                        subject,
-                        _line(r) + (f"\n{r['link']}" if r["link"] else ""),
-                        r["link"],
-                    )
-                stats.alerted += 1
-        else:
-            body = "\n\n".join(_line(r) + (f"\n{r['link']}" if r["link"] else "") for r in rows)
-            subject = f"✈ {len(rows)} announced deals match your watches"
-            if dry_run:
-                print(f"  [dry-run digest] {subject}\n{body}")
-            else:
-                notify(cfg.notify, subject, body, rows[0]["link"])
-            stats.alerted = len(rows)
-    except NotifyError as exc:
-        stats.delivery_error = str(exc)
-        if verbose:
-            log.warning(f"[deals] DELIVERY FAILED: {exc}")
+    if dry_run:
+        for r in rows:
+            print(f"  [dry-run] {_line(r)}")
+        stats.alerted = len(rows)
         return stats
-    if not dry_run:
-        stamp = _iso(now)
-        conn.executemany(
-            "UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(stamp, r["id"]) for r in rows]
+
+    notifier = notifier or Notifier.from_config(cfg)
+    stamp = _iso(now)
+    errors: list[str] = []
+    if len(rows) <= cfg.deals.max_alerts_per_run:
+        for r in rows:
+            d = notifier.send(
+                conn,
+                "deal",
+                f"✈ deal: {r['title'][:90]}",
+                _line(r) + (f"\n{r['link']}" if r["link"] else ""),
+                r["link"],
+                record=partial(_mark_alerted, ids=[r["id"]], stamp=stamp),
+            )
+            errors += d.errors
+            stats.alerted += 1
+    else:
+        d = notifier.send(
+            conn,
+            "deal",
+            f"✈ {len(rows)} announced deals match your watches",
+            "\n\n".join(_line(r) + (f"\n{r['link']}" if r["link"] else "") for r in rows),
+            rows[0]["link"],
+            record=partial(_mark_alerted, ids=[r["id"] for r in rows], stamp=stamp),
         )
-        conn.commit()
+        errors += d.errors
+        stats.alerted = len(rows)
+    if errors:
+        stats.delivery_error = "; ".join(dict.fromkeys(errors))
+        if verbose:
+            log.warning(f"[deals] DELIVERY FAILED (deals are recorded): {stats.delivery_error}")
     return stats
 
 
@@ -587,14 +599,15 @@ def run(
     verbose: bool = True,
     now: datetime | None = None,
     sleeper: Callable[[float], None] = time.sleep,
+    notifier: Notifier | None = None,
 ) -> DealStats:
     if not cfg.deals.enabled:
         if verbose:
             log.info("[deals] disabled in config")
         return DealStats()
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     stats = poll(conn, cfg, transport, now=now, verbose=verbose, sleeper=sleeper)
-    a = alert(conn, cfg, dry_run=dry_run, verbose=verbose, now=now)
+    a = alert(conn, cfg, dry_run=dry_run, verbose=verbose, now=now, notifier=notifier)
     stats.alerted, stats.delivery_error = a.alerted, a.delivery_error
     if verbose:
         log.info(f"[deals] {stats.summary()}")

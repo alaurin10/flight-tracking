@@ -20,10 +20,17 @@ import contextlib
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from .config import Config
-from .store.db import OBSERVATIONS_NO_DELETE, ensure_append_only, get_state, set_state, utcnow
+from .store.db import (
+    OBSERVATIONS_NO_DELETE,
+    ensure_append_only,
+    get_state,
+    set_state,
+    utcnow,
+)
+from .store.db import now as clock_now
 
 STATE_LAST_COMPACT = "last_compact_at"
 
@@ -68,7 +75,7 @@ def _db_size(conn: sqlite3.Connection) -> int:
 def compact(
     conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, dry_run: bool = False
 ) -> CompactStats:
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     r = cfg.retention
     stats = CompactStats(dry_run=dry_run, size_before=_db_size(conn))
 
@@ -121,6 +128,6 @@ def due(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> b
     """Weekly, and only when retention is enabled."""
     if not cfg.retention.enabled:
         return False
-    now = now or datetime.now(UTC)
+    now = now or clock_now()
     last = get_state(conn, STATE_LAST_COMPACT)
     return last is None or last < _iso_ago(now, 7)

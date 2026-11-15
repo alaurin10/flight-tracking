@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -44,9 +45,34 @@ END"""
 APPEND_ONLY_TRIGGERS = (OBSERVATIONS_NO_UPDATE, OBSERVATIONS_NO_DELETE)
 
 
+def _wall_clock() -> datetime:
+    return datetime.now(UTC)
+
+
+_clock: Callable[[], datetime] = _wall_clock
+
+
+def now() -> datetime:
+    """The current time (aware, UTC). Every timestamp the collector writes comes from
+    here, so a test (or a simulation of days of downtime) can move one clock and
+    have the worker's decisions and the rows it writes agree."""
+    return _clock()
+
+
+def set_clock(clock: Callable[[], datetime] | None) -> None:
+    """Replace the clock (`None` puts the wall clock back). For tests."""
+    global _clock
+    _clock = clock or _wall_clock
+
+
+def iso(dt: datetime) -> str:
+    """`dt` as stored: ISO 8601 UTC, second resolution, suffixed 'Z'."""
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def utcnow() -> str:
     """ISO 8601 UTC timestamp, second resolution, always suffixed 'Z'."""
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return iso(now())
 
 
 def parse_ts(text: str | None) -> datetime | None:

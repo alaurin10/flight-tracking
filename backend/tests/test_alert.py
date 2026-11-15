@@ -103,16 +103,19 @@ def test_digest_replaces_a_flood(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 5
 
 
-def test_delivery_failure_is_not_recorded_as_sent(tmp_path):
-    """Otherwise the dedup window would suppress the retry."""
+def test_delivery_failure_still_records_the_alert(tmp_path):
+    """M4: an alert is a record first. A broken channel is reported, and the alert is
+    kept in `notifications` and `alerts_sent` (the app shows it; no repeat inside the
+    dedup window)."""
     cfg = replace(_cfg(), notify={"channel": "smtp", "smtp": {"host": None}})
     conn, cfg = make_db(tmp_path, cfg)
     add_obs(conn, first_query_id(conn, "SLC"), 13000)
 
     stats = alert.run(conn, cfg, verbose=False)
-    assert stats.delivery_error is not None
-    assert stats.sent == 0
-    assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 0
+    assert "host and to" in stats.delivery_error
+    assert stats.sent == 1
+    assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] == 1
 
 
 def test_phase2_is_off_until_enabled(tmp_path):

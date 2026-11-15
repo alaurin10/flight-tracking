@@ -148,3 +148,37 @@ def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys)
     assert cli.main(["serve"]) == 0  # fresh → wait for the schedule
     assert cli.main(["serve", "--run-on-start"]) == 0
     assert seen == [True, False, True]
+
+
+def test_serve_no_schedule_serves_only(tmp_path, monkeypatch):
+    """With the worker collecting, `serve --no-schedule` runs no job of its own."""
+    from flighttrack import cli
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    seen = []
+    monkeypatch.setattr(serve, "serve", lambda cfg, job, **kw: seen.append(job))
+    assert cli.main(["serve", "--no-schedule"]) == 0
+    assert seen == [None]
+
+
+def test_page_only_server_redraws_a_stale_page(tmp_path):
+    import os
+    import time
+
+    cfg = make_config(db_path=str(tmp_path / "t.db"), html_path=str(tmp_path / "out.html"))
+    make_db(tmp_path, cfg)
+    page = tmp_path / "out.html"
+    page.write_text("<html>STALE-MARKER</html>")
+    old = time.time() - 120
+    os.utime(page, (old, old))
+    handler = serve.make_handler(cfg, None, log=lambda m: None)
+    httpd = serve.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    t = threading.Thread(target=httpd.handle_request, daemon=True)
+    t.start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+        body = urllib.request.urlopen(url, timeout=5).read().decode()
+    finally:
+        t.join(5)
+        httpd.server_close()
+    assert "STALE-MARKER" not in body and "<html" in body.lower()

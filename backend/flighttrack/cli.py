@@ -9,6 +9,7 @@ run, and fail, on its own.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import sqlite3
@@ -52,9 +53,10 @@ def _db(cfg: Config) -> sqlite3.Connection:
 
 
 def _source(cfg: Config) -> Source:
-    from .source import build_source
+    """The real chain, or invented prices when FLIGHTTRACK_SOURCE=fake."""
+    from .source import make_source
 
-    return build_source(cfg, failure_dir=cfg.failure_dir)
+    return make_source(cfg, fake=Settings().fake_source)
 
 
 def _route_for(cfg: Config, dest: str | None) -> Route:
@@ -307,7 +309,7 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
-    from .jobs import run_daily
+    from .cycle import run_daily
 
     cfg = _load(args, strict_secrets=False)
     conn = _db(cfg)
@@ -317,8 +319,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Scheduler + web server in one process — the always-on-box way to run this."""
-    from .jobs import run_daily
+    """The static page and /status.json; with no `--no-schedule`, also the daily job."""
+    from .cycle import run_daily
     from .serve import needs_catchup, serve
 
     cfg = _load(args, strict_secrets=False)
@@ -327,6 +329,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         catchup, why = needs_catchup(conn)
     finally:
         conn.close()
+    if args.no_schedule:
+        log.info("[serve] page only: the worker collects (`flighttrack worker`)")
+        serve(cfg, None, host=args.host, port=args.port, log=log.info)
+        return 0
     run_on_start = args.run_on_start or catchup
     if catchup and not args.run_on_start:
         log.info(f"[serve] catching up at start: {why}")
@@ -352,6 +358,40 @@ def cmd_serve(args: argparse.Namespace) -> int:
         log=log.info,
     )
     return 0
+
+
+# ---------------------------------------------------------------------------
+# worker — the long-running collector
+# ---------------------------------------------------------------------------
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    """Collect on a schedule: batches, the calendar sweep, deals, alerts, health,
+    the canary, the job queue, backups and housekeeping."""
+    from .scheduler import Worker, build_scheduler
+
+    cfg = _load(args, strict_secrets=False)
+    # APScheduler logs every run of every job at info (the queue runs every 15 s).
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    worker = Worker(args.settings, cfg)
+    worker.start()
+    worker.heartbeat()
+    sched = build_scheduler(worker)
+    with contextlib.suppress(KeyboardInterrupt, SystemExit):
+        sched.start()
+    return 0
+
+
+def cmd_healthcheck(args: argparse.Namespace) -> int:
+    """Exit 0 if the worker's scheduler touched its heartbeat in the last 3 minutes."""
+    path = args.settings.heartbeat_path
+    try:
+        age: float | None = time.time() - path.stat().st_mtime
+    except OSError:
+        age = None
+    ok = age is not None and age < 180
+    print(f"worker heartbeat {'missing' if age is None else f'{age:.0f} s old'}")
+    return 0 if ok else 1
 
 
 def cmd_compact(args: argparse.Namespace) -> int:
@@ -975,14 +1015,15 @@ def build_parser() -> argparse.ArgumentParser:
     hl.set_defaults(func=cmd_health)
 
     rn = sub.add_parser(
-        "run", help="the daily job: expand, sweep, fetch, deals, alert, health, html"
+        "run", help="one full cycle now, for debugging: expand, sweep, fetch, deals, alert, …"
     )
     rn.add_argument("--limit", type=int, default=None)
     rn.add_argument("--dry-run", action="store_true", help="print alerts instead of sending them")
     rn.set_defaults(func=cmd_run)
 
     sv = sub.add_parser(
-        "serve", help="run the daily job on a schedule AND serve the report (one process)"
+        "serve",
+        help="serve the report; without --no-schedule also run the daily job (one process)",
     )
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=8080)
@@ -995,7 +1036,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sv.add_argument("--limit", type=int, default=None)
     sv.add_argument("--dry-run", action="store_true")
+    sv.add_argument(
+        "--no-schedule",
+        action="store_true",
+        help="serve the page and status only; `flighttrack worker` does the collecting",
+    )
     sv.set_defaults(func=cmd_serve)
+
+    wk = sub.add_parser(
+        "worker", help="collect on a schedule (batches, sweep, deals, alerts, health, backups)"
+    )
+    wk.set_defaults(func=cmd_worker)
+
+    hc = sub.add_parser("healthcheck", help="exit 0 if the worker is alive (Docker health check)")
+    hc.add_argument("what", choices=["worker"])
+    hc.set_defaults(func=cmd_healthcheck)
 
     cp = sub.add_parser(
         "compact", help="prune runner-up offers and old logs, then VACUUM (dry run unless --yes)"
@@ -1082,7 +1137,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.settings = Settings()
     # JSON lines for the long-running process; plain text for a person at a terminal.
-    setup_logging(json_lines=args.cmd == "serve")
+    setup_logging(json_lines=args.cmd in ("serve", "worker"))
     if args.cmd in ("doctor", "calibrate"):
         _default_dates(args)
     try:
