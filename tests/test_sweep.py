@@ -75,3 +75,91 @@ def test_rotation_across_runs(tmp_path):
     first = sweep._rotate(jobs, conn, 2)
     second = sweep._rotate(jobs, conn, 2)
     assert first != second and len(first) == len(second) == 2
+
+
+# ---------------------------------------------------------------------------
+# M1: the bag filter goes out, and calendar prices are judged only against
+# calendar prices
+# ---------------------------------------------------------------------------
+
+NOW = datetime(2026, 9, 17, 12, tzinfo=timezone.utc)
+
+
+def _decoded(body):
+    import json
+    import urllib.parse
+
+    return json.loads(json.loads(urllib.parse.unquote(body[len("f.req="):-1]))[1])
+
+
+def _qids(conn):
+    return [r["id"] for r in conn.execute("SELECT id FROM queries WHERE active = 1 ORDER BY depart_date")]
+
+
+def _add(conn, qid, cents, days_ago, source, is_best):
+    from datetime import timedelta
+
+    at = (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("INSERT INTO observations (query_id, observed_at, price_cents, currency, is_best, raw, source) "
+                 "VALUES (?, ?, ?, 'USD', ?, '{}', ?)", (qid, at, cents, is_best, source))
+    conn.commit()
+
+
+def test_sweep_sends_the_bag_filter_and_records_what_the_price_means(tmp_path):
+    import json
+
+    conn, cfg = make_db(tmp_path, _cfg(confirm_budget=0), today=TODAY)
+    q = conn.execute("SELECT depart_date, return_date FROM queries WHERE active = 1 ORDER BY depart_date").fetchone()
+    t = FakeTransport([(200, None, _batch([(q["depart_date"], q["return_date"], 300)]))])
+    sweep.run(conn, cfg, transport=t, now=NOW, sleeper=lambda s: None, verbose=False)
+    assert _decoded(t.calls[0]["data"])[1][10] == [1, 0]                      # cfg.search.carry_on_bags = 1
+    raw = json.loads(conn.execute("SELECT raw FROM observations WHERE source = 'google_calendar'").fetchone()[0])
+    assert raw["filters"] == {"bags": True, "exclude_basic": False}
+
+    cfg0 = replace(cfg, search=replace(cfg.search, carry_on_bags=0))
+    t0 = FakeTransport([(200, None, _batch([]))])
+    sweep.run(conn, cfg0, transport=t0, now=NOW, sleeper=lambda s: None, verbose=False)
+    assert _decoded(t0.calls[0]["data"])[1][10] is None
+
+
+def test_promising_rules(tmp_path):
+    conn, cfg = make_db(tmp_path, _cfg(), today=TODAY)
+    a, b, c = _qids(conn)[:3]
+
+    # 1. at or under the target, with no history at all
+    assert sweep.promising(conn, cfg, a, 14000, 14000, now=NOW) == (True, "under target")
+
+    # 2. far under the date pair's OWN calendar median (needs three points in 30 days)
+    for days, cents in ((1, 30000), (5, 31000), (9, 29000)):
+        _add(conn, a, cents, days, "google_calendar", 0)
+    ok, why = sweep.promising(conn, cfg, a, 26000, 14000, now=NOW)
+    assert ok and why == "13% under its 30-day calendar median"
+    assert sweep.promising(conn, cfg, a, 28000, 14000, now=NOW) == (False, "not notable")   # only 7% under
+
+    # Two points are not enough, and points older than 30 days do not count.
+    _add(conn, b, 30000, 1, "google_calendar", 0)
+    _add(conn, b, 30000, 2, "google_calendar", 0)
+    _add(conn, b, 30000, 45, "google_calendar", 0)
+    assert sweep.promising(conn, cfg, b, 20000, 14000, now=NOW)[0] is False
+
+    # The detail series is never the yardstick: a calendar price far under the
+    # results-page prices (which exclude basic economy) is not a bargain by itself.
+    for days in (1, 2, 3, 4):
+        _add(conn, c, 39400, days, "fake", 1)
+    assert sweep.promising(conn, cfg, c, 30400, 14000, now=NOW) == (False, "not notable")
+
+    # 3. one of the three cheapest dates in its window
+    ok, why = sweep.promising(conn, cfg, c, 30400, 14000, now=NOW, cheapest_in_window=True)
+    assert ok and "3 cheapest" in why
+
+
+def test_three_cheapest_dates_of_a_window_are_confirmed(tmp_path):
+    conn, cfg = make_db(tmp_path, replace(_cfg(confirm_budget=6), max_days_ahead=70), today=TODAY)
+    rows = conn.execute("SELECT id, depart_date, return_date FROM queries WHERE active = 1 ORDER BY depart_date").fetchall()
+    assert len(rows) >= 5
+    prices = [400, 380, 300, 310, 290] + [500] * (len(rows) - 5)          # all over the $140 SLC target
+    t = FakeTransport([(200, None, _batch([(r["depart_date"], r["return_date"], p) for r, p in zip(rows, prices)]))])
+    fake = FakeSource(default=[39400])
+    stats = sweep.run(conn, cfg, transport=t, confirm_source=fake, now=NOW, sleeper=lambda s: None, verbose=False)
+    assert sorted(stats.confirm_ids) == sorted([rows[2]["id"], rows[3]["id"], rows[4]["id"]])
+    assert stats.confirm_stats.succeeded == 3

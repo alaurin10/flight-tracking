@@ -41,11 +41,11 @@ echo "== secrets"
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<'ENV'
 # flighttrack secrets — read by the systemd units. Never commit this file.
-NTFY_TOPIC=replace-with-a-long-random-topic
 # SERPAPI_KEY=
+# SMTP_HOST= SMTP_USER= SMTP_PASS= SMTP_TO=   # only for notify.channel: smtp
 ENV
   chmod 600 "$ENV_FILE"
-  echo "   wrote $ENV_FILE — EDIT IT: set NTFY_TOPIC"
+  echo "   wrote $ENV_FILE — edit it if you use SerpApi or SMTP"
 fi
 
 echo "== systemd"
@@ -62,7 +62,7 @@ echo "   change with: timedatectl set-timezone America/Los_Angeles && systemctl 
 
 echo
 echo "installed. Now:"
-echo "  1. nano $ENV_FILE                      # set NTFY_TOPIC"
+echo "  1. nano $ENV_FILE                      # optional: SERPAPI_KEY, SMTP_*"
 echo "  2. nano $APP_DIR/config.yaml           # your trips, patterns, watches"
 echo "  3. systemctl restart flighttrack-serve"
 echo "  4. sudo -u $SERVICE_USER $APP_DIR/.venv/bin/flighttrack --config $APP_DIR/config.yaml doctor"

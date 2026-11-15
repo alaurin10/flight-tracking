@@ -2,8 +2,7 @@
 #
 # One line does everything; stages are isolated inside `run`. Exit status is
 # non-zero if the collector aborted or health is critical, so cron mail (or
-# your MAILTO) surfaces it — and `health` pushes to your phone as well.
-NTFY_TOPIC=replace-with-a-long-random-topic
+# your MAILTO) surfaces it — and `health` sends a notification as well.
 15 3 * * *  cd /srv/flighttrack && .venv/bin/flighttrack run >> log/run.log 2>&1
 
 # Optional: a second, deals-only poll in the afternoon (deal posts are

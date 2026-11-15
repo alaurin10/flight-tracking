@@ -191,10 +191,17 @@ def cmd_run(args) -> int:
 def cmd_serve(args) -> int:
     """Scheduler + web server in one process — the always-on-box way to run this."""
     from .jobs import run_daily
-    from .serve import serve
+    from .serve import needs_catchup, serve
 
     cfg = _load(args, strict_secrets=False)
-    connect(cfg.db_path).close()   # apply schema up front so the first GET has tables
+    conn = connect(cfg.db_path)    # apply schema up front so the first GET has tables
+    try:
+        catchup, why = needs_catchup(conn)
+    finally:
+        conn.close()
+    run_on_start = args.run_on_start or catchup
+    if catchup and not args.run_on_start:
+        print(f"[serve] catching up at start: {why}")
 
     def job():
         conn = _db(cfg)
@@ -205,7 +212,7 @@ def cmd_serve(args) -> int:
             conn.close()
 
     serve(cfg, job, host=args.host, port=args.port, at=args.at, jitter_minutes=args.jitter,
-          run_on_start=args.run_on_start)
+          run_on_start=run_on_start)
     return 0
 
 
@@ -369,8 +376,8 @@ def cmd_doctor(args) -> int:
     channel = (cfg.notify or {}).get("channel", "none")
     if not cfg.alerts.enabled:
         print("[warn] notifications   : alerts are disabled in config")
-    elif channel == "ntfy" and not (cfg.notify.get("ntfy") or {}).get("topic"):
-        print("[warn] notifications   : ntfy selected but no topic — set $NTFY_TOPIC before `flighttrack alert`")
+    elif channel == "smtp" and not ((cfg.notify.get("smtp") or {}).get("host") and (cfg.notify.get("smtp") or {}).get("to")):
+        print("[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST and $SMTP_TO")
     else:
         print(f"[ok]   notifications   : {channel}")
 
@@ -452,8 +459,13 @@ def cmd_doctor(args) -> int:
             print(f"  raw={o.raw.get('price_raw')!r} → {o.price_cents} cents = ${o.price_cents/100:,.2f}   "
                   f"{o.airline or '?'}  stops={o.stops}  {o.duration_min or '?'} min  [{o.raw.get('bucket')}]   plausible={price_is_plausible(o.price_cents)}")
         buckets = {o.raw.get("bucket") for o in offers}
-        if "other" not in buckets:
-            print("  note: only the 'best' list was found; the cheapest fare usually sits in 'other'. Check the page dump.")
+        if len(buckets) < 2:
+            print("  note: these offers all came from one of the page's two lists ('best' = Top departing flights,\n"
+                  "        'other' = Other departing flights). The cheapest fare is often in 'other'; check the page dump.")
+        if "page_min" in offers[0].raw:
+            ok = False
+            print(f"\n  ⚠ The page says its cheapest price is {offers[0].raw['page_min']}, but the lowest parsed price is "
+                  f"${offers[0].price_cents/100:,.0f}. The layout may have shifted; save the page with --dump.")
         if not all(price_is_plausible(o.price_cents) for o in offers):
             ok = False
             print("\n  ⚠ Some prices are outside the plausible band — units may have changed upstream.")
@@ -664,7 +676,8 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--port", type=int, default=8080)
     sv.add_argument("--at", default="03:15", help="local time HH:MM for the daily run")
     sv.add_argument("--jitter", type=int, default=45, help="random delay after --at, minutes")
-    sv.add_argument("--run-on-start", action="store_true", help="run once immediately, then on schedule")
+    sv.add_argument("--run-on-start", action="store_true",
+                    help="run once immediately, then on schedule (automatic when nothing succeeded in 20h)")
     sv.add_argument("--limit", type=int, default=None)
     sv.add_argument("--dry-run", action="store_true")
     sv.set_defaults(func=cmd_serve)

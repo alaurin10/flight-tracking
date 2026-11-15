@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+import statistics
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -27,12 +28,24 @@ from .config import Config, Pattern, Route
 from .db import get_state, set_state, utcnow
 from .expand import departure_dates
 from .gflights import PageKind, classify
-from .gflights.calendar import RPC_HEADERS, RPC_PARAMS, RPC_URL, DatePrice, build_body, parse_calendar, windows
+from .gflights.calendar import (
+    EXCLUDE_BASIC_SLOT,
+    RPC_HEADERS,
+    RPC_PARAMS,
+    RPC_URL,
+    DatePrice,
+    build_body,
+    parse_calendar,
+    windows,
+)
 from .gflights.transport import Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
 
 STATE_CURSOR = "sweep_cursor"
 SOURCE_NAME = "google_calendar"
+CHEAPEST_PER_WINDOW = 3          # these many cheapest dates of each window earn a confirm
+MEDIAN_DAYS = 30                 # a date pair's own calendar history used for the median
+MEDIAN_MIN_POINTS = 3
 
 
 @dataclass(frozen=True)
@@ -117,29 +130,51 @@ def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: floa
     body = build_body(
         cfg.home, job.route.dest, job.start, job.end, nights,
         seat=cfg.search.seat, adults=cfg.search.adults, max_stops=job.route.max_stops,
-        currency=cfg.search.currency,
+        currency=cfg.search.currency, carry_on_bags=cfg.search.carry_on_bags,
     )
     params = {**RPC_PARAMS, "hl": "en", "curr": cfg.search.currency}
     resp = transport.post(RPC_URL, body, params=params, headers=RPC_HEADERS, timeout=timeout)
     return parse_calendar(resp.text), resp
 
 
-def promising(conn: sqlite3.Connection, cfg: Config, query_id: int, sweep_cents: int, target: int | None) -> tuple[bool, str]:
-    """Is this sweep price worth a confirming fetch? Returns (yes, why)."""
+def calendar_filters(cfg: Config) -> dict:
+    """What a stored calendar price means, so later readers do not compare it with the wrong thing."""
+    return {
+        "bags": bool(cfg.search.carry_on_bags),
+        "exclude_basic": EXCLUDE_BASIC_SLOT is not None and cfg.search.exclude_basic_economy,
+    }
+
+
+def promising(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    query_id: int,
+    sweep_cents: int,
+    target: int | None,
+    now: datetime | None = None,
+    cheapest_in_window: bool = False,
+) -> tuple[bool, str]:
+    """Is this calendar price worth a confirming fetch? Returns (yes, why).
+
+    A calendar price is judged only against other calendar prices: it carries
+    different filters from the tracked results-page series (basic economy is
+    not excluded), so comparing the two would flag false bargains every day.
+    Call it before storing the new price, so the median is of earlier ones.
+    """
     if target and sweep_cents <= target:
         return True, "under target"
-    row = conn.execute(
-        """
-        SELECT MIN(price_cents) AS lo FROM observations
-        WHERE query_id = ? AND is_best = 1 AND observed_at >= ?
-        """,
-        (query_id, (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")),
-    ).fetchone()
-    lo = row["lo"] if row else None
-    if lo is None:
-        return False, "no detail history yet"
-    if sweep_cents <= lo * (1 - cfg.calendar.priority_boost_pct / 100.0):
-        return True, f"{(lo - sweep_cents) / lo * 100:.0f}% under 30d low"
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(days=MEDIAN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prior = [r[0] for r in conn.execute(
+        "SELECT price_cents FROM observations WHERE query_id = ? AND source = ? AND observed_at >= ?",
+        (query_id, SOURCE_NAME, since),
+    )]
+    if len(prior) >= MEDIAN_MIN_POINTS:
+        median = statistics.median(prior)
+        if sweep_cents <= median * (1 - cfg.calendar.priority_boost_pct / 100.0):
+            return True, f"{(median - sweep_cents) / median * 100:.0f}% under its {MEDIAN_DAYS}-day calendar median"
+    if cheapest_in_window:
+        return True, f"one of the {CHEAPEST_PER_WINDOW} cheapest dates in its window"
     return False, "not notable"
 
 
@@ -177,7 +212,7 @@ def run(
     if verbose:
         print(f"[sweep] run {stats.run_id}: {len(jobs)} of {stats.planned} windows this run")
 
-    candidates: list[tuple[float, int, str]] = []   # (sweep/target ratio, query_id, why)
+    candidates: list[tuple[float, int, int, str]] = []   # (price/target ratio, cents, query_id, why)
     notes: list[str] = []
 
     for i, job in enumerate(jobs):
@@ -224,22 +259,25 @@ def run(
         fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "ok", latency)
         lookup = _query_lookup(conn, cfg, job.route)
         nights = job.pattern.nights
-        hit = 0
+        matched: list[tuple[int, int, DatePrice]] = []
         for dp in prices:
             ret = dp.ret or ((date.fromisoformat(dp.depart) + timedelta(days=nights)).isoformat() if nights else None)
             qid = lookup.get((dp.depart, ret))
-            if qid is None:
-                continue
-            hit += 1
-            cents = int(round(float(dp.price) * 100))
+            if qid is not None:
+                matched.append((qid, int(round(float(dp.price) * 100)), dp))
+        hit = len(matched)
+        cheapest = {qid for qid, _, _ in sorted(matched, key=lambda m: m[1])[:CHEAPEST_PER_WINDOW]}
+        filters = calendar_filters(cfg)
+        target = job.route.target_price
+        for qid, cents, dp in matched:
+            ok, why = promising(conn, cfg, qid, cents, target, now=now, cheapest_in_window=qid in cheapest)
             offer = Offer(price_cents=cents, currency=cfg.search.currency, source=SOURCE_NAME,
-                          raw={"price_raw": dp.price, "calendar": True, "window": [job.start, job.end]})
+                          raw={"price_raw": dp.price, "calendar": True, "window": [job.start, job.end],
+                               "filters": filters})
             w, _ = fetch_mod.store(conn, qid, [offer], is_best_series=False)
             stats.written += w
-            ok, why = promising(conn, cfg, qid, cents, job.route.target_price)
             if ok:
-                ratio = cents / (job.route.target_price or cents)
-                candidates.append((ratio, qid, why))
+                candidates.append((cents / (target or cents), cents, qid, why))
         stats.matched += hit
         conn.commit()
         if verbose:
@@ -250,7 +288,7 @@ def run(
     if candidates and confirm_source is not None and cfg.calendar.confirm_budget > 0 and not stats.blocked:
         candidates.sort()
         seen: set[int] = set()
-        for _, qid, _why in candidates:
+        for _, _, qid, _why in candidates:
             if qid not in seen:
                 seen.add(qid)
                 stats.confirm_ids.append(qid)

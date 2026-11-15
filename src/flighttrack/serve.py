@@ -30,7 +30,23 @@ from . import fetch as fetch_mod
 from . import health as health_mod
 from . import html as html_mod
 from .config import Config
-from .db import connect, get_state, utcnow
+from .db import connect, get_state, parse_ts, utcnow
+
+# At start-up, run at once when nothing has succeeded for this long, so a
+# restart or a week of downtime does not wait for tomorrow's 03:15.
+CATCHUP_HOURS = 20
+
+
+def needs_catchup(conn, now: datetime | None = None, hours: float = CATCHUP_HOURS) -> tuple[bool, str]:
+    """(run now?, why) from `last_success_at` in the state table."""
+    now = now or datetime.now(timezone.utc)
+    last = parse_ts(get_state(conn, fetch_mod.STATE_LAST_SUCCESS))
+    if last is None:
+        return True, "no successful fetch recorded yet"
+    age = (now - last).total_seconds() / 3600.0
+    if age > hours:
+        return True, f"last successful fetch {age:.0f}h ago (more than {hours:g}h)"
+    return False, f"last successful fetch {age:.0f}h ago"
 
 
 @dataclass

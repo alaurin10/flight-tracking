@@ -187,3 +187,49 @@ def test_build_source_skips_serpapi_without_key(tmp_path):
     assert src.build_source(cfg, failure_dir=tmp_path, transport=FakeTransport([])).name == "google_html"
     cfg = replace(cfg, fetch=replace(cfg.fetch, serpapi_key="abc"))
     assert src.build_source(cfg, failure_dir=tmp_path, transport=FakeTransport([])).name == "chain(google_html>serpapi)"
+
+
+# ---------------------------------------------------------------------------
+# M1: layovers in raw, and the page_min self-check
+# ---------------------------------------------------------------------------
+
+def _page_with_min(page_min, prices=(811, 640)):
+    payload = make_payload(best=[make_itinerary(prices[0])], other=[make_itinerary(p) for p in prices[1:]])
+    payload += [None] * (26 - len(payload))
+    payload[25] = [[None, page_min]]
+    return make_results_html(payload)
+
+
+def test_layovers_reach_the_offer():
+    it = make_itinerary(394)
+    it[0][13] = [[265, "DEN", "DEN", None, "Denver International Airport", "Denver"]]
+    html = make_results_html(make_payload(other=[it]))
+    s = src.GoogleHtmlSource(transport=FakeTransport([(200, None, html)]))
+    offer = s.fetch(_cfg(), _route(_cfg()), "2027-01-07", "2027-01-11", 5)[0]
+    assert offer.raw["layovers"] == [{"min": 265, "at": "DEN"}]
+
+
+def test_page_min_is_recorded_only_on_a_mismatch():
+    s = src.GoogleHtmlSource(transport=FakeTransport([(200, None, _page_with_min(640)), (200, None, _page_with_min(599))]))
+    agree = s.fetch(_cfg(), _route(_cfg()), "2027-01-07", "2027-01-11", 5)
+    assert all("page_min" not in o.raw for o in agree)
+    differ = s.fetch(_cfg(), _route(_cfg()), "2027-01-07", "2027-01-11", 5)
+    assert [o.raw["page_min"] for o in differ] == [599, 599]
+
+
+def test_parser_mismatch_is_counted_and_warned(tmp_path):
+    from datetime import datetime, timezone
+
+    from flighttrack import fetch, health
+    from helpers import make_db
+
+    conn, cfg = make_db(tmp_path, make_config())
+    pages = [(200, None, _page_with_min(599))] * 3 + [(200, None, _page_with_min(640))]
+    s = src.GoogleHtmlSource(transport=FakeTransport(pages))
+    stats = fetch.run(conn, cfg, s, limit=4, sleeper=lambda x: None, verbose=False)
+    assert stats.succeeded == 4 and stats.parser_mismatch == 3
+    assert "PARSER_MISMATCH=3" in stats.summary()
+    assert "page's own cheapest" in conn.execute("SELECT notes FROM run_log").fetchone()[0]
+
+    rep = health.check(conn, cfg, now=datetime.now(timezone.utc))
+    assert any(p.code == "parser_mismatch" and p.severity == "warn" for p in rep.problems)

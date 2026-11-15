@@ -2,9 +2,11 @@
 
 You do not operate this system; you glance at it. Two surfaces:
 
-## 1. The phone push
+## 1. The alert
 
-You get a notification when something is worth your attention, and only then:
+You get a notification when something is worth your attention, and only then. It
+lands in `out/digest.md` with the shipped config, or in your inbox with
+`notify.channel: smtp`; the web app will deliver it as a browser push.
 
 - **a price alert** — a tracked date hit your target, set an all-time low, or fell
   into the cheapest slice of its route's history. The notification carries the
@@ -18,7 +20,7 @@ You get a notification when something is worth your attention, and only then:
   actually means "not looking".
 
 Alerts are rate-limited by design (no repeat on the same dates within a week
-unless it drops another 10%; at most three pushes per run, then a digest). If it
+unless it drops another 10%; at most three alerts per run, then a digest). If it
 is quiet for the first weeks, that is history accumulating, not a fault.
 
 ## 2. The report

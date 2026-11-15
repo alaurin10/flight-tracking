@@ -100,3 +100,44 @@ def test_http_serves_report_status_and_run(tmp_path):
         assert exc.code == 404
     port_box["sched"].stop()
     port_box["httpd"].shutdown()
+
+
+# ---------------------------------------------------------------------------
+# M1: start-up catch-up
+# ---------------------------------------------------------------------------
+
+def test_needs_catchup_from_last_success(tmp_path):
+    from datetime import timezone
+
+    from flighttrack.db import set_state
+
+    now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+    conn, _ = make_db(tmp_path)
+    assert serve.needs_catchup(conn, now) == (True, "no successful fetch recorded yet")
+    set_state(conn, "last_success_at", "2026-11-13T18:00:00Z")          # 18 h ago
+    assert serve.needs_catchup(conn, now)[0] is False
+    set_state(conn, "last_success_at", "2026-11-13T15:00:00Z")          # 21 h ago
+    run, why = serve.needs_catchup(conn, now)
+    assert run and "21h ago" in why
+
+
+def test_cmd_serve_runs_at_start_only_when_behind(tmp_path, monkeypatch, capsys):
+    from flighttrack import cli
+    from flighttrack.db import set_state, utcnow
+
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "home: SEA\nroutes:\n  - dest: SLC\n    label: Salt Lake City\npatterns:\n  - name: fri\n    depart_dow: FRI\n"
+        f"    nights: 3\nnotify:\n  channel: none\noutput:\n  db_path: {tmp_path / 'f.db'}\n  html_path: {tmp_path / 'i.html'}\n"
+    )
+    seen = []
+    monkeypatch.setattr(serve, "serve", lambda cfg, job, **kw: seen.append(kw["run_on_start"]))
+
+    assert cli.main(["--config", str(cfg_path), "serve"]) == 0          # empty database → catch up
+    assert "catching up at start" in capsys.readouterr().out
+    conn = connect(tmp_path / "f.db")
+    set_state(conn, "last_success_at", utcnow())
+    conn.close()
+    assert cli.main(["--config", str(cfg_path), "serve"]) == 0          # fresh → wait for the schedule
+    assert cli.main(["--config", str(cfg_path), "serve", "--run-on-start"]) == 0
+    assert seen == [True, False, True]

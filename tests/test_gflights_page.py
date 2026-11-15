@@ -12,7 +12,7 @@ def _resp(text, status=200, url="https://www.google.com/travel/flights/search?tf
 def test_results_page_is_parsed():
     page = classify(_resp(make_results_html(make_payload(best=[make_itinerary(811)]))))
     assert page.kind is PageKind.RESULTS and page.ok
-    assert page.payload[3][0][0][1][0][1] == 811
+    assert page.payload[2][0][0][1][0][1] == 811
     assert "script.ds:1" in page.signals
 
 

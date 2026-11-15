@@ -57,7 +57,7 @@ def test_trip_in_the_past_is_not_expanded(tmp_path):
 
 def test_window_reactivates_a_previously_expired_row(tmp_path):
     cfg = make_config(patterns=[Pattern("p", "FRI", 3, window_start="2027-01-01", window_end="2027-01-31")], max_days_ahead=400)
-    conn, cfg = make_db(tmp_path, cfg)
+    conn, cfg = make_db(tmp_path, cfg, today=TODAY)
     conn.execute("UPDATE queries SET active = 0")
     conn.commit()
     res = expand.expand(conn, cfg, today=TODAY, build_links=False)
@@ -141,3 +141,10 @@ def test_shipped_config_is_valid_and_covers_all_three_scenarios():
     assert any(p.window_start for p in cfg.patterns), "a windowed (ski) pattern"
     assert cfg.trips, "a fixed trip"
     assert cfg.deals.watches, "a deal watch"
+    # M1: ntfy is gone, the dead and Europe-only feeds are gone, the cap is conservative.
+    assert cfg.notify["channel"] == "file"
+    assert cfg.deals.feeds == (
+        "https://www.theflightdeal.com/feed/",
+        "https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/",
+    )
+    assert cfg.fetch.max_queries_per_run == 25

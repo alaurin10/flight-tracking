@@ -15,6 +15,7 @@ from __future__ import annotations
 import gzip
 import http.cookiejar
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -25,11 +26,14 @@ from typing import Protocol
 
 DEFAULT_TIMEOUT = 30.0
 
-# A current desktop Chrome on macOS. Google serves the no-JS results page to
-# it; exotic or very old UAs get a degraded page without the data blob.
+# A recent desktop Chrome on macOS, the same major version `PrimpTransport`
+# impersonates, so the user agent and the TLS fingerprint tell one story.
+# Google serves the full results page to it; exotic or very old UAs get a
+# degraded page without the data blob. Bump both together.
+IMPERSONATE = "chrome_145"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
 # Pre-accepted consent cookie. Irrelevant from US IPs; from EU IPs it stops
@@ -148,7 +152,7 @@ class PrimpTransport:
 
     name = "primp"
 
-    def __init__(self, impersonate: str = "chrome_145", impersonate_os: str = "macos") -> None:
+    def __init__(self, impersonate: str = IMPERSONATE, impersonate_os: str = "macos") -> None:
         import primp  # noqa: F401  (ImportError propagates to the chooser)
 
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
@@ -189,7 +193,13 @@ class PrimpTransport:
 
 
 def default_transport(prefer: str = "auto") -> Transport:
-    """`auto` = primp when importable, else urllib. `urllib`/`primp` force one."""
+    """`auto` = primp when it can be built, else urllib. `urllib`/`primp` force one.
+
+    Under `auto`, any failure to build the primp client (not installed, a
+    wheel for the wrong platform, an API change in a new release) falls back
+    to urllib. A missing optional package is silent; anything else prints one
+    warning line, because it means primp is installed but not working.
+    """
     if prefer == "urllib":
         return UrllibTransport()
     if prefer in ("auto", "primp"):
@@ -198,5 +208,10 @@ def default_transport(prefer: str = "auto") -> Transport:
         except ImportError:
             if prefer == "primp":
                 raise
+            return UrllibTransport()
+        except Exception as exc:  # noqa: BLE001 — any primp failure must not stop collection
+            if prefer == "primp":
+                raise
+            print(f"[warn] primp transport unavailable ({type(exc).__name__}: {exc}); using urllib", file=sys.stderr)
             return UrllibTransport()
     raise ValueError(f"unknown transport {prefer!r}")

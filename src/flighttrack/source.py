@@ -27,7 +27,7 @@ from typing import Any, Protocol
 
 from .config import Config, Route
 from .gflights import PageKind, classify, itineraries
-from .gflights.results import has_itinerary_lists
+from .gflights.results import has_itinerary_lists, page_min_price
 from .gflights.tfs import Leg, Query
 from .gflights.transport import BASE_HEADERS, Response, Transport, TransportError, default_transport
 
@@ -272,7 +272,25 @@ class GoogleHtmlSource:
                 raise NoResults("results page had empty itinerary lists")
             self.failures.save("shape", resp, label)
             raise LayoutError("results payload decoded but no itinerary lists found at the expected positions")
+        mark_page_min(offers, page_min_price(page.payload))
         return offers
+
+
+def mark_page_min(offers: list[Offer], page_min: int | float | None) -> bool:
+    """Self-check: the page states its own cheapest price. When it disagrees with
+    our lowest parsed price, record it on every offer (`raw["page_min"]`) so the
+    fetcher and the watchdog can see a shifted layout. Returns True on a mismatch."""
+    if page_min is None or not offers:
+        return False
+    try:
+        page_cents = normalize_price(page_min)
+    except ValueError:
+        return False
+    if page_cents == min(o.price_cents for o in offers):
+        return False
+    for o in offers:
+        o.raw["page_min"] = page_min
+    return True
 
 
 def offers_from_itineraries(its: list, currency: str, source: str, limit: int) -> list[Offer]:
@@ -305,6 +323,7 @@ def offers_from_itineraries(its: list, currency: str, source: str, limit: int) -
                         }
                         for s in it.segments
                     ],
+                    "layovers": [{"min": lay.minutes, "at": lay.airport} for lay in it.layovers],
                 },
             )
         )
@@ -315,9 +334,10 @@ def offers_from_itineraries(its: list, currency: str, source: str, limit: int) -
 class FastFlightsSource:
     """The `fast-flights` library as an independent second parser of the same page.
 
-    Optional. Its parser only reads Google's "best" list, so its minimum can
-    sit above ours; that is fine for a fallback whose job is to keep history
-    flowing while the primary is fixed.
+    Optional. Its parser reads only one of the page's two lists (payload[3],
+    "Other departing flights"), so its minimum can sit above ours; that is
+    fine for a fallback whose job is to keep history flowing while the
+    primary is fixed.
     """
 
     name = "fast_flights"

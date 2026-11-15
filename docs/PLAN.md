@@ -14,7 +14,7 @@ Update this table in the same pull request that finishes a milestone.
 
 | Step | What | Status | PR | Notes |
 |---|---|---|---|---|
-| M1 | Collector fixes | not started | | |
+| M1 | Collector fixes | done | PRNUM | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | not started | | |
 | M3 | Database as the source of truth | not started | | |
@@ -30,7 +30,23 @@ Update this table in the same pull request that finishes a milestone.
 Decisions log (add a line when a milestone departs from this document, with the reason):
 
 - 2026-11-14: Site is public and read-only; one owner password unlocks editing. Stack copies
-  Snow Watch. Alerts go by browser push only; ntfy is removed in M8.
+  Snow Watch. Alerts go by browser push only.
+- 2026-11-14 (M1, owner's request): ntfy is dropped from the plan. M1 deletes the ntfy channel
+  instead of fixing its `Title` header; `file` is the shipped channel and `smtp` stays until M8.
+  A config that still says `channel: ntfy` is refused with a message saying so.
+- 2026-11-14 (M1, owner's request): no Healthchecks.io pings and no Uptime Kuma monitor. Rule 1
+  under Reliability rules now has two signals. Trade-off: if the mini PC, the VM or the
+  container dies outright, nothing outside it notices; the owner finds out from `/status` or
+  from the absence of alerts.
+- 2026-11-14 (M1): `USER_AGENT` is Chrome 145, the same major version `primp` impersonates
+  (`chrome_145`), so the user agent and the TLS fingerprint agree. Bump both together.
+- 2026-11-14 (M1): `default_transport("auto")` stays silent when `primp` is simply not
+  installed (the core install, CI's `core` job); any other failure prints the warning line.
+- 2026-11-14 (M1): the shipped `fetch.max_queries_per_run` is 25; the code default stays 60.
+- 2026-11-14 (M1): the parser-mismatch count that `health` reads is stored in each
+  observation's `raw.page_min`, so no schema change was needed.
+- 2026-11-15 (M1): the exclude-basic calendar slot was not searched for. Method 1 needs a
+  normal browser; method 2 needs requests outside `doctor` and more than a session's budget.
 
 ## How to work from this document
 
@@ -103,7 +119,7 @@ The captured responses are in `tests/fixtures/live-20261114/` with their expecte
 
 | # | Problem | Evidence | Fixed in |
 |---|---|---|---|
-| 1 | **No ntfy notification can be sent.** Every subject starts with ✈ or ⚠, and `notify._post_ntfy` puts it in an HTTP `Title` header, which raises `UnicodeEncodeError`. The callers catch only `NotifyError`, so the stage crashes. Price alerts, deal alerts and the "tracker is broken" warning all fail | Reproduced against a local server | M1 |
+| 1 | **Notifications crash the stage.** Every subject starts with ✈ or ⚠; the old ntfy channel put it in an HTTP header, which raised `UnicodeEncodeError`. The callers catch only `NotifyError`, so price alerts, deal alerts and the "tracker is broken" warning all failed | Reproduced against a local server | M1 (channel removed; any channel error becomes `NotifyError`) |
 | 2 | **Two of three deal feeds are useless.** `secretflying.com/feed/` now redirects to the HTML home page. `fly4free.com/feed/` lists Europe-origin fares in € and £, which never match a Seattle watch. Only `theflightdeal.com/feed/` works | Fetched all three with `deals.parse_feed` | M1 |
 | 3 | **The calendar sweep ignores the bag and fare filters**, so its prices are not comparable with the tracked series ($304 against $394 for the same dates). `sweep.promising()` compares the two and would flag false bargains every day | Calendar $304 equals the unfiltered results page | M1 |
 | 4 | **The request limit is close.** A handful of requests a few seconds apart drew a block in the sandbox. The home address will tolerate more, but nobody has measured it | See table above | M1, M4, B |
@@ -115,6 +131,7 @@ The captured responses are in `tests/fixtures/live-20261114/` with their expecte
 | 10 | The web server cannot face the internet: stdlib `http.server`, no sign-in, and `POST /run` open to anyone | `serve.py` | M5 |
 | 11 | Real trip dates are committed to a public repository in `config.yaml` | Repository visibility | M3 |
 | 12 | Two processes cannot share the database safely (no `busy_timeout`), and there are no backups | `db.connect` | M2, M4 |
+| 13 | **A Google-side error is recorded as "no itineraries".** On 2026-11-15 the results page for SEA→SLC Jan 13–16 came back with `ds:1` = `[13, null, [ErrorResponse …]]` and `errorHasStatus`. `classify()` calls any `errorHasStatus` page `no_results`, so `fetch.run` marks the query fetched and resets the failure counter. It was neither empty nor a block: the calendar priced that date at $277 and the next request succeeded | `tests/fixtures/live-20261115/` | not assigned; M4 (with the canary) is the natural place. Needs a real "no flights" page to tell the two apart |
 
 ## Target
 
@@ -162,7 +179,7 @@ CLAUDE.md
 
 | Kind | Place | Examples |
 |---|---|---|
-| Secrets and per-install values | `.env` (never committed) | `OWNER_PASSWORD`, `PUBLIC_URL`, `TRUSTED_PROXY`, `TZ`, `HOME_AIRPORT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CONTACT_EMAIL`, `HEALTHCHECKS_RUN_URL`, `HEALTHCHECKS_BACKUP_URL`, `SERPAPI_KEY` |
+| Secrets and per-install values | `.env` (never committed) | `OWNER_PASSWORD`, `PUBLIC_URL`, `TRUSTED_PROXY`, `TZ`, `HOME_AIRPORT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CONTACT_EMAIL`, `SERPAPI_KEY` |
 | Tunables | `config/flighttrack.yaml` (committed) | search filters, request budget, batch pacing, cooldown steps, alert defaults, health thresholds, retention, default deal feeds |
 | What is tracked | the database, edited in the app | trips, flexible searches, deal watches, deal feeds, targets |
 
@@ -259,10 +276,10 @@ With the shipped example (154 date pairs), a day is about 12 calendar calls, 1 c
 
 Every milestone keeps these true.
 
-1. **Never silent.** Three independent signals: a push from the app when the collector is
-   unhealthy; a Healthchecks.io ping after every batch that stored a price, so an email
-   arrives when the box, the container or the collector has been dead for 12 h; and
-   `/api/health` answering 503 when the newest price is older than 36 h, for Uptime Kuma.
+1. **Never silent.** Two signals: a push from the app when the collector is unhealthy, and
+   `/api/health` answering 503 when the newest price is older than 36 h, which the container
+   health check and the status page show. There is no outside monitor, by the owner's choice
+   (see the decisions log), so a dead box is noticed on `/status` or by the absence of alerts.
 2. **Self-healing.** As described above, plus container health checks,
    `restart: unless-stopped`, and marking interrupted runs and jobs as failed at start-up.
 3. **Few requests.** The sweep covers breadth; detail fetches go where a price matters.
@@ -315,16 +332,15 @@ so the collector can run unattended on the mini PC while the web app is built.
 **Tasks.**
 
 1. **Notifications** (`notify.py`).
-   - Encode a non-ASCII `Title` as RFC 2047, which ntfy accepts:
-     `=?UTF-8?B?<base64 of the UTF-8 bytes>?=`. Leave ASCII titles as they are.
+   - Remove the ntfy channel (`NTFY_TOPIC`, its config section, its docs). A config that still
+     names it is refused with a message that says so.
    - In `notify()`, turn any `Exception` from a channel into `NotifyError`.
-   - Tests: post to a local `http.server` with the three real subject shapes
-     (`✈ $612 Tokyo · Apr 10`, `✈ deal: …`, `⚠ flighttrack is not collecting prices`) and
-     assert the decoded title arrives. For `alert.run`, `deals.alert` and `health.run`, assert
-     that a channel raising `ValueError` produces `delivery_error` or a `False` return, never
-     an exception.
-   - Change `notify.channel` in the shipped `config.yaml` to `file`. ntfy stays available for
-     anyone who sets a topic, until M8 removes it.
+   - Tests: send the three real subject shapes (`✈ $612 Tokyo · Apr 10`, `✈ deal: …`,
+     `⚠ flighttrack is not collecting prices`) through the `file` and `smtp` channels and
+     assert they arrive intact (SMTP: RFC 2047-encoded on the wire, decoded back). For
+     `alert.run`, `deals.alert` and `health.run`, assert that a channel raising `ValueError`
+     produces `delivery_error` or a `False` return, never an exception.
+   - Change `notify.channel` in the shipped `config.yaml` to `file`.
 2. **Clock-independent tests.** The pattern is already in the suite: pass a fixed `now` to the
    function under test, and a fixed `today` to `make_db` (`tests/helpers.py`).
    - Fix `tests/test_scenarios.py::test_window_reactivates_a_previously_expired_row` (fails
@@ -465,8 +481,8 @@ the web app will be built on.
    - Keep `utcnow()`, `parse_ts`, `get_state`, `set_state` where callers can import them.
 5. `backend/flighttrack/settings.py` (pydantic-settings, reads `.env`): `env`, `data_dir`,
    `db_path` (default `<data_dir>/flights.db`), `config_dir`, `static_dir`, `home_airport`,
-   `owner_password`, `public_url`, `trusted_proxy`, `contact_email`, the two VAPID keys, the two
-   Healthchecks URLs, `serpapi_key`, `git_commit`. Unused ones are harmless until their
+   `owner_password`, `public_url`, `trusted_proxy`, `contact_email`, the two VAPID keys,
+   `serpapi_key`, `git_commit`. Unused ones are harmless until their
    milestone. Everything the app writes goes under `data_dir`, because the container's root
    file system is read-only: the page at `<data_dir>/out/index.html`, failure pages at
    `<data_dir>/failures`.
@@ -560,9 +576,9 @@ and their validation), `alert.find_candidates`, `sweep.plan`, `deals.first_match
 **Goal.** One long-running process that collects on its own, recovers on its own, and says so
 when it cannot.
 
-**Read first.** Snow Watch `scheduler.py` (the `Worker` class, heartbeat, pings, the run
-lock), `jobs.py`, `store/backup.py`, `store/retention.py`, `cli.py` (`worker`,
-`healthcheck`). This repo: `fetch.py` (`select_due`, `run`, cooldown functions), `sweep.py`,
+**Read first.** Snow Watch `scheduler.py` (the `Worker` class, heartbeat, the run lock;
+skip its Healthchecks pings), `jobs.py`, `store/backup.py`, `store/retention.py`, `cli.py`
+(`worker`, `healthcheck`). This repo: `fetch.py` (`select_due`, `run`, cooldown functions), `sweep.py`,
 `jobs.py`, `serve.py`, `health.py`, `compact.py`.
 
 **Tasks.**
@@ -582,7 +598,7 @@ lock), `jobs.py`, `store/backup.py`, `store/retention.py`, `cli.py` (`worker`,
    | sweep | daily at `collect.sweep_at` local, and at start if none in 26 h | Calendar calls in groups of four, a batch gap between groups, then mark candidates |
    | deals | every 3 h | `deals.run` |
    | health | hourly | `health.run`; notifies through the notifier |
-   | canary | daily | See task 5 |
+   | canary | daily | See task 4 |
    | job queue | every 15 s | `fetch_trip`, `fetch_search`, `poll_deals`, `run_batch`; a fetch job puts that trip's queries first in the next batch and runs it now if the budget allows |
    | backup | nightly | `VACUUM INTO data/backups/flights-YYYYMMDD.db` plus `export-config` output, keep 14 |
    | retention | nightly | today's `compact.compact`, plus `notifications`, `jobs` and `run_log` older than 180 days |
@@ -591,26 +607,24 @@ lock), `jobs.py`, `store/backup.py`, `store/retention.py`, `cli.py` (`worker`,
 
    At start: run migrations, mark unfinished `run_log` rows and running jobs as failed, run
    `expand`, schedule the first batch 1–5 minutes out.
-4. Healthchecks.io: ping `HEALTHCHECKS_RUN_URL` after any batch or sweep that stored at
-   least one price, and `HEALTHCHECKS_BACKUP_URL` after a backup. A failed ping is logged and
-   ignored.
-5. `canary.py`: one request a day for a busy nonstop route from the home airport (default
+4. `canary.py`: one request a day for a busy nonstop route from the home airport (default
    `LAX`, one way, 30 days out; `collect.canary_dest`). It passes when the page is results,
    there are at least five itineraries, every price is plausible, both lists are present,
    `page_min_price` equals the lowest parsed price, and at least 80% of itineraries have an
    airline, times and a duration. A failure saves the page to the failure directory, records
    `layout_drift` in `state`, and `health.check` reports it as critical. A pass clears it.
-6. `notifier.py` replaces `notify.py` at the call sites. `Notifier.send(kind, title, body, url)`
+5. `notifier.py` replaces `notify.py` at the call sites. `Notifier.send(kind, title, body, url)`
    with `kind` one of `price`, `deal`, `health`; it always writes a row to a new
    `notifications` table (`id, kind, title, body, url, created_at`), then hands the message
-   to each configured channel. Channels for now: ntfy when a topic is set. A channel failing
+   to each configured channel. Channels for now: the `file` and `smtp` channels from
+   `notify.py`, when configured. A channel failing
    never loses the row. `alerts_sent` is written when the row is written.
    Health also sends one `health` notification when the collector recovers.
-7. `config/flighttrack.yaml` gains `collect:` (`daily_request_budget: 50`, `batch_size: 5`,
+6. `config/flighttrack.yaml` gains `collect:` (`daily_request_budget: 50`, `batch_size: 5`,
    `batch_gap_minutes: [25, 45]`, `sweep_at: "04:10"`, `trip_refresh_hours: 20`,
    `top_dates_per_search: 3`, `canary_dest: LAX`). If checkpoint A reported a measured limit,
    set the budget to half of it, and no higher than 80.
-8. Commands: `flighttrack worker`, `flighttrack healthcheck worker` (exit 0 when the
+7. Commands: `flighttrack worker`, `flighttrack healthcheck worker` (exit 0 when the
    heartbeat is under three minutes old). `flighttrack run` stays as a one-off full cycle
    for debugging. Compose gains a `worker` service with that health check; `serve` keeps
    serving the page until M5.
@@ -672,8 +686,9 @@ fallback), `api/auth.py`, `api/ratelimit.py`, `api/admin.py`, `api/models.py`, `
 10. `deploy/deploy.sh`, `deploy/flightwatch-deploy.service`, `deploy/flightwatch-deploy.timer`
     copied from Snow Watch with the paths and the watch list (`backend frontend config docker docker-compose.yml`) changed.
 11. `docs/DEPLOYMENT.md` in Snow Watch's structure: get the code and settings; start it;
-    HTTPS in front; monitoring; automatic updates; everyday tasks; backups and restore;
-    rolling back; troubleshooting. Include the first-run live checks (`doctor`,
+    HTTPS in front; monitoring (the status page, `/api/health` and the health push; leave out
+    Snow Watch's Healthchecks.io and Uptime Kuma parts); automatic updates; everyday tasks;
+    backups and restore; rolling back; troubleshooting. Include the first-run live checks (`doctor`,
     `doctor --calendar`, `calibrate`) run with `docker compose run --rm worker flighttrack …`.
 12. `docs/deploy-notes-home.md` for this installation: Docker VM, `/opt/flight-tracking`,
     port 8091, the `additional_hosts` entry for `flights.andrewlaurin.com`, moving over from
@@ -731,10 +746,7 @@ Follow `docs/deploy-notes-home.md`, written in M5. In short:
    ```
    Do not create a Cloudflare Access application for it; the app has its own sign-in.
 6. Install the deploy timer (three commands in `docs/DEPLOYMENT.md`).
-7. Monitoring: an Uptime Kuma monitor on `http://<docker-vm-ip>:8091/api/health`; two
-   Healthchecks.io checks (collection: period 6 h, grace 6 h; backups: period 1 day, grace
-   12 h) with their URLs in `.env`, then `docker compose up -d`.
-8. On a phone with Wi-Fi off: the site opens, the sign-in works, and the router still has no
+7. On a phone with Wi-Fi off: the site opens, the sign-in works, and the router still has no
    port-forward rules.
 
 ### M6. Frontend: the read-only app
@@ -828,7 +840,7 @@ CI; on a phone-sized viewport every form is usable without zooming.
 ### M8. Push alerts and the installable app
 
 **Goal.** Price alerts, deal alerts and health warnings arrive as push notifications on the
-owner's devices. ntfy is gone.
+owner's devices. The old `file` and `smtp` channels are gone.
 
 **Read first.** Snow Watch `push.py`, `api/push_api.py`, migration `003_m6.sql` (the
 subscription table), `frontend/src/service-worker.ts`, `src/lib/push.ts`,
@@ -856,8 +868,8 @@ push section of `docs/DEPLOYMENT.md`.
    "Reload". Icons generated with the script.
 5. Settings → Alerts in the app: turn on, per-kind switches, "Send a test", and the iPhone
    note (install to the Home Screen first, iOS 16.4 or later).
-6. Remove ntfy, SMTP and the `file` channel, the `notify:` config section, `NTFY_TOPIC` and
-   their docs. Keep a logging channel for tests and development.
+6. Remove the SMTP and `file` channels, the `notify:` config section, the `SMTP_*` settings
+   and their docs. Keep a logging channel for tests and development.
 7. `docs/DEPLOYMENT.md` gains the push section; `.env.example` the VAPID lines.
 
 **Acceptance.**
@@ -877,7 +889,6 @@ push section of `docs/DEPLOYMENT.md`.
    change the keys afterwards.
 2. On each device: open the site, sign in, Settings → Alerts → Turn on alerts → Send a test.
    On an iPhone, add the site to the Home Screen first and open it from there.
-3. Remove `NTFY_TOPIC` from `.env` if it is there.
 
 ### M9. Hardening and 1.0
 
@@ -907,7 +918,7 @@ push section of `docs/DEPLOYMENT.md`.
 8. Tag `v1.0.0`.
 
 **Acceptance.** All check commands pass; the drills are written up in the pull request;
-`/api/health` has answered 200 for seven consecutive days in Uptime Kuma.
+`/api/status` shows a stored price at least every 36 hours over the last seven days.
 
 ## Not planned for 1.0
 
@@ -961,11 +972,11 @@ The request body is `f.req=[null, "<json>"]` where the inner JSON is
 | 2 | trip type (1 round trip, 2 one way) | in use, works |
 | 5 | cabin | in use, works |
 | 6 | passengers `[adults, children, infants on lap, infants in seat]` | in use, works |
-| 10 | bags `[carry_on, checked]` | **verified 2026-11-14**: `[1, 0]` moved Jan 15 from $304 to $347, the carry-on-only results price |
+| 10 | bags `[carry_on, checked]` | **verified 2026-11-14**: `[1, 0]` moved Jan 15 from $304 to $347, the carry-on-only results price. Sent since M1; the 2026-11-15 check again gave $347 for Jan 15 |
 | 13 | segments | in use, works |
 | 17 | `1` | in use |
 | 19, 22 | unknown | setting each to `1` changed nothing |
-| ? | exclude basic economy | **not found yet** |
+| ? | exclude basic economy | **not found yet**; not searched for in M1 (see the decisions log) |
 
 Finding the exclude-basic slot, in order of preference:
 
@@ -1003,7 +1014,7 @@ why the app marks them as estimates.
 | Connection, WAL, migrations | `backend/snowwatch/store/db.py`, `store/migrations/` |
 | Settings from `.env` | `backend/snowwatch/settings.py`, `.env.example` |
 | JSON logs | `backend/snowwatch/logs.py` |
-| Worker, heartbeat, pings, run lock | `backend/snowwatch/scheduler.py` |
+| Worker, heartbeat, run lock | `backend/snowwatch/scheduler.py` (not its Healthchecks pings) |
 | Job queue | `backend/snowwatch/jobs.py` |
 | Backup, retention | `backend/snowwatch/store/backup.py`, `store/retention.py` |
 | App factory, headers, CSP, health, SPA fallback | `backend/snowwatch/api/app.py` |

@@ -22,6 +22,8 @@ from .notify import NotifyError, notify
 
 STATE_LAST_HEALTH_ALERT = "last_health_alert_at"
 STATE_LAST_HEALTH_SIG = "last_health_signature"
+FEED_EMPTY_DAYS = 7
+PARSER_MISMATCH_WARN = 3
 
 
 @dataclass
@@ -166,6 +168,35 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
             h = _hours_since(last_good, now)
             if h is None or h > 48:
                 rep.problems.append(Problem("feed_" + feed.split("//")[-1].split("/")[0], f"feed {feed} has not succeeded in {'ever' if h is None else f'{h:.0f}h'}", "warn"))
+                continue
+            # Answering but empty for a week: the feed moved or died quietly.
+            week_ago = _iso(now - timedelta(days=FEED_EMPTY_DAYS))
+            first = conn.execute("SELECT MIN(at) AS t FROM feed_log WHERE feed = ?", (feed,)).fetchone()["t"]
+            most = conn.execute(
+                "SELECT MAX(items) AS n FROM feed_log WHERE feed = ? AND at >= ?", (feed, week_ago)
+            ).fetchone()["n"]
+            if first is not None and first <= week_ago and not most:
+                rep.problems.append(Problem(
+                    "feed_empty_" + feed.split("//")[-1].split("/")[0],
+                    f"feed {feed} has returned no items for {FEED_EMPTY_DAYS} days — check the URL",
+                    "warn",
+                ))
+
+    # --- parser self-check -----------------------------------------------------
+    # The results page states its own cheapest price; a fetch whose parsed
+    # minimum differs from it records `page_min` in the observation's raw JSON.
+    mismatches = conn.execute(
+        "SELECT COUNT(*) FROM observations WHERE is_best = 1 AND observed_at >= ? "
+        "AND json_extract(raw, '$.page_min') IS NOT NULL",
+        (since,),
+    ).fetchone()[0]
+    if mismatches >= PARSER_MISMATCH_WARN:
+        rep.problems.append(Problem(
+            "parser_mismatch",
+            f"{mismatches} fetches in 24h where the cheapest parsed price differed from the page's own "
+            "cheapest — the page layout may have shifted; run `flighttrack doctor`",
+            "warn",
+        ))
 
     return rep
 

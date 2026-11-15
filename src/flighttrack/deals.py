@@ -24,7 +24,6 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 from .config import Config, DealWatch
-from .db import utcnow
 from .gflights.transport import Transport, TransportError, default_transport
 from .notify import NotifyError, notify
 from .report import fmt_money
@@ -67,6 +66,20 @@ REGIONS: dict[str, tuple[str, ...]] = {
 US_WIDE = ("us cities", "u.s. cities", "many us cities", "nationwide", "west coast", "usa", "united states")
 
 _PRICE = re.compile(r"(?:US\s?)?\$\s?(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d\d)?")
+_HTML_START = re.compile(r"^\s*(?:<!doctype\s+html|<html)", re.IGNORECASE)
+
+
+class FeedError(Exception):
+    """The feed URL answered, but not with a feed."""
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def looks_like_html(text: str) -> bool:
+    """A dead feed often redirects to the site's home page and answers 200."""
+    return bool(_HTML_START.match(text or ""))
 
 
 @dataclass
@@ -207,8 +220,9 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
          now: datetime | None = None, verbose: bool = True, sleeper=time.sleep) -> DealStats:
     stats = DealStats()
     now = now or datetime.now(timezone.utc)
+    stamp = _iso(now)
     transport = transport or default_transport("urllib")
-    cutoff = (now - timedelta(days=cfg.deals.lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
 
     for i, feed in enumerate(cfg.deals.feeds):
         if i:
@@ -218,11 +232,13 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
             resp = transport.get(feed, timeout=cfg.fetch.request_timeout_seconds)
             if resp.status >= 400:
                 raise TransportError(f"HTTP {resp.status}")
+            if looks_like_html(resp.text):
+                raise FeedError("feed returned a web page, not a feed")
             items = parse_feed(resp.text, feed)
-        except (TransportError, ET.ParseError) as exc:
-            msg = f"{type(exc).__name__}: {exc}"[:300]
+        except (TransportError, FeedError, ET.ParseError) as exc:
+            msg = (str(exc) if isinstance(exc, FeedError) else f"{type(exc).__name__}: {exc}")[:300]
             stats.errors.append(f"{feed}: {msg}")
-            conn.execute("INSERT INTO feed_log (feed, at, ok, items, error) VALUES (?, ?, 0, 0, ?)", (feed, utcnow(), msg))
+            conn.execute("INSERT INTO feed_log (feed, at, ok, items, error) VALUES (?, ?, 0, 0, ?)", (feed, stamp, msg))
             conn.commit()
             if verbose:
                 print(f"  [FAIL] {feed}: {msg}")
@@ -230,7 +246,7 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
 
         stats.feeds_ok += 1
         stats.items += len(items)
-        conn.execute("INSERT INTO feed_log (feed, at, ok, items) VALUES (?, ?, 1, ?)", (feed, utcnow(), len(items)))
+        conn.execute("INSERT INTO feed_log (feed, at, ok, items) VALUES (?, ?, 1, ?)", (feed, stamp, len(items)))
         new_here = 0
         for it in items:
             if it.published and it.published < cutoff:
@@ -241,7 +257,7 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
                 INSERT INTO deal_posts (guid, feed, title, link, published_at, seen_at, price_cents, watch)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(guid) DO NOTHING
                 """,
-                (it.guid, feed, it.title, it.link, it.published, utcnow(),
+                (it.guid, feed, it.title, it.link, it.published, stamp,
                  price_from_text(it.title) or price_from_text(it.summary), watch.name if watch else None),
             )
             if cur.rowcount:
@@ -255,8 +271,9 @@ def poll(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = No
     return stats
 
 
-def pending_alerts(conn: sqlite3.Connection, cfg: Config) -> list[sqlite3.Row]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=cfg.deals.lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+def pending_alerts(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> list[sqlite3.Row]:
+    now = now or datetime.now(timezone.utc)
+    cutoff = _iso(now - timedelta(days=cfg.deals.lookback_days))
     return conn.execute(
         """
         SELECT * FROM deal_posts
@@ -272,9 +289,11 @@ def _line(row: sqlite3.Row) -> str:
     return f"[{row['watch']}] {row['title']}{price}"
 
 
-def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True) -> DealStats:
+def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose: bool = True,
+          now: datetime | None = None) -> DealStats:
     stats = DealStats()
-    rows = pending_alerts(conn, cfg)
+    now = now or datetime.now(timezone.utc)
+    rows = pending_alerts(conn, cfg, now)
     if not rows:
         return stats
     try:
@@ -300,20 +319,22 @@ def alert(conn: sqlite3.Connection, cfg: Config, dry_run: bool = False, verbose:
             print(f"[deals] DELIVERY FAILED: {exc}")
         return stats
     if not dry_run:
-        now = utcnow()
-        conn.executemany("UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(now, r["id"]) for r in rows])
+        stamp = _iso(now)
+        conn.executemany("UPDATE deal_posts SET alerted_at = ? WHERE id = ?", [(stamp, r["id"]) for r in rows])
         conn.commit()
     return stats
 
 
 def run(conn: sqlite3.Connection, cfg: Config, transport: Transport | None = None,
-        dry_run: bool = False, verbose: bool = True) -> DealStats:
+        dry_run: bool = False, verbose: bool = True, now: datetime | None = None,
+        sleeper=time.sleep) -> DealStats:
     if not cfg.deals.enabled:
         if verbose:
             print("[deals] disabled in config")
         return DealStats()
-    stats = poll(conn, cfg, transport, verbose=verbose)
-    a = alert(conn, cfg, dry_run=dry_run, verbose=verbose)
+    now = now or datetime.now(timezone.utc)
+    stats = poll(conn, cfg, transport, now=now, verbose=verbose, sleeper=sleeper)
+    a = alert(conn, cfg, dry_run=dry_run, verbose=verbose, now=now)
     stats.alerted, stats.delivery_error = a.alerted, a.delivery_error
     if verbose:
         print(f"[deals] {stats.summary()}")

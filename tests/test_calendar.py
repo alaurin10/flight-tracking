@@ -60,3 +60,13 @@ def test_unwrap_tolerates_garbage_lines():
 def test_one_way_style_rows_without_return_date():
     text = ")]}'\n[[\"wrb.fr\",null,\"[[\\\"2027-02-01\\\",[[null,77]]]]\"]]\n"
     assert parse_calendar(text) == [DatePrice("2027-02-01", None, 77)]
+
+
+def test_bags_go_in_filter_slot_10():
+    inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3, carry_on_bags=1))
+    assert inner[1][10] == [1, 0]
+    inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3, carry_on_bags=0, checked_bags=2))
+    assert inner[1][10] == [0, 2]
+    inner = _decode_body(build_body("SEA", "SLC", "2027-01-15", "2027-02-14", 3))
+    assert inner[1][10] is None             # no bags: the unfiltered request captured on 2026-11-14
+    assert len(inner[1]) == 24 and inner[1][13][0][6] == "2027-01-15"

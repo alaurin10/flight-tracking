@@ -73,6 +73,7 @@ class FetchStats:
     cooldown_until: str | None = None
     observations_written: int = 0
     implausible: int = 0
+    parser_mismatch: int = 0           # fetches whose lowest parsed price != the page's own cheapest
     by_kind: Counter = field(default_factory=Counter)
     sources_used: Counter = field(default_factory=Counter)
     errors: list[str] = field(default_factory=list)
@@ -95,6 +96,8 @@ class FetchStats:
             parts.append("via=" + ",".join(f"{k}:{v}" for k, v in sorted(self.sources_used.items())))
         if self.implausible:
             parts.append(f"IMPLAUSIBLE_PRICES={self.implausible}")
+        if self.parser_mismatch:
+            parts.append(f"PARSER_MISMATCH={self.parser_mismatch}")
         if self.blocked:
             parts.append(f"ABORTED={self.abort_reason}")
         if self.cooldown_until:
@@ -379,12 +382,16 @@ def run(
         stats.sources_used[_source_used(source)] += 1
         stats.observations_written += written
         stats.implausible += implausible
+        mismatch = any("page_min" in o.raw for o in offers)
+        stats.parser_mismatch += 1 if mismatch else 0
         conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), item.query_id))
         conn.commit()
 
         if verbose:
             best = min(o.price_cents for o in offers)
             flag = "  ⚠ implausible price — check units" if implausible else ""
+            if mismatch:
+                flag += f"  ⚠ page says cheapest is {offers[0].raw['page_min']} — parser check"
             print(f"  [ok] {leg}: ${best/100:,.0f} ({written} offers){flag}")
 
     if stats.succeeded and not stats.blocked:
@@ -397,6 +404,11 @@ def run(
         note_bits.append(
             f"{stats.implausible} observation(s) outside the plausible price band — "
             "upstream price units may have changed; see raw JSON"
+        )
+    if stats.parser_mismatch:
+        note_bits.append(
+            f"{stats.parser_mismatch} fetch(es) where the page's own cheapest price differed from the "
+            "lowest parsed price — see raw.page_min"
         )
     if stats.by_kind.get("layout"):
         note_bits.append(f"{stats.by_kind['layout']} layout failure(s) — see {cfg.failure_dir}")

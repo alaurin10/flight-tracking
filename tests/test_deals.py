@@ -85,14 +85,86 @@ def test_alert_sends_once_and_digests_over_cap(tmp_path):
     cfg = _cfg(tmp_path, max_alerts_per_run=1)
     conn, cfg = make_db(tmp_path, cfg)
     deals.poll(conn, cfg, transport=FakeTransport([(200, None, RSS), (200, None, ATOM)]), now=NOW, verbose=False, sleeper=lambda s: None)
-    stats = deals.alert(conn, cfg, verbose=False)
+    stats = deals.alert(conn, cfg, verbose=False, now=NOW)
     assert stats.alerted == 3
     text = (tmp_path / "digest.md").read_text()
     assert "3 announced deals" in text and "Paris" in text and "Rome" in text
-    assert deals.alert(conn, cfg, verbose=False).alerted == 0                  # all marked alerted_at
+    assert deals.alert(conn, cfg, verbose=False, now=NOW).alerted == 0         # all marked alerted_at
     assert conn.execute("SELECT COUNT(*) FROM deal_posts WHERE alerted_at IS NULL AND watch IS NOT NULL").fetchone()[0] == 0
 
 
 def test_disabled_deals_is_a_noop(tmp_path):
     conn, cfg = make_db(tmp_path, make_config())
     assert deals.run(conn, cfg, verbose=False).feeds == 0
+
+
+# ---------------------------------------------------------------------------
+# M1: dead feeds, The Flight Deal's headline shape, the empty-feed warning
+# ---------------------------------------------------------------------------
+
+TFD_TITLE = ("Alaska Air: Seattle – San Diego (and vice versa). $127 (Basic Economy) / $237 (Regular Economy). "
+             "Roundtrip, including all Taxes")
+TFD_RSS = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>The Flight Deal</title>
+<item><title>{TFD_TITLE}</title><link>https://www.theflightdeal.com/2026/11/14/sea-san/</link>
+<guid isPermaLink="false">https://www.theflightdeal.com/?p=1</guid><pubDate>Sat, 14 Nov 2026 09:00:00 +0000</pubDate></item>
+</channel></rss>"""
+
+
+def test_flight_deal_headline_takes_the_first_price():
+    assert deals.price_from_text(TFD_TITLE) == 12700
+    item = deals.parse_feed(TFD_RSS, "https://www.theflightdeal.com/feed/")[0]
+    assert item.title == TFD_TITLE
+    w = DealWatch("Cheap from Seattle", origins=("Seattle",), destinations=("San Diego",), max_price=15000)
+    assert deals.matches(item, w)
+    assert not deals.matches(item, replace(w, max_price=12000))
+
+
+def test_html_body_is_a_failure_not_an_empty_feed(tmp_path):
+    cfg = _cfg(tmp_path)
+    conn, cfg = make_db(tmp_path, cfg)
+    home_page = "\n  <!DOCTYPE html>\n<html lang='en'><head><title>Secret Flying</title></head><body></body></html>"
+    t = FakeTransport([(200, "https://www.secretflying.com/", home_page), (200, None, "<HTML><body>moved</body></HTML>")])
+    stats = deals.poll(conn, cfg, transport=t, now=NOW, verbose=False, sleeper=lambda s: None)
+    assert stats.feeds == 2 and stats.feeds_ok == 0
+    errors = [r["error"] for r in conn.execute("SELECT error FROM feed_log WHERE ok = 0")]
+    assert errors == ["feed returned a web page, not a feed"] * 2
+    assert deals.looks_like_html("<?xml version='1.0'?><rss/>") is False
+
+
+def test_run_uses_the_given_clock(tmp_path):
+    cfg = _cfg(tmp_path)
+    conn, cfg = make_db(tmp_path, cfg)
+    t = FakeTransport([(200, None, RSS), (200, None, ATOM)])
+    stats = deals.run(conn, cfg, transport=t, now=NOW, verbose=False, sleeper=lambda s: None)
+    assert stats.new == 4 and stats.alerted == 3
+    stamps = {r[0] for r in conn.execute("SELECT seen_at FROM deal_posts UNION SELECT alerted_at FROM deal_posts "
+                                         "WHERE alerted_at IS NOT NULL UNION SELECT at FROM feed_log")}
+    assert stamps == {"2026-09-17T00:00:00Z"}
+
+
+def test_health_warns_when_a_feed_is_empty_for_a_week(tmp_path):
+    from datetime import timedelta
+
+    from flighttrack import health
+
+    cfg = _cfg(tmp_path)
+    conn, cfg = make_db(tmp_path, cfg)
+
+    def log(feed, days_ago, items):
+        at = (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute("INSERT INTO feed_log (feed, at, ok, items) VALUES (?, ?, 1, ?)", (feed, at, items))
+
+    for d in (10, 6, 3, 0):
+        log("https://rss/feed", d, 16 if d == 10 else 0)     # had items, then nothing for a week
+        log("https://atom/feed", d, 0 if d else 2)           # empty for days, then items again today
+    conn.commit()
+    codes = {p.code for p in health.check(conn, cfg, now=NOW).problems}
+    assert "feed_empty_rss" in codes and "feed_empty_atom" not in codes
+
+    # A feed added three days ago is not judged yet.
+    conn2, cfg2 = make_db(tmp_path / "b", _cfg(tmp_path))
+    conn2.execute("INSERT INTO feed_log (feed, at, ok, items) VALUES ('https://rss/feed', ?, 1, 0)",
+                  ((NOW - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+    conn2.commit()
+    assert not any(p.code.startswith("feed_empty") for p in health.check(conn2, cfg2, now=NOW).problems)

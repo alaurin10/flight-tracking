@@ -2,8 +2,8 @@
 
 A self-hosted price sensor for the flights you actually care about. It answers three questions:
 
-1. **My dates are set — when do I book?** A fixed trip is tracked daily to departure; you get a
-   push when it hits your target, an all-time low, or the cheapest slice of the route's history,
+1. **My dates are set — when do I book?** A fixed trip is tracked daily to departure; you get an
+   alert when it hits your target, an all-time low, or the cheapest slice of the route's history,
    and `advise` gives a book-or-wait verdict with its reasons.
 2. **Any long weekend in a window — which is cheapest?** A pattern like "Fri→Mon, January
    through March, to SLC" becomes a grid of date pairs, each priced and compared with its own
@@ -28,23 +28,24 @@ over days, so daily resolution is plenty.
 
 | Piece | State |
 |---|---|
-| Own Google Flights client (no third-party scraper) | ✅ built; encoder byte-identical to a live-proven library; **live call verified by `doctor` on your box** |
+| Own Google Flights client (no third-party scraper) | ✅ **verified live 2026-11-14**: 12 itineraries for SEA→SLC, every row and price equal to the rendered page; captured pages are regression tests |
 | Fallback parser (`fast-flights`), paid API escape hatch (SerpApi) | ✅ optional, in the same chain |
-| Calendar sweep (whole grid daily, ~12 calls) | ⚠️ experimental, off by default — `doctor --calendar` first |
+| Calendar sweep (whole grid daily, ~12 calls) | ⚠️ off by default. Request and parser verified live 2026-11-14 and the bag filter is sent, but prices include basic economy (that filter slot is unknown), so they are compared only with each other |
 | Typed failures, cooldown state, request log, failure artifacts | ✅ |
-| Health watchdog with push notification | ✅ |
+| Health watchdog with notification | ✅ also warns on empty feeds and parser mismatches |
 | Fixed trips, windowed multi-weekday patterns, route filters | ✅ |
-| Deal feeds (RSS) | ✅ enabled in the shipped config |
+| Deal feeds (RSS) | ✅ The Flight Deal's main and Seattle feeds, checked 2026-11-14 |
 | Book-or-wait advisor, price-sorted reports, `ingest` | ✅ |
 | Report: trip cards with history charts and verdicts, best-of-grid, calendar heatmaps, deals, collector | ✅ light/dark, phone-first, no external requests |
-| `serve`: scheduler + report server in one process; Docker Compose; launchd; systemd | ✅ see `docs/running.md` |
+| `serve`: scheduler + report server in one process; Docker Compose; launchd; systemd | ✅ see `docs/running.md`; runs at start-up when nothing succeeded in 20 h |
 | `demo`: synthetic history to see the UI today | ✅ |
-| Rate-limit calibration | ⬜ `flighttrack calibrate` on the always-on box |
+| Rate-limit calibration | ⬜ not measured from a home address; a cloud sandbox was blocked every 4–6 requests. `flighttrack calibrate` on the always-on box |
 
-This was built in an environment whose egress policy blocks Google, so the live request is the
-one thing not verified here. Everything around it is: 187 offline tests, passing with and without
-the optional dependencies. **`docs/data-sources.md`** is the full analysis of every data source
-considered and why the system is layered the way it is.
+The results page, the `primp` transport, the search filters, the calendar call and block
+detection were checked against live Google on 2026-11-14; `docs/PLAN.md` has the table.
+239 offline tests pass with and without the optional dependencies and with the clock moved
+years ahead. **`docs/data-sources.md`** is the full analysis of every data source considered and
+why the system is layered the way it is.
 
 ### Where it runs
 
@@ -88,7 +89,6 @@ pip install -e '.[full]'       # core + primp (browser TLS fingerprint) + fast-f
 ```
 
 ```bash
-export NTFY_TOPIC="pick-something-long-and-random"   # see Notifications
 flighttrack expand          # build the date grid — no network
 flighttrack doctor          # one real request
 flighttrack run             # the daily job
@@ -120,7 +120,8 @@ patterns:                    # 2. recurring shapes
 
 deals:                       # 3. announced deals
   enabled: true
-  feeds: [https://www.secretflying.com/feed/, https://www.theflightdeal.com/feed/]
+  feeds: [https://www.theflightdeal.com/feed/,
+          https://www.theflightdeal.com/category/flight-deals/seattle-flight-deals/feed/]
   watches:
     - {name: Europe from Seattle, origins: [Seattle, SEA, "West Coast", "US cities"],
        destinations: [europe], max_price: 60000}
@@ -142,8 +143,9 @@ built on top.
 
 ### Coverage
 
-The shipped config expands to ~150 queries against a 60/run cap, so detail coverage rotates over
-~3 days by priority (1 = daily, 2 = every 3 days, 3 = weekly), oldest-unfetched first, so nothing
+The shipped config expands to ~150 queries against a 25/run cap (kept low until the home
+address's limit has been measured with `calibrate`), so detail coverage rotates over several days
+by priority (1 = daily, 2 = every 3 days, 3 = weekly), oldest-unfetched first, so nothing
 starves. Fixed trips are priority 1. Enabling the calendar sweep refreshes the whole grid daily
 and spends the detail budget on the dates that look interesting.
 
@@ -154,7 +156,7 @@ and spends the detail budget on the dates that look interesting.
 | Command | Does |
 |---|---|
 | `run` | The daily job: expand → sweep → fetch → deals → alert → health → html. Stages are isolated. |
-| `serve` | `run` on a daily schedule **and** a web server for the report (`/`, `/status.json`, `POST /run`). One process for an always-on box. |
+| `serve` | `run` on a daily schedule **and** a web server for the report (`/`, `/status.json`, `POST /run`). One process for an always-on box. Runs once at start-up when nothing has succeeded in 20 hours. |
 | `demo` | Seed synthetic history into `data/demo.db` and render `out/demo.html`. No network. |
 | `compact` | Prune runner-up offers (>90d) and request logs (>180d), then VACUUM. Dry run unless `--yes`; `run` does it weekly. |
 | `expand` | Materialise trips and patterns into `queries`. Idempotent, no network. |
@@ -162,7 +164,7 @@ and spends the detail budget on the dates that look interesting.
 | `sweep` | Calendar RPC over every route/pattern window, then confirm the best candidates. Experimental. |
 | `alert` | Evaluate fresh observations and notify. `--dry-run` prints. |
 | `deals` | Poll feeds, match, notify. `--test-match TITLE` checks a headline offline. |
-| `health` | Is the collector working? Exit 1 if not; `--notify` pushes (deduped daily). |
+| `health` | Is the collector working? Exit 1 if not; `--notify` sends a notification (deduped daily). |
 | `advise` | Book-or-wait verdicts with reasons, per date pair. |
 | `report` | The grid. `--pattern`, `--dest`, `--label`, `--month`, `--sort price`, `--sparkline`, `--cheapest N`. |
 | `status` | Run history, last week's request outcomes and latencies, health. **Look here first.** |
@@ -221,15 +223,12 @@ price alerts per run before a digest; only observations from the last 48h are co
 
 ### Notifications
 
-ntfy by default — one HTTP POST, native phone push, self-hostable.
+The shipped config appends every alert to `out/digest.md` (`notify.channel: file`). `smtp` sends
+email instead (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TO`), and `none` turns delivery off.
+The web app replaces all of these with browser push (`docs/PLAN.md`, M8).
 
-```bash
-export NTFY_TOPIC="something-long-and-random"
-```
-
-Topics on the public ntfy.sh are readable by anyone who guesses the name; use a long random one
-or self-host. `smtp` and `file` channels sit behind the same seam. Delivery failures are never
-recorded as sent, so a broken channel does not let the dedup window swallow the retry.
+Delivery failures are never recorded as sent, so a broken channel does not let the dedup window
+swallow the retry, and any error inside a channel is reported, never raised into the run.
 
 ---
 
@@ -245,7 +244,7 @@ Three ways, in order of preference — details in `docs/running.md`:
    ```
 
 `run` exits non-zero when the collector aborted or health is critical, so cron mail surfaces it —
-and `health` pushes to your phone as well.
+and `health` sends a notification as well.
 
 ---
 
@@ -275,7 +274,7 @@ that drops and immediately restores the delete trigger.
 
 ```bash
 pip install -e '.[dev]'
-pytest -q        # 195 tests, all offline; passes with or without primp/fast-flights
+pytest -q        # 239 tests, all offline; passes with or without primp/fast-flights
 FLIGHTTRACK_BROWSER_TESTS=1 pytest tests/test_page.py   # also drives the page's JS in Chromium (needs playwright)
 ```
 

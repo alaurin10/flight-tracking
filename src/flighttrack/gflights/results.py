@@ -6,12 +6,15 @@ through `_at`, which returns None instead of raising, so a shifted index
 degrades one field rather than losing the whole fetch. `Itinerary.raw` keeps
 the untouched source row so anything missed can be re-derived later.
 
-Two lists matter:
-    payload[3][0]  "top departing flights"   — Google's best-ranked
-    payload[2][0]  "other departing flights" — usually where the cheapest hides
+Two lists matter (checked against the rendered page on 2026-11-14):
+    payload[2][0]  "Top departing flights"   — Google's best-ranked  → bucket 'best'
+    payload[3][0]  "Other departing flights" — often where the cheapest hides → 'other'
 
-Reading only the first (as fast-flights 3.1.0 does) systematically overstates
+Reading only one of them (fast-flights 3.1.0 reads only payload[3]) can miss
 the minimum fare. We read both.
+
+`payload[25]` holds the page's own "cheapest shown" figure; `page_min_price`
+returns it so a fetch can check the parser against the page.
 
 For a round trip, Google's results page lists OUTBOUND itineraries priced at
 the round-trip total (the return is chosen on a second page). So `segments`
@@ -71,6 +74,12 @@ class Segment:
 
 
 @dataclass
+class Layover:
+    minutes: int | None
+    airport: str | None
+
+
+@dataclass
 class Itinerary:
     price: int | float | None          # as Google states it — whole currency units
     airlines: list[str]                # codes, e.g. ['AS', 'JL']
@@ -78,6 +87,8 @@ class Itinerary:
     segments: list[Segment]
     bucket: str                        # 'best' | 'other'
     raw: Any = field(default=None, repr=False)
+    total_min: int | None = None       # `row[0][9]`: whole trip time, layovers included
+    layovers: list[Layover] = field(default_factory=list)
 
     @property
     def stops(self) -> int | None:
@@ -85,6 +96,9 @@ class Itinerary:
 
     @property
     def duration_min(self) -> int | None:
+        """Door-to-door minutes. Google's own total when present, else the flying time."""
+        if self.total_min:
+            return self.total_min
         ds = [s.duration_min for s in self.segments if isinstance(s.duration_min, int)]
         return sum(ds) if ds else None
 
@@ -119,6 +133,29 @@ def _segment(s: Any) -> Segment:
     )
 
 
+def _positive_int(v: Any) -> int | None:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _layovers(flight: Any) -> list[Layover]:
+    """`row[0][13]`: one entry per connection, `[minutes, airport code, …]`."""
+    out: list[Layover] = []
+    for lay in _at(flight, 13) or []:
+        if not isinstance(lay, (list, tuple)):
+            continue
+        code = _at(lay, 1)
+        out.append(Layover(minutes=_positive_int(_at(lay, 0)), airport=code if isinstance(code, str) else None))
+    return out
+
+
+def page_min_price(payload: Any) -> int | float | None:
+    """The page's own cheapest price (`payload[25][0][1]`), whole currency units."""
+    v = _at(payload, 25, 0, 1)
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+        return None
+    return v
+
+
 def _looks_like_itinerary(item: Any) -> bool:
     return (
         isinstance(item, (list, tuple))
@@ -144,6 +181,8 @@ def _one(item: Any, bucket: str, names: dict[str, str]) -> Itinerary | None:
         segments=segs,
         bucket=bucket,
         raw=item,
+        total_min=_positive_int(_at(flight, 9)),
+        layovers=_layovers(flight),
     )
 
 
@@ -152,7 +191,7 @@ def itineraries(payload: Any) -> list[Itinerary]:
     names = airline_directory(payload)
     out: list[Itinerary] = []
     seen: set[tuple] = set()
-    for idx, bucket in ((3, "best"), (2, "other")):
+    for idx, bucket in ((2, "best"), (3, "other")):
         rows: Iterable[Any] = _at(payload, idx, 0) or []
         if not isinstance(rows, (list, tuple)):
             continue
