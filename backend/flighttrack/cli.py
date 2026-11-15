@@ -17,7 +17,9 @@ import sys
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from . import airports, watches
 from . import alert as alert_mod
 from . import deals as deals_mod
 from . import expand as expand_mod
@@ -26,19 +28,20 @@ from . import health as health_mod
 from . import html as html_mod
 from . import report as report_mod
 from . import sweep as sweep_mod
-from .config import Config, ConfigError, load
+from .config import Config, ConfigError, Route, load, read_watch_file
 from .logs import setup_logging
-from .settings import REPO_ROOT, Settings
-from .store.db import open_db
+from .settings import Settings
 
-# The watch file (trips, patterns, deal watches) until M3 moves them into the database.
-DEFAULT_CONFIG = REPO_ROOT / "config.yaml"
+if TYPE_CHECKING:
+    from .source import Source
+from .store.db import connect, open_db, utcnow
+
 log = logging.getLogger("flighttrack.cli")
 
 
-def _load(args, strict_secrets: bool = False) -> Config:
+def _load(args: argparse.Namespace, strict_secrets: bool = False) -> Config:
     try:
-        return load(args.config, strict_secrets=strict_secrets, settings=args.settings)
+        return load(strict_secrets=strict_secrets, settings=args.settings)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
@@ -48,10 +51,104 @@ def _db(cfg: Config) -> sqlite3.Connection:
     return open_db(cfg.db_path)
 
 
-def _source(cfg: Config):
+def _source(cfg: Config) -> Source:
     from .source import build_source
 
     return build_source(cfg, failure_dir=cfg.failure_dir)
+
+
+def _route_for(cfg: Config, dest: str | None) -> Route:
+    """A route to test with: the tracked one (its label and stops) when the database has
+    it, else a plain one from the home airport (LAX when no --dest is given)."""
+    if Path(cfg.db_path).exists():
+        try:
+            conn = connect(cfg.db_path, readonly=True)
+            try:
+                row = conn.execute(
+                    "SELECT * FROM routes WHERE active = 1 AND (? IS NULL OR destination = ?) "
+                    "ORDER BY priority, id LIMIT 1",
+                    (dest, dest),
+                ).fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            row = None
+        if row is not None:
+            return Route(
+                row["destination"],
+                row["label"],
+                row["target_price"],
+                row["priority"],
+                row["max_stops"],
+                origin=row["origin"],
+            )
+    code = (dest or "LAX").upper()
+    return Route(code, airports.city(code), None, 1, None, origin=cfg.home)
+
+
+def _tracked_counts(cfg: Config) -> dict[str, int] | None:
+    if not Path(cfg.db_path).exists():
+        return None
+    try:
+        conn = connect(cfg.db_path, readonly=True)
+        try:
+            return watches.counts(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# import-config / export-config
+# ---------------------------------------------------------------------------
+
+
+def cmd_import_config(args: argparse.Namespace) -> int:
+    """Create what is missing, update what exists (by slug), never delete."""
+    cfg = _load(args)
+    try:
+        wf = read_watch_file(args.file)
+    except ConfigError as exc:
+        print(f"[import-config] {exc}", file=sys.stderr)
+        return 2
+    conn = _db(cfg)
+    try:
+        summary = watches.import_watch_file(conn, cfg, wf)
+    except watches.WatchError as exc:
+        print(f"[import-config] refused: {exc}", file=sys.stderr)
+        print(
+            "[import-config] items before this one were saved; fix it and run again.",
+            file=sys.stderr,
+        )
+        return 2
+    for line in summary.lines():
+        print(f"[import-config] {line}")
+    if not summary.changed:
+        print("[import-config] nothing changed")
+    return 0
+
+
+def cmd_export_config(args: argparse.Namespace) -> int:
+    import yaml
+
+    cfg = _load(args)
+    conn = _db(cfg)
+    data = watches.export_watch_file(conn, cfg)
+    text = (
+        "# What flighttrack tracks, exported "
+        f"{datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}.\n"
+        "# Load it again with `flighttrack import-config <file>`.\n"
+        + yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    )
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"[export-config] wrote {out}")
+    else:
+        sys.stdout.write(text)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +156,7 @@ def _source(cfg: Config):
 # ---------------------------------------------------------------------------
 
 
-def cmd_expand(args) -> int:
+def cmd_expand(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     result = expand_mod.expand(conn, cfg, build_links=not args.no_links)
@@ -82,7 +179,7 @@ def cmd_expand(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_fetch(args) -> int:
+def cmd_fetch(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -96,8 +193,8 @@ def cmd_fetch(args) -> int:
             ret = d.return_date or "one-way"
             age = d.last_fetch_at or "never"
             print(
-                f"  {cfg.home}→{d.route.dest}  {d.depart_date} / {ret}  [{d.pattern}, prio "
-                f"{d.route.priority}, last {age}]"
+                f"  {d.route.origin_or(cfg.home)}→{d.route.dest}  {d.depart_date} / {ret}  "
+                f"[{d.pattern}, prio {d.route.priority}, last {age}]"
             )
         return 0
 
@@ -135,7 +232,7 @@ def _fetch_exit(stats: fetch_mod.FetchStats) -> int:
     return 0
 
 
-def cmd_sweep(args) -> int:
+def cmd_sweep(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     if not cfg.calendar.enabled and not args.force:
@@ -145,7 +242,7 @@ def cmd_sweep(args) -> int:
         )
         return 2
     if args.dry_run:
-        jobs = sweep_mod.plan(cfg)
+        jobs = sweep_mod.plan(conn, cfg)
         print(
             f"[sweep --dry-run] {len(jobs)} windows planned ({cfg.calendar.max_calls_per_run}/run):"
         )
@@ -166,14 +263,14 @@ def cmd_sweep(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_alert(args) -> int:
+def cmd_alert(args: argparse.Namespace) -> int:
     cfg = _load(args, strict_secrets=True)
     conn = _db(cfg)
     stats = alert_mod.run(conn, cfg, dry_run=args.dry_run)
     return 1 if stats.delivery_error else 0
 
 
-def cmd_deals(args) -> int:
+def cmd_deals(args: argparse.Namespace) -> int:
     cfg = _load(args, strict_secrets=not (args.dry_run or args.test_match))
     conn = _db(cfg)
     if args.test_match:
@@ -182,14 +279,16 @@ def cmd_deals(args) -> int:
         item = FeedItem(
             guid="test", title=args.test_match, link=None, published=None, summary="", feed="test"
         )
-        w = first_match(item, cfg.deals.watches)
+        from .watches import active_deal_watches
+
+        w = first_match(item, active_deal_watches(conn))
         print(f"{'MATCH ' + w.name if w else 'no match'}: {args.test_match}")
         return 0
     stats = deals_mod.run(conn, cfg, dry_run=args.dry_run)
     return 1 if stats.delivery_error or (stats.feeds and stats.feeds_ok == 0) else 0
 
 
-def cmd_health(args) -> int:
+def cmd_health(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     rep, notified = health_mod.run(
@@ -206,7 +305,7 @@ def cmd_health(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_run(args) -> int:
+def cmd_run(args: argparse.Namespace) -> int:
     """expand → sweep (if enabled) → fetch → deals → alert → health → html, stages isolated."""
     from .jobs import run_daily
 
@@ -217,7 +316,7 @@ def cmd_run(args) -> int:
     return result.rc
 
 
-def cmd_serve(args) -> int:
+def cmd_serve(args: argparse.Namespace) -> int:
     """Scheduler + web server in one process — the always-on-box way to run this."""
     from .jobs import run_daily
     from .serve import needs_catchup, serve
@@ -232,7 +331,7 @@ def cmd_serve(args) -> int:
     if catchup and not args.run_on_start:
         log.info(f"[serve] catching up at start: {why}")
 
-    def job():
+    def job() -> None:
         conn = _db(cfg)
         try:
             result = run_daily(
@@ -255,7 +354,7 @@ def cmd_serve(args) -> int:
     return 0
 
 
-def cmd_compact(args) -> int:
+def cmd_compact(args: argparse.Namespace) -> int:
     """Prune runner-up offers and old request logs; never the price series."""
     from .compact import compact
 
@@ -266,7 +365,7 @@ def cmd_compact(args) -> int:
     return 0
 
 
-def cmd_demo(args) -> int:
+def cmd_demo(args: argparse.Namespace) -> int:
     """Seed synthetic history and render the report, to see the UI before real data exists."""
     from . import demo as demo_mod
 
@@ -294,7 +393,7 @@ def cmd_demo(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _title(cfg, args) -> str:
+def _title(cfg: Config, args: argparse.Namespace) -> str:
     scope = args.label or args.dest or "all routes"
     bits = [f"{cfg.home} → {scope}"]
     if args.pattern:
@@ -304,7 +403,7 @@ def _title(cfg, args) -> str:
     return " · ".join(bits)
 
 
-def cmd_report(args) -> int:
+def cmd_report(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -331,7 +430,7 @@ def cmd_report(args) -> int:
     return 0
 
 
-def cmd_advise(args) -> int:
+def cmd_advise(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     items = report_mod.advise(
@@ -342,13 +441,12 @@ def cmd_advise(args) -> int:
         month=args.month,
         window_days=args.window,
         route_window_days=cfg.alerts.percentile_window_days,
-        targets=expand_mod.trip_targets(cfg),
     )
     print(report_mod.render_advice(items, _title(cfg, args) + " — book or wait?"))
     return 0
 
 
-def cmd_html(args) -> int:
+def cmd_html(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
     path = html_mod.write(conn, args.out or cfg.html_path, window_days=args.window, cfg=cfg)
@@ -356,7 +454,7 @@ def cmd_html(args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     cfg = _load(args)
     conn = _db(cfg)
 
@@ -371,7 +469,12 @@ def cmd_status(args) -> int:
         "WHERE q.active = 1 AND r.active = 1 AND q.last_fetch_at IS NULL"
     ).fetchone()[0]
 
-    print(f"\nactive queries : {active}  ({never} never fetched)")
+    tracked = watches.counts(conn)
+    print(
+        f"\nwatching       : {tracked['trips']} trips, {tracked['searches']} searches, "
+        f"{tracked['deal_watches']} deal watches"
+    )
+    print(f"active queries : {active}  ({never} never fetched)")
     print(f"observations   : {obs}")
     if span and span[0]:
         print(f"history span   : {span[0]} → {span[1]}")
@@ -422,16 +525,21 @@ def cmd_status(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_doctor(args) -> int:
+def cmd_doctor(args: argparse.Namespace) -> int:
     print("\n=== flighttrack doctor ===\n")
     ok = True
 
     try:
-        cfg = load(args.config, strict_secrets=False, settings=args.settings)
-        print(
-            f"[ok]   config          : {len(cfg.routes)} routes, {len(cfg.patterns)} patterns, "
-            f"{len(cfg.trips)} trips"
-        )
+        cfg = load(strict_secrets=False, settings=args.settings)
+        print(f"[ok]   config          : {args.settings.tunables_path}, home {cfg.home}")
+        tracked = _tracked_counts(cfg)
+        if tracked is not None:
+            print(
+                f"[ok]   watching        : {tracked['trips']} trips, {tracked['searches']} "
+                f"searches, {tracked['pairs']} date pairs"
+            )
+        else:
+            print("[info] watching        : no database yet (`flighttrack import-config`)")
     except ConfigError as exc:
         print(f"[FAIL] config          : {exc}")
         return 1
@@ -482,10 +590,7 @@ def cmd_doctor(args) -> int:
     # offline query construction, cross-checked against fast-flights when present
     from .source import build_query, deep_link
 
-    route = cfg.route(args.dest) if args.dest else cfg.routes[0]
-    if route is None:
-        print(f"[FAIL] --dest {args.dest} is not a configured route")
-        return 1
+    route = _route_for(cfg, args.dest)
     depart, ret = args.depart, args.ret
     q = build_query(cfg, route, depart, ret)
     print(f"[ok]   query build     : {q.describe()} — tfs {len(q.tfs())} chars")
@@ -495,7 +600,10 @@ def cmd_doctor(args) -> int:
 
         legs = [
             FlightQuery(
-                date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops
+                date=depart,
+                from_airport=route.origin_or(cfg.home),
+                to_airport=route.dest,
+                max_stops=route.max_stops,
             )
         ]
         if ret:
@@ -503,7 +611,7 @@ def cmd_doctor(args) -> int:
                 FlightQuery(
                     date=ret,
                     from_airport=route.dest,
-                    to_airport=cfg.home,
+                    to_airport=route.origin_or(cfg.home),
                     max_stops=route.max_stops,
                 )
             )
@@ -536,8 +644,8 @@ def cmd_doctor(args) -> int:
     from .source import FailureStore, GoogleHtmlSource, NoResults, SourceError
 
     print(
-        f"\n--- live fetch ({cfg.home}→{route.dest} {depart}{' / ' + ret if ret else ''}) via "
-        f"google_html/{transport.name} ---"
+        f"\n--- live fetch ({route.origin_or(cfg.home)}→{route.dest} "
+        f"{depart}{' / ' + ret if ret else ''}) via google_html/{transport.name} ---"
     )
     src = GoogleHtmlSource(
         transport=transport,
@@ -620,12 +728,13 @@ def cmd_doctor(args) -> int:
 
     # --- live: calendar RPC (experimental) ------------------------------------
     if args.calendar:
-        print(f"\n--- calendar RPC (EXPERIMENTAL) {cfg.home}→{route.dest} ---")
+        print(f"\n--- calendar RPC (EXPERIMENTAL) {route.origin_or(cfg.home)}→{route.dest} ---")
         from .config import Pattern
         from .gflights.transport import TransportError
 
-        pat = cfg.patterns[0] if cfg.patterns else Pattern("doctor", "FRI", 3)
         start = date.fromisoformat(depart)
+        nights = (date.fromisoformat(ret) - start).days if ret else 0
+        pat = Pattern("doctor", "FRI", nights)  # the same trip length as the results request
         job = sweep_mod.SweepJob(
             route, pat, start.isoformat(), (start + timedelta(days=30)).isoformat()
         )
@@ -666,7 +775,7 @@ def cmd_doctor(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_calibrate(args) -> int:
+def cmd_calibrate(args: argparse.Namespace) -> int:
     cfg = _load(args)
     if not args.yes:
         print(
@@ -678,13 +787,14 @@ def cmd_calibrate(args) -> int:
 
     from .source import NoResults, SourceError
 
-    route = cfg.routes[0]
+    route = _route_for(cfg, None)
     source = _source(cfg)
     base = datetime.strptime(args.depart, "%Y-%m-%d").date()
     results: list[tuple[int, str, float]] = []
     first_failure_at: int | None = None
     print(
-        f"\n[calibrate] {args.count} requests @ {args.interval}s, {cfg.home}→{route.dest} via "
+        f"\n[calibrate] {args.count} requests @ {args.interval}s, "
+        f"{route.origin_or(cfg.home)}→{route.dest} via "
         f"{getattr(source, 'name', '?')}\n"
     )
 
@@ -738,10 +848,10 @@ def cmd_calibrate(args) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_ingest(args) -> int:
+def cmd_ingest(args: argparse.Namespace) -> int:
     """Record prices found by something else (a browser session, another API).
 
-    Each line: {"dest": "HND", "depart": "2027-04-10", "return": "2027-04-24",
+    Each line: {"dest": "LIS", "depart": "2031-10-03", "return": "2031-10-13",
                 "price": 812, "airline": "ANA", "stops": 0, "source": "expedia"}
     `price` is in whole currency units. Unknown date pairs get a query row
     with pattern 'manual' so they appear in reports and alerts.
@@ -763,9 +873,12 @@ def cmd_ingest(args) -> int:
         try:
             rec = json.loads(line)
             dest = str(rec["dest"]).upper()
-            route = cfg.route(dest)
-            if route is None:
-                raise ValueError(f"{dest} is not a configured route")
+            origin = str(rec.get("origin") or cfg.home).upper()
+            row = conn.execute(
+                "SELECT id FROM routes WHERE origin = ? AND destination = ?", (origin, dest)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"{origin}→{dest} is not a tracked route")
             depart = str(rec["depart"])
             ret = rec.get("return")
             cents = normalize_price(rec["price"])
@@ -773,14 +886,6 @@ def cmd_ingest(args) -> int:
             print(f"  line {n}: skipped ({exc})", file=sys.stderr)
             skipped += 1
             continue
-        row = conn.execute(
-            "SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)
-        ).fetchone()
-        if row is None:
-            expand_mod.sync_routes(conn, cfg)
-            row = conn.execute(
-                "SELECT id FROM routes WHERE origin = ? AND destination = ?", (cfg.home, dest)
-            ).fetchone()
         conn.execute(
             "INSERT INTO queries (route_id, depart_date, return_date, pattern, active) VALUES "
             "(?, ?, ?, 'manual', 1) "
@@ -801,7 +906,7 @@ def cmd_ingest(args) -> int:
             raw={"ingested": True, **rec},
         )
         w, _ = fetch_mod.store(conn, qid, [offer])
-        conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (fetch_mod.utcnow(), qid))
+        conn.execute("UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), qid))
         conn.commit()
         written += w
     print(f"[ingest] {written} observation(s) written, {skipped} line(s) skipped")
@@ -815,14 +920,18 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="flighttrack", description="Self-hosted daily flight price sensor."
     )
-    p.add_argument(
-        "--config",
-        default=str(DEFAULT_CONFIG),
-        help="the watch file: home, routes, trips, patterns, deal watches "
-        "(default: config.yaml at the repository root). Tunables are read from "
-        "<CONFIG_DIR>/flighttrack.yaml",
-    )
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    ic = sub.add_parser(
+        "import-config",
+        help="load trips, patterns (as searches) and deal watches from an old config file",
+    )
+    ic.add_argument("file", help="a YAML file with home, routes, trips, patterns, deals")
+    ic.set_defaults(func=cmd_import_config)
+
+    ec = sub.add_parser("export-config", help="write what is tracked in the import-config shape")
+    ec.add_argument("--out", help="write here instead of standard output")
+    ec.set_defaults(func=cmd_export_config)
 
     e = sub.add_parser("expand", help="materialise date patterns and trips into the queries table")
     e.add_argument("--no-links", action="store_true", help="skip deep-link construction")
@@ -960,7 +1069,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _default_dates(args) -> None:
+def _default_dates(args: argparse.Namespace) -> None:
     if getattr(args, "depart", None) is None:
         args.depart = (date.today() + timedelta(days=60)).isoformat()
     if getattr(args, "ret", None) is None and args.cmd == "doctor":
@@ -977,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("doctor", "calibrate"):
         _default_dates(args)
     try:
-        return args.func(args)
+        return int(args.func(args))
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
         return 130

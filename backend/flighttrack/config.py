@@ -1,18 +1,13 @@
 """Config loading and validation.
 
-Two YAML files make one `Config`:
+`config/flighttrack.yaml` (in `Settings.config_dir`) holds the tunables: search
+filters, pacing, alerts, health, retention, the horizon, notification delivery
+and the default deal feeds. It is optional; every key has a default in code.
+What is tracked (trips, flexible searches, deal watches, feeds) lives in the
+database and is edited through `watches.py`. Paths come from `Settings`.
 
-* `config/flighttrack.yaml` (in `Settings.config_dir`): the tunables. Committed,
-  nothing personal: search filters, pacing, alerts, health, retention, the
-  horizon, notification delivery and the default deal feeds. Optional; every key
-  has a default in code.
-* the watch file (`--config`, default `config.yaml` at the repository root): what
-  is tracked: `home`, `routes`, `trips`, `patterns` and `deals` (`enabled`,
-  `watches`). M3 moves these into the database.
-
-The watch file is merged over the tunables section by section, so an older
-single-file config still loads unchanged. Paths (database, page, failure
-pages) come from `Settings`, never from YAML.
+`parse_watch_file` reads the old single-file shape (`home`, `routes`, `trips`,
+`patterns`, `deals`) for `flighttrack import-config`.
 
 Invalid config should fail loudly at load time, not at 3am inside a scheduled
 run, so validation here is deliberately strict and the error messages name the
@@ -56,6 +51,10 @@ class Route:
     target_price: int | None
     priority: int
     max_stops: int | None
+    origin: str = ""  # empty = Config.home
+
+    def origin_or(self, home: str) -> str:
+        return self.origin or home
 
 
 @dataclass(frozen=True)
@@ -96,6 +95,37 @@ class Trip:
     depart: str
     ret: str | None
     target_price: int | None = None
+    # Optional in the file; written by export-config.
+    origin: str | None = None
+    title: str | None = None
+    max_stops: int | None = None
+    status: str | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class PatternEntry:
+    """A pattern from the old file, with the optional keys export-config writes."""
+
+    pattern: Pattern
+    origin: str | None = None
+    title: str | None = None
+    target_price: int | None = None
+    max_stops: int | None = None
+    priority: int | None = None
+    status: str | None = None
+
+
+@dataclass(frozen=True)
+class WatchFile:
+    """The old single-file config's tracked part, for `import-config`."""
+
+    home: str
+    routes: list[Route]
+    patterns: list[PatternEntry]
+    trips: list[Trip]
+    deal_watches: list[DealWatch]
+    deal_feeds: list[str]
 
 
 @dataclass(frozen=True)
@@ -147,7 +177,6 @@ class DealWatch:
 class Deals:
     enabled: bool = False
     feeds: tuple[str, ...] = ()
-    watches: tuple[DealWatch, ...] = ()
     max_alerts_per_run: int = 5
     lookback_days: int = 3
 
@@ -185,9 +214,7 @@ class Alerts:
 
 @dataclass(frozen=True)
 class Config:
-    home: str
-    routes: list[Route]
-    patterns: list[Pattern]
+    home: str  # the default origin (HOME_AIRPORT)
     min_days_ahead: int
     max_days_ahead: int
     search: Search
@@ -196,18 +223,11 @@ class Config:
     notify: dict[str, Any] = field(default_factory=dict)
     db_path: str = "data/flights.db"
     html_path: str = "out/index.html"
-    trips: list[Trip] = field(default_factory=list)
     calendar: Calendar = field(default_factory=Calendar)
     deals: Deals = field(default_factory=Deals)
     health: Health = field(default_factory=Health)
     retention: Retention = field(default_factory=Retention)
     failure_dir: str = "data/failures"
-
-    def route(self, dest: str) -> Route | None:
-        for r in self.routes:
-            if r.dest == dest:
-                return r
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +255,7 @@ def _airport(code: Any, where: str) -> str:
     _require(isinstance(code, str), f"{where}: airport code must be a string")
     code = code.strip().upper()
     _require(bool(_IATA.match(code)), f"{where}: {code!r} is not a 3-letter IATA code")
-    return code
+    return str(code)
 
 
 def _int(v: Any, where: str, lo: int | None = None, hi: int | None = None) -> int:
@@ -246,7 +266,7 @@ def _int(v: Any, where: str, lo: int | None = None, hi: int | None = None) -> in
         _require(v >= lo, f"{where} must be >= {lo}")
     if hi is not None:
         _require(v <= hi, f"{where} must be <= {hi}")
-    return v
+    return int(v)
 
 
 def _cents(v: Any, where: str) -> int | None:
@@ -256,7 +276,7 @@ def _cents(v: Any, where: str) -> int | None:
         isinstance(v, int) and not isinstance(v, bool) and v > 0,
         f"{where} must be a positive integer in CENTS",
     )
-    return v
+    return int(v)
 
 
 def _iso(v: Any, where: str) -> str:
@@ -266,7 +286,7 @@ def _iso(v: Any, where: str) -> str:
         date.fromisoformat(v)
     except ValueError:
         raise ConfigError(f"{where}: {v} is not a valid date") from None
-    return v
+    return str(v)
 
 
 def _str_list(v: Any, where: str) -> tuple[str, ...]:
@@ -302,40 +322,16 @@ def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def read_raw(path: str | Path, settings: Settings) -> dict[str, Any]:
-    """The tunables file with the watch file merged over it, before validation."""
-    path = Path(path)
-    if not path.exists():
-        raise ConfigError(f"config file not found: {path}")
-    tunables = settings.tunables_path
-    base = _read_yaml(tunables, "tunables file") if tunables.exists() else {}
-    over = _read_yaml(path, "config file")
-    if "output" in over:
-        log.warning(
-            "%s: the output: section is ignored; the database and pages live under DATA_DIR (%s)",
-            path,
-            settings.data_dir,
-        )
-        over = {k: v for k, v in over.items() if k != "output"}
-    return merge(base, over)
-
-
-def load(
-    path: str | Path, strict_secrets: bool = True, *, settings: Settings | None = None
-) -> Config:
-    """Load and validate the watch file at ``path`` over the tunables file.
-
-    ``strict_secrets`` controls whether a missing delivery secret is fatal —
-    True for commands that send, False for read-only/diagnostic ones.
-    """
-    settings = settings or Settings()
-    raw = _expand_env(read_raw(path, settings))
-
+def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
+    """Validate the old single-file shape: `home`, `routes`, `trips`, `patterns`, `deals`."""
+    if not isinstance(raw, dict):
+        raise ConfigError("config root must be a mapping")
+    raw = _expand_env(raw)
     home = _airport(raw.get("home"), "home")
 
     # --- routes -----------------------------------------------------------
     raw_routes = raw.get("routes") or []
-    _require(isinstance(raw_routes, list) and raw_routes, "routes: must be a non-empty list")
+    _require(isinstance(raw_routes, list), "routes: must be a list")
     routes: list[Route] = []
     seen: set[str] = set()
     for i, r in enumerate(raw_routes):
@@ -347,7 +343,8 @@ def load(
         seen.add(dest)
         label = r.get("label") or dest
         _require(
-            isinstance(label, str) and label.strip(), f"{where}: label must be a non-empty string"
+            isinstance(label, str) and bool(label.strip()),
+            f"{where}: label must be a non-empty string",
         )
         target = _cents(r.get("target_price"), f"{where}.target_price")
         priority = r.get("priority", 2)
@@ -355,19 +352,20 @@ def load(
         max_stops = r.get("max_stops")
         if max_stops is not None:
             max_stops = _int(max_stops, f"{where}.max_stops", lo=0)
-        routes.append(Route(dest, label.strip(), target, priority, max_stops))
+        routes.append(Route(dest, label.strip(), target, priority, max_stops, origin=home))
 
     # --- patterns ---------------------------------------------------------
     raw_patterns = raw.get("patterns") or []
     _require(isinstance(raw_patterns, list), "patterns: must be a list")
-    patterns: list[Pattern] = []
+    patterns: list[PatternEntry] = []
     pat_names: set[str] = set()
     for i, p in enumerate(raw_patterns):
         where = f"patterns[{i}]"
         _require(isinstance(p, dict), f"{where}: must be a mapping")
         name = p.get("name")
         _require(
-            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+            isinstance(name, str) and bool(name.strip()),
+            f"{where}: name must be a non-empty string",
         )
         _require(name not in pat_names, f"{where}: duplicate pattern name {name!r}")
         pat_names.add(name)
@@ -402,7 +400,18 @@ def load(
         if mda is not None:
             mda = _int(mda, f"{where}.min_days_ahead", lo=0)
 
-        patterns.append(Pattern(name, dows[0], nights, dows, pat_routes, ws, we, mda))
+        pattern = Pattern(name, dows[0], nights, dows, pat_routes, ws, we, mda)
+        patterns.append(
+            PatternEntry(
+                pattern,
+                origin=_airport(p["origin"], f"{where}.origin") if p.get("origin") else None,
+                title=_opt_str(p.get("title"), f"{where}.title"),
+                target_price=_cents(p.get("target_price"), f"{where}.target_price"),
+                max_stops=_opt_int(p.get("max_stops"), f"{where}.max_stops"),
+                priority=_opt_int(p.get("priority"), f"{where}.priority"),
+                status=_opt_str(p.get("status"), f"{where}.status"),
+            )
+        )
 
     # --- trips ------------------------------------------------------------
     raw_trips = raw.get("trips") or []
@@ -413,7 +422,8 @@ def load(
         _require(isinstance(t, dict), f"{where}: must be a mapping")
         name = t.get("name")
         _require(
-            isinstance(name, str) and name.strip(), f"{where}: name must be a non-empty string"
+            isinstance(name, str) and bool(name.strip()),
+            f"{where}: name must be a non-empty string",
         )
         _require(name not in pat_names, f"{where}: name {name!r} collides with a pattern")
         pat_names.add(name)
@@ -427,10 +437,101 @@ def load(
         if ret:
             _require(ret > dep, f"{where}: return must be after depart")
         trips.append(
-            Trip(name, dest, dep, ret, _cents(t.get("target_price"), f"{where}.target_price"))
+            Trip(
+                name,
+                dest,
+                dep,
+                ret,
+                _cents(t.get("target_price"), f"{where}.target_price"),
+                origin=_airport(t["origin"], f"{where}.origin") if t.get("origin") else None,
+                title=_opt_str(t.get("title"), f"{where}.title"),
+                max_stops=_opt_int(t.get("max_stops"), f"{where}.max_stops"),
+                status=_opt_str(t.get("status"), f"{where}.status"),
+                notes=_opt_str(t.get("notes"), f"{where}.notes"),
+            )
         )
 
-    _require(bool(patterns or trips), "config needs at least one pattern or trip")
+    deals_raw = raw.get("deals") or {}
+    _require(isinstance(deals_raw, dict), "deals: must be a mapping")
+    deal_watches: list[DealWatch] = []
+    for i, w in enumerate(deals_raw.get("watches") or []):
+        where = f"deals.watches[{i}]"
+        _require(isinstance(w, dict), f"{where}: must be a mapping")
+        wname = w.get("name")
+        _require(
+            isinstance(wname, str) and bool(wname.strip()),
+            f"{where}: name must be a non-empty string",
+        )
+        deal_watches.append(
+            DealWatch(
+                name=wname.strip(),
+                origins=_str_list(w.get("origins"), f"{where}.origins"),
+                destinations=_str_list(w.get("destinations"), f"{where}.destinations"),
+                max_price=_cents(w.get("max_price"), f"{where}.max_price"),
+                keywords=_str_list(w.get("keywords"), f"{where}.keywords"),
+            )
+        )
+    feeds = list(_str_list(deals_raw.get("feeds"), "deals.feeds"))
+    return WatchFile(home, routes, patterns, trips, deal_watches, feeds)
+
+
+def read_watch_file(path: str | Path) -> WatchFile:
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"config file not found: {path}")
+    return parse_watch_file(_read_yaml(path, "config file"))
+
+
+def _opt_str(v: Any, where: str) -> str | None:
+    if v is None:
+        return None
+    _require(isinstance(v, str), f"{where} must be a string")
+    return str(v).strip() or None
+
+
+def _opt_int(v: Any, where: str) -> int | None:
+    return None if v is None else _int(v, where, lo=0)
+
+
+WATCH_SECTIONS = ("home", "routes", "trips", "patterns")
+
+
+def read_raw(path: str | Path | None, settings: Settings) -> dict[str, Any]:
+    """The tunables file (``path``, default `<CONFIG_DIR>/flighttrack.yaml`), unvalidated."""
+    tunables = Path(path) if path is not None else settings.tunables_path
+    if path is not None and not tunables.exists():
+        raise ConfigError(f"config file not found: {tunables}")
+    raw = _read_yaml(tunables, "tunables file") if tunables.exists() else {}
+    moved = [k for k in WATCH_SECTIONS if k in raw]
+    if moved or "watches" in (raw.get("deals") or {}):
+        raise ConfigError(
+            f"{tunables}: {', '.join(moved) or 'deals.watches'} moved to the database; "
+            "load them with `flighttrack import-config <file>`"
+        )
+    if "output" in raw:
+        log.warning(
+            "%s: the output: section is ignored; the database and pages live under DATA_DIR (%s)",
+            tunables,
+            settings.data_dir,
+        )
+        raw = {k: v for k, v in raw.items() if k != "output"}
+    return raw
+
+
+def load(
+    path: str | Path | None = None,
+    strict_secrets: bool = True,
+    *,
+    settings: Settings | None = None,
+) -> Config:
+    """Load and validate the tunables file.
+
+    ``strict_secrets`` controls whether a missing delivery secret is fatal —
+    True for commands that send, False for read-only/diagnostic ones.
+    """
+    settings = settings or Settings()
+    raw = _expand_env(read_raw(path, settings))
+    home = _airport(settings.home_airport, "HOME_AIRPORT")
 
     # --- horizon ----------------------------------------------------------
     horizon = raw.get("horizon") or {}
@@ -474,7 +575,7 @@ def load(
     cooldown = f.get("cooldown_hours", list(Fetch.cooldown_hours))
     _require(
         isinstance(cooldown, list)
-        and cooldown
+        and bool(cooldown)
         and all(isinstance(x, (int, float)) and x > 0 for x in cooldown),
         "fetch.cooldown_hours must be a non-empty list of positive numbers",
     )
@@ -533,36 +634,15 @@ def load(
     _require(0 < alerts.percentile < 100, "alerts.percentile must be between 1 and 99")
     _require(alerts.max_per_run >= 1, "alerts.max_per_run must be >= 1")
 
-    # --- deals ------------------------------------------------------------
+    # --- deals (the watches are in the database; these feeds are the defaults) ---
     d = raw.get("deals") or {}
     _require(isinstance(d, dict), "deals: must be a mapping")
-    watches: list[DealWatch] = []
-    for i, w in enumerate(d.get("watches") or []):
-        where = f"deals.watches[{i}]"
-        _require(isinstance(w, dict), f"{where}: must be a mapping")
-        wname = w.get("name")
-        _require(
-            isinstance(wname, str) and wname.strip(), f"{where}: name must be a non-empty string"
-        )
-        watches.append(
-            DealWatch(
-                name=wname.strip(),
-                origins=_str_list(w.get("origins"), f"{where}.origins"),
-                destinations=_str_list(w.get("destinations"), f"{where}.destinations"),
-                max_price=_cents(w.get("max_price"), f"{where}.max_price"),
-                keywords=_str_list(w.get("keywords"), f"{where}.keywords"),
-            )
-        )
     deals = Deals(
         enabled=bool(d.get("enabled", False)),
         feeds=_str_list(d.get("feeds"), "deals.feeds"),
-        watches=tuple(watches),
         max_alerts_per_run=int(d.get("max_alerts_per_run", 5)),
         lookback_days=int(d.get("lookback_days", 3)),
     )
-    if deals.enabled:
-        _require(bool(deals.feeds), "deals.enabled is true but deals.feeds is empty")
-        _require(bool(deals.watches), "deals.enabled is true but deals.watches is empty")
 
     # --- health -----------------------------------------------------------
     h = raw.get("health") or {}
@@ -610,8 +690,6 @@ def load(
 
     return Config(
         home=home,
-        routes=routes,
-        patterns=patterns,
         min_days_ahead=lo,
         max_days_ahead=hi,
         search=search,
@@ -620,7 +698,6 @@ def load(
         notify=n,
         db_path=str(settings.database),
         html_path=str(settings.html_path),
-        trips=trips,
         calendar=calendar,
         deals=deals,
         health=health,

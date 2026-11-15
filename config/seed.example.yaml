@@ -1,0 +1,53 @@
+# An example of what to track, in the shape `flighttrack import-config` reads.
+# Every trip, date and price here is invented. Copy it, edit it, and load it:
+#
+#   flighttrack import-config my-trips.yaml
+#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" flighttrack \
+#       flighttrack import-config /tmp/t.yaml
+#
+# Importing again updates what exists (matched by name) and never deletes.
+# Do not commit your real file: the repository is public.
+
+home: SEA
+
+# Each destination's label (shown in the reports) and its own target price, in
+# CENTS, which its dates fall back on when no trip or search sets one.
+routes:
+  - {dest: LIS, label: Lisbon, target_price: 70000}
+  - {dest: DEN, label: Denver, target_price: 18000}
+  - {dest: BOS, label: Boston, target_price: 30000}
+
+# 1. Fixed trips: the dates are chosen; when should I book? Tracked daily right
+#    up to departure.
+trips:
+  - name: lisbon-autumn
+    title: Lisbon in the autumn
+    dest: LIS
+    depart: 2031-10-03
+    return: 2031-10-13
+    target_price: 65000
+
+# 2. Patterns become flexible searches: these weekdays, this many nights, any
+#    of these destinations, inside a window (or the rolling horizon).
+patterns:
+  - name: denver-weekends
+    title: Denver weekends
+    depart_dow: [THU, FRI]
+    nights: 3
+    routes: [DEN]
+    window: {start: 2031-01-01, end: 2031-03-31}
+  - name: boston-week
+    title: A week in Boston
+    depart_dow: SAT
+    nights: 7
+    routes: [BOS]
+    priority: 3
+
+# 3. Announced deals: a post matches when an origin word appears, a destination
+#    word or region appears, and the headline price is at or under max_price.
+deals:
+  watches:
+    - name: Europe from Seattle
+      origins: [Seattle, SEA, West Coast, US cities]
+      destinations: [europe]
+      max_price: 60000

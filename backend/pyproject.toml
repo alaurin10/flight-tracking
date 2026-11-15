@@ -60,28 +60,16 @@ ignore_missing_imports = true
 # and makes it pass.
 [[tool.mypy.overrides]]
 module = [
-    "flighttrack.alert",
-    "flighttrack.cli",
     "flighttrack.compact",
-    "flighttrack.config",
-    "flighttrack.deals",
-    "flighttrack.demo",
-    "flighttrack.expand",
-    "flighttrack.fetch",
     "flighttrack.gflights",
     "flighttrack.gflights.calendar",
     "flighttrack.gflights.page",
     "flighttrack.gflights.results",
     "flighttrack.gflights.tfs",
     "flighttrack.gflights.transport",
-    "flighttrack.health",
-    "flighttrack.html",
     "flighttrack.jobs",
     "flighttrack.notify",
-    "flighttrack.report",
     "flighttrack.serve",
-    "flighttrack.source",
-    "flighttrack.sweep",
 ]
 ignore_errors = true
 

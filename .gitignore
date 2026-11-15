@@ -12,6 +12,9 @@ dist/
 *.db
 *.db-wal
 *.db-shm
-data/
-out/
+# (anchored: backend/flighttrack/data/ holds the committed airport list)
+/data/
+/out/
+backend/data/
+backend/out/
 .env

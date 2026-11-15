@@ -21,10 +21,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from .config import Config
-from .expand import trip_targets
 from .notify import NotifyError, notify
 from .report import fmt_date, fmt_money
 from .store.db import utcnow
+from .watches import target_for
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class AlertStats:
         return s
 
 
-def _iso_ago(**kw) -> str:
+def _iso_ago(**kw: float) -> str:
     return (datetime.now(UTC) - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -173,15 +173,15 @@ def find_candidates(conn: sqlite3.Connection, cfg: Config) -> tuple[list[Candida
 
     phase2_cache: dict[int, int | None] = {}
     candidates: list[Candidate] = []
-    targets = trip_targets(cfg)
 
     for row in rows:
         price = row["price_cents"]
         reasons: list[tuple[str, str]] = []
 
         # --- absolute threshold -------------------------------------------
-        # A fixed trip may carry its own target; it wins over the route's.
-        target = targets.get(row["pattern"], row["target_price"])
+        # The lowest target among the trips and searches that want these dates, else
+        # the route's own.
+        target = target_for(conn, row["query_id"])
         if target and price <= target:
             reasons.append(("threshold", f"at or below target of {fmt_money(target)}"))
 
@@ -264,7 +264,7 @@ def _passes_dedup(conn: sqlite3.Connection, cand: Candidate, cfg: Config) -> boo
 
     # Already alerted recently — only a materially further drop gets through.
     required = row["price_cents"] * (1 - cfg.alerts.dedup_further_drop_pct / 100.0)
-    return cand.price_cents <= required
+    return bool(cand.price_cents <= required)
 
 
 def _record(conn: sqlite3.Connection, cands: list[Candidate]) -> None:

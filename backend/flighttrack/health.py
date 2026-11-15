@@ -20,6 +20,7 @@ from .config import Config
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
 from .notify import NotifyError, notify
 from .store.db import get_state, parse_ts, set_state, utcnow
+from .watches import active_feed_urls
 
 log = logging.getLogger(__name__)
 
@@ -217,7 +218,7 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
 
     # --- deal feeds ------------------------------------------------------------
     if cfg.deals.enabled:
-        for feed in cfg.deals.feeds:
+        for feed in active_feed_urls(conn, cfg):
             last_good = conn.execute(
                 "SELECT MAX(at) AS t FROM feed_log WHERE feed = ? AND ok = 1", (feed,)
             ).fetchone()["t"]

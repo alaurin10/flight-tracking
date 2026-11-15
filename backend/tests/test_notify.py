@@ -147,7 +147,8 @@ def test_deals_alert_reports_delivery_error(tmp_path, broken_file_channel):
     watch = DealWatch("Anything", origins=("Seattle",), destinations=())
     cfg = replace(
         make_config(notify=broken_file_channel),
-        deals=Deals(enabled=True, feeds=("f",), watches=(watch,)),
+        deals=Deals(enabled=True, feeds=("f",)),
+        deal_watches=[watch],
     )
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute(

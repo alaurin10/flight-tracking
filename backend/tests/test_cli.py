@@ -18,10 +18,6 @@ patterns:
   - name: thu
     depart_dow: THU
     nights: 4
-deals:
-  enabled: false
-notify:
-  channel: none
 """
 
 
@@ -32,27 +28,29 @@ def data_dir(tmp_path, monkeypatch):
 
 
 def _cfg(tmp_path):
-    p = tmp_path / "config.yaml"
+    """Load the watches above through import-config, as a person would."""
+    p = tmp_path / "watches.yaml"
     p.write_text(CONFIG)
+    assert cli.main(["import-config", str(p)]) == 0
     return str(p)
 
 
 def test_expand_status_doctor_offline_report_advise(tmp_path, capsys):
-    c = _cfg(tmp_path)
-    assert cli.main(["--config", c, "expand"]) == 0
-    assert cli.main(["--config", c, "status"]) == 0
-    assert cli.main(["--config", c, "doctor", "--offline"]) == 0
+    _cfg(tmp_path)
+    assert cli.main(["expand"]) == 0
+    assert cli.main(["status"]) == 0
+    assert cli.main(["doctor", "--offline"]) == 0
     out = capsys.readouterr().out
     assert "query build" in out and "deep link" in out
-    assert cli.main(["--config", c, "report", "--sort", "price"]) == 0
-    assert cli.main(["--config", c, "advise"]) == 0
-    assert cli.main(["--config", c, "fetch", "--dry-run"]) == 0
-    assert cli.main(["--config", c, "sweep", "--dry-run", "--force"]) == 0
+    assert cli.main(["report", "--sort", "price"]) == 0
+    assert cli.main(["advise"]) == 0
+    assert cli.main(["fetch", "--dry-run"]) == 0
+    assert cli.main(["sweep", "--dry-run", "--force"]) == 0
 
 
 def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
-    c = _cfg(tmp_path)
-    cli.main(["--config", c, "expand"])
+    _cfg(tmp_path)
+    cli.main(["expand"])
     lines = "\n".join(
         [
             json.dumps(
@@ -71,28 +69,51 @@ def test_ingest_creates_query_and_observation(tmp_path, monkeypatch, capsys):
         ]
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(lines))
-    assert (
-        cli.main(["--config", c, "ingest"]) == 1
-    )  # two bad lines → non-zero, but the good one lands
+    assert cli.main(["ingest"]) == 1  # two bad lines → non-zero, but the good one lands
     conn = open_db(tmp_path / "flights.db")
     row = conn.execute(
         "SELECT o.price_cents, o.source, q.pattern FROM observations o JOIN queries q ON q.id = "
         "o.query_id"
     ).fetchone()
     assert row["price_cents"] == 81250 and row["source"] == "expedia" and row["pattern"] == "manual"
-    assert cli.main(["--config", c, "advise", "--pattern", "manual"]) == 0
+    assert cli.main(["advise", "--pattern", "manual"]) == 0
     assert "HND" in capsys.readouterr().out
 
 
 def test_run_orchestrates_all_stages_offline(tmp_path, capsys, monkeypatch):
-    c = _cfg(tmp_path)
+    _cfg(tmp_path)
     # No network in tests: swap the source for the fake one.
     from flighttrack.source import FakeSource
 
     monkeypatch.setattr(cli, "_source", lambda cfg: FakeSource())
-    rc = cli.main(["--config", c, "run", "--limit", "2", "--dry-run"])
+    rc = cli.main(["run", "--limit", "2", "--dry-run"])
     out = capsys.readouterr().out
     assert rc == 0
     for stage in ("expand", "sweep", "fetch", "deals", "alert", "health", "html"):
         assert f"== {stage} ==" in out
     assert (tmp_path / "out" / "index.html").exists()
+
+
+def test_import_config_twice_then_export(tmp_path, capsys):
+    from pathlib import Path
+
+    old = Path(__file__).parent / "fixtures" / "config_m1.yaml"
+    assert cli.main(["import-config", str(old)]) == 0
+    out = capsys.readouterr().out
+    assert "searches: 4 created" in out and "trips: 1 created" in out
+    assert cli.main(["import-config", str(old)]) == 0
+    assert "nothing changed" in capsys.readouterr().out
+
+    exported = tmp_path / "backup.yaml"
+    assert cli.main(["export-config", "--out", str(exported)]) == 0
+    text = exported.read_text()
+    assert "tokyo_week" in text and "Europe from Seattle" in text
+    assert cli.main(["import-config", str(exported)]) == 0
+    assert "nothing changed" in capsys.readouterr().out
+
+
+def test_import_config_reports_a_bad_file(tmp_path, capsys):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("home: SEA\nroutes:\n  - dest: SEATTLE\n")
+    assert cli.main(["import-config", str(bad)]) == 2
+    assert "not a 3-letter IATA code" in capsys.readouterr().err

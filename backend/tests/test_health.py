@@ -120,9 +120,8 @@ def test_dead_feed_is_a_warning(tmp_path):
     cfg = make_config()
     cfg = replace(
         cfg,
-        deals=Deals(
-            enabled=True, feeds=("https://x/feed",), watches=(DealWatch("w", ("Seattle",), ()),)
-        ),
+        deals=Deals(enabled=True, feeds=("https://x/feed",)),
+        deal_watches=[DealWatch("w", ("Seattle",), ())],
     )
     conn, cfg = make_db(tmp_path, cfg)
     conn.execute(

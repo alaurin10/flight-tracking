@@ -86,13 +86,14 @@ cd flight-tracking
 cp .env.example .env                       # set TZ; the rest is for later milestones
 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
 docker compose exec flighttrack flighttrack doctor --offline
+docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" flighttrack \
+    flighttrack import-config /tmp/t.yaml     # what to track; see Configuration
 ```
 
 The page is at `http://<host>:8091/`. The database, the page and saved failure pages live in
 `./data` (owned by uid 1000; `sudo chown -R 1000:1000 data` if an older install made it as
-root). The container's root file system is read-only. Edit `config.yaml` for your own trips;
-compose mounts it into the container, so `docker compose restart` picks up a change. Do not
-commit real trips: the repository is public.
+root). The container's root file system is read-only. What is tracked lives in the database;
+keep your own trips file out of the repository, which is public.
 
 ### Without Docker
 
@@ -101,15 +102,15 @@ Python 3.12 and [uv](https://docs.astral.sh/uv/).
 ```bash
 cd backend
 uv sync --frozen                  # add --extra fallback for the fast-flights fallback parser
-uv run flighttrack expand         # build the date grid — no network
+uv run flighttrack import-config ../config/seed.example.yaml   # or your own file
 uv run flighttrack doctor         # one real request
 uv run flighttrack run            # the daily job
-uv run flighttrack report --pattern ski_weekend --sort price
-uv run flighttrack advise --pattern japan
+uv run flighttrack report --pattern denver-weekends --sort price
+uv run flighttrack advise --pattern lisbon-autumn
 ```
 
-Without `--config`, commands read `config.yaml` at the repository root wherever they are run
-from, and write under `data/` there (`DATA_DIR` in `.env` moves it).
+Commands write under `data/` at the repository root wherever they are run from
+(`DATA_DIR` in `.env` moves it).
 
 ### Where settings live
 
@@ -117,55 +118,62 @@ from, and write under `data/` there (`DATA_DIR` in `.env` moves it).
 |---|---|
 | Secrets and per-install values | `.env`, never committed (`.env.example` lists them) |
 | Tunables: search filters, pacing, alerts, health, retention, deal feeds | `config/flighttrack.yaml` |
-| What is tracked: home airport, routes, trips, patterns, deal watches | `config.yaml` (`--config`); the database from milestone 3 |
+| What is tracked: trips, flexible searches, deal watches and feeds | the database (`flighttrack import-config`; the app's Manage page from milestone 7) |
 
 ---
 
 ## Configuration
 
-What is tracked lives in `config.yaml`, laid out around the three questions; the tunables are
-in `config/flighttrack.yaml`. A section in `config.yaml` overrides the same section of the
-tunables key by key, so an older single-file config still works.
+What is tracked lives in the database:
+
+| Kind | Answers | Shape |
+|---|---|---|
+| Trip | "My dates are fixed: when should I book?" | origin, destination, depart, return (or one way), target, max stops |
+| Flexible search | "Any weekend in a window: which is cheapest?" | origin, one or more destinations, weekdays, nights, a window or the rolling horizon, target, priority |
+| Deal watch | "Tell me when a deal to Europe is announced" | origin words, destination words or a region, maximum price |
+
+Until the app can edit them (milestone 7), load them from a YAML file in the old config shape.
+`config/seed.example.yaml` is an annotated example with invented trips:
+
+```bash
+flighttrack import-config my-trips.yaml     # creates what is missing, updates by name, never deletes
+flighttrack export-config --out backup.yaml # the same shape, for backups
+```
 
 ```yaml
-routes:                      # every trip/pattern references one; carries label, target, priority
-  - {dest: HND, label: Tokyo, target_price: 65000, priority: 1}
-  - {dest: SLC, label: Salt Lake City, target_price: 14000, priority: 1}
-
-trips:                       # 1. fixed dates — tracked daily to departure, own target
-  - {name: japan, dest: HND, depart: 2027-04-10, return: 2027-04-24, target_price: 80000}
-
-patterns:                    # 2. recurring shapes
-  - name: ski_weekend
-    depart_dow: FRI          # or a list: [THU, FRI]
+home: SEA
+routes:                      # each destination's label and its own target (cents)
+  - {dest: LIS, label: Lisbon, target_price: 70000}
+trips:                       # 1. fixed dates — tracked daily to departure
+  - {name: lisbon-autumn, dest: LIS, depart: 2031-10-03, return: 2031-10-13, target_price: 65000}
+patterns:                    # 2. become flexible searches
+  - name: denver-weekends
+    depart_dow: [THU, FRI]
     nights: 3
-    routes: [SLC]
-    window: {start: 2027-01-01, end: 2027-03-31}
-
-deals:                       # 3. announced deals (the feeds are in config/flighttrack.yaml)
-  enabled: true
+    routes: [DEN]            # several destinations make one search
+    window: {start: 2031-01-01, end: 2031-03-31}
+deals:                       # 3. announced deals (the default feeds are in config/flighttrack.yaml)
   watches:
     - {name: Europe from Seattle, origins: [Seattle, SEA, "West Coast", "US cities"],
        destinations: [europe], max_price: 60000}
 ```
 
-Prices are in **cents**. Region names (`europe`, `japan`, `asia`, `hawaii`, `mexico`,
-`caribbean`, `south america`, `oceania`, `africa`) expand to country and city words. Test a
-headline with `flighttrack deals --test-match "Seattle to Paris for $412"`.
-
-The shipped `config.yaml` is annotated section by section; the trip dates in it are placeholders
-to edit.
+Prices are in **cents**. A date pair's target is the lowest among the trips and searches that
+want it, else its route's own. Limits: 20 active trips, 10 active searches, 400 date pairs in
+all. Region names (`europe`, `japan`, `asia`, `hawaii`, `mexico`, `caribbean`,
+`south america`, `oceania`, `africa`) expand to country and city words. Test a headline with
+`flighttrack deals --test-match "Seattle to Paris for $412"`.
 
 ### Filters: "record everything, filter at report time"
 
-`max_stops` is `null` on every route, so nothing is discarded at fetch time. `carry_on_bags: 1`
+`max_stops` is empty unless you set it, so nothing is discarded at fetch time. `carry_on_bags: 1`
 and `exclude_basic_economy: true` stay on, not to discard options but so the recorded number
 means one consistent thing; basic-economy fares mixed into the history corrupt every percentile
 built on top.
 
 ### Coverage
 
-The shipped config expands to ~150 queries against a 25/run cap (kept low until the home
+The config shipped before milestone 3 expands to 154 date pairs against a 25/run cap (kept low until the home
 address's limit has been measured with `calibrate`), so detail coverage rotates over several days
 by priority (1 = daily, 2 = every 3 days, 3 = weekly), oldest-unfetched first, so nothing
 starves. Fixed trips are priority 1. Enabling the calendar sweep refreshes the whole grid daily
@@ -273,9 +281,9 @@ and `health` sends a notification as well.
 ## Data model
 
 ```
-config.yaml ──► expand ──► queries ──┬──► fetch / sweep ──► observations (append-only)
-                                     │                          │
-deal feeds ──► deals ──► deal_posts  └──► alert ◄───────────────┤
+trips, searches ──► expand ──► queries ──┬──► fetch / sweep ──► observations (append-only)
+  (watch_queries links them)              │                          │
+deal watches, feeds ──► deals ──► deal_posts  └──► alert ◄──────┤
                                             │                   │
                           fetch_attempts, run_log, state ──► health ──► notification
                                                                 │

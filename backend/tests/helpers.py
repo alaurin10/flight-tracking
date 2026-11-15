@@ -2,25 +2,58 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from flighttrack import expand
-from flighttrack.config import Alerts, Config, Fetch, Pattern, Route, Search
+from flighttrack import watches
+from flighttrack.config import (
+    Alerts,
+    Config,
+    DealWatch,
+    Fetch,
+    Pattern,
+    PatternEntry,
+    Route,
+    Search,
+    Trip,
+    WatchFile,
+)
 from flighttrack.store.db import open_db
 
+DEFAULT_ROUTES = [
+    Route("HND", "Tokyo", 65000, 1, None),
+    Route("NRT", "Tokyo", 60000, 2, None),
+    Route("SLC", "Salt Lake City", 14000, 1, None),
+]
+DEFAULT_PATTERNS = [
+    Pattern("extended_weekend_thu", "THU", 4),
+    Pattern("full_week", "SAT", 7),
+]
 
-def make_config(**over) -> Config:
+
+@dataclass(frozen=True)
+class WatchedConfig(Config):
+    """Tunables plus the watches a test starts with, in the old config-file shape.
+
+    Only the tests carry these: `make_db` loads them into the database through
+    `watches.import_watch_file`, the same path as `flighttrack import-config`, and
+    everything after that reads the database.
+    """
+
+    routes: list[Route] = field(default_factory=list)
+    patterns: list[Pattern] = field(default_factory=list)
+    trips: list[Trip] = field(default_factory=list)
+    deal_watches: list[DealWatch] = field(default_factory=list)
+
+    def route(self, dest: str) -> Route | None:
+        return next((r for r in self.routes if r.dest == dest), None)
+
+
+def make_config(**over) -> WatchedConfig:
     base = dict(
         home="SEA",
-        routes=[
-            Route("HND", "Tokyo", 65000, 1, None),
-            Route("NRT", "Tokyo", 60000, 2, None),
-            Route("SLC", "Salt Lake City", 14000, 1, None),
-        ],
-        patterns=[
-            Pattern("extended_weekend_thu", "THU", 4),
-            Pattern("full_week", "SAT", 7),
-        ],
+        routes=list(DEFAULT_ROUTES),
+        patterns=list(DEFAULT_PATTERNS),
         min_days_ahead=21,
         max_days_ahead=60,
         search=Search(),
@@ -30,14 +63,32 @@ def make_config(**over) -> Config:
         db_path=":memory:",
     )
     base.update(over)
-    return Config(**base)
+    return WatchedConfig(**base)
+
+
+def watch_file(cfg) -> WatchFile:
+    return WatchFile(
+        home=cfg.home,
+        routes=list(getattr(cfg, "routes", [])),
+        patterns=[PatternEntry(p) for p in getattr(cfg, "patterns", [])],
+        trips=list(getattr(cfg, "trips", [])),
+        deal_watches=list(getattr(cfg, "deal_watches", [])),
+        deal_feeds=[],
+    )
+
+
+def load_watches(conn, cfg, today=None, build_links=False):
+    """Load (or update) the test config's watches through the import path."""
+    return watches.import_watch_file(
+        conn, cfg, watch_file(cfg), today=today, build_links=build_links
+    )
 
 
 def make_db(tmp_path, cfg=None, build_links=False, today=None):
     """`today` pins the date the grid is expanded from, for tests that name specific dates."""
     cfg = cfg or make_config()
     conn = open_db(tmp_path / "t.db")
-    expand.expand(conn, cfg, today=today, build_links=build_links)
+    load_watches(conn, cfg, today=today, build_links=build_links)
     return conn, cfg
 
 
@@ -163,3 +214,39 @@ class FakeTransport:
 
     def post(self, url, data, params=None, headers=None, timeout=30.0):
         return self._next(url, params, data)
+
+
+def load_old(path, strict_secrets=True, settings=None) -> WatchedConfig:
+    """An old single-file config: the tracked part validated by `parse_watch_file` (what
+    `import-config` uses), the rest by `config.load` as the tunables file."""
+    import dataclasses
+    from pathlib import Path
+
+    import yaml
+
+    from flighttrack.config import WATCH_SECTIONS, ConfigError, load, parse_watch_file
+    from flighttrack.settings import Settings
+
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"config file not found: {path}")
+    raw = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError("config root must be a mapping")
+    wf = parse_watch_file(raw)
+    tunables = {k: v for k, v in raw.items() if k not in WATCH_SECTIONS}
+    if isinstance(tunables.get("deals"), dict):
+        tunables["deals"] = {k: v for k, v in tunables["deals"].items() if k != "watches"}
+    import tempfile
+
+    tfile = Path(tempfile.mkdtemp(prefix="flighttrack-test-")) / "flighttrack.yaml"
+    tfile.write_text(yaml.safe_dump(tunables))
+    settings = settings or Settings(home_airport=wf.home)
+    cfg = load(tfile, strict_secrets=strict_secrets, settings=settings)
+    return WatchedConfig(
+        **{f.name: getattr(cfg, f.name) for f in dataclasses.fields(Config)},
+        routes=wf.routes,
+        patterns=[e.pattern for e in wf.patterns],
+        trips=wf.trips,
+        deal_watches=wf.deal_watches,
+    )

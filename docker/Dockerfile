@@ -23,10 +23,8 @@ RUN uv sync --frozen --no-dev --extra fallback --no-install-project
 COPY backend/flighttrack ./flighttrack
 RUN uv sync --frozen --no-dev --extra fallback
 
-# Tunables, and the watch file until milestone 3 moves it into the database.
-# docker-compose.yml mounts your own config.yaml over this one.
+# Tunables only; what is tracked lives in the database under /data.
 COPY config /app/config
-COPY config.yaml /app/config.yaml
 
 # Runs as uid 1000, the usual first user on a Linux host, so ./data stays yours.
 RUN useradd --create-home --uid 1000 flight && mkdir -p /data && chown flight /data

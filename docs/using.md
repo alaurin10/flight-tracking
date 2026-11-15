@@ -51,16 +51,24 @@ The chips at the top filter everything below to one destination.
 
 ## Changing what is tracked
 
-Edit `config.yaml`; the next run picks it up (or `flighttrack expand` now).
+Trips, flexible searches and deal watches live in the database. Until the app's
+Manage page arrives, keep them in a YAML file (see `config/seed.example.yaml`)
+and load it; every save re-expands the date grid at once.
+
+```bash
+flighttrack export-config --out my-trips.yaml   # what is tracked now
+# edit my-trips.yaml
+flighttrack import-config my-trips.yaml         # creates and updates by name; never deletes
+```
 
 | You want to… | Do |
 |---|---|
 | Track a trip with fixed dates | add to `trips:` with its own `target_price` |
-| Track "any long weekend in a window" | add a pattern with `depart_dow`, `nights`, `routes`, `window` |
+| Track "any long weekend in a window" | add a pattern with `depart_dow`, `nights`, `routes`, `window`; it becomes a flexible search |
 | Hear about announced deals to a region | add a `deals.watches` entry with `origins`, `destinations`, `max_price` |
 | Check a headline against your watches | `flighttrack deals --test-match "Seattle to Rome from $489"` |
-| Add a destination | add to `routes:` (label, target, priority) |
-| Stop tracking something | delete it; history is kept, the rows are deactivated |
+| Pause, resume or archive something | set `status: paused` (or `active`, `archived`; trips also `booked`) and import again |
+| Stop tracking something | pause or archive it; its history is kept and its dates stop being fetched |
 
 ## When you have decided
 

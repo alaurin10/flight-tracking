@@ -25,6 +25,7 @@ import random
 import sqlite3
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -77,8 +78,8 @@ class FetchStats:
     observations_written: int = 0
     implausible: int = 0
     parser_mismatch: int = 0  # fetches whose lowest parsed price != the page's own cheapest
-    by_kind: Counter = field(default_factory=Counter)
-    sources_used: Counter = field(default_factory=Counter)
+    by_kind: Counter[str] = field(default_factory=Counter)
+    sources_used: Counter[str] = field(default_factory=Counter)
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -182,7 +183,7 @@ def select_due(
     rows = conn.execute(
         f"""
         SELECT q.id, q.depart_date, q.return_date, q.pattern, q.last_fetch_at,
-               r.destination, r.label, r.target_price, r.priority, r.max_stops
+               r.origin, r.destination, r.label, r.target_price, r.priority, r.max_stops
         FROM queries q
         JOIN routes r ON r.id = q.route_id
         WHERE q.active = 1 AND r.active = 1 AND q.depart_date >= ?{extra}
@@ -209,6 +210,7 @@ def select_due(
                     target_price=row["target_price"],
                     priority=row["priority"],
                     max_stops=row["max_stops"],
+                    origin=row["origin"],
                 ),
                 depart_date=row["depart_date"],
                 return_date=row["return_date"],
@@ -265,7 +267,15 @@ def store(
     return written, implausible
 
 
-def log_attempt(conn, run_id, query_id, source, outcome, latency_ms, error=None) -> None:
+def log_attempt(
+    conn: sqlite3.Connection,
+    run_id: int | None,
+    query_id: int | None,
+    source: str,
+    outcome: str,
+    latency_ms: int | None,
+    error: str | None = None,
+) -> None:
     conn.execute(
         "INSERT INTO fetch_attempts (run_id, query_id, at, source, outcome, latency_ms, error) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -274,7 +284,7 @@ def log_attempt(conn, run_id, query_id, source, outcome, latency_ms, error=None)
 
 
 def _source_used(source: Source) -> str:
-    return getattr(source, "last_used", None) or getattr(source, "name", "?")
+    return str(getattr(source, "last_used", None) or getattr(source, "name", "?"))
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +297,7 @@ def run(
     cfg: Config,
     source: Source,
     now: datetime | None = None,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
     limit: int | None = None,
     verbose: bool = True,
     respect_cooldown: bool = True,
@@ -334,7 +344,7 @@ def run(
             sleeper(random.uniform(cfg.fetch.min_sleep_seconds, cfg.fetch.max_sleep_seconds))
 
         stats.attempted += 1
-        leg = f"{cfg.home}→{item.route.dest} {item.depart_date}"
+        leg = f"{item.route.origin_or(cfg.home)}→{item.route.dest} {item.depart_date}"
         if item.return_date:
             leg += f"/{item.return_date}"
 

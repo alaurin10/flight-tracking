@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from helpers import make_config, make_db
 
 from flighttrack import fetch
+from flighttrack.config import Pattern
 from flighttrack.source import FakeSource, NoResults, SourceError
 
 
@@ -63,7 +64,14 @@ def test_second_run_rotates_to_different_queries(tmp_path):
 
 
 def test_priority_one_routes_go_first(tmp_path):
-    conn, cfg = make_db(tmp_path, make_config())
+    # NRT in a search of its own, so it keeps its priority-2 route.
+    cfg = make_config(
+        patterns=[
+            Pattern("hnd_slc", "THU", 4, routes=("HND", "SLC")),
+            Pattern("nrt", "THU", 4, routes=("NRT",)),
+        ]
+    )
+    conn, cfg = make_db(tmp_path, cfg)
     src = FakeSource()
     _run(conn, cfg, src)
     # HND and SLC are priority 1; NRT is priority 2 and should be untouched.

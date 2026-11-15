@@ -21,12 +21,13 @@ import random
 import sqlite3
 import statistics
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 from . import fetch as fetch_mod
 from .config import Config, Pattern, Route
-from .expand import departure_dates
+from .expand import departure_dates, search_pattern
 from .gflights import PageKind, classify
 from .gflights.calendar import (
     EXCLUDE_BASIC_SLOT,
@@ -38,9 +39,10 @@ from .gflights.calendar import (
     parse_calendar,
     windows,
 )
-from .gflights.transport import Transport, TransportError, default_transport
+from .gflights.transport import Response, Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
 from .store.db import get_state, set_state, utcnow
+from .watches import target_for
 
 log = logging.getLogger(__name__)
 
@@ -91,19 +93,34 @@ class SweepStats:
         return s
 
 
-def plan(cfg: Config, today: date | None = None) -> list[SweepJob]:
-    """Every (route, pattern) window, chunked to what the endpoint fills."""
+def plan(conn: sqlite3.Connection, cfg: Config, today: date | None = None) -> list[SweepJob]:
+    """Every (destination, search) window of the active searches, chunked to what the
+    endpoint fills, the highest-priority routes first."""
     today = today or date.today()
+    routes = {
+        (r["origin"], r["destination"]): Route(
+            r["destination"],
+            r["label"],
+            r["target_price"],
+            r["priority"],
+            r["max_stops"],
+            origin=r["origin"],
+        )
+        for r in conn.execute("SELECT * FROM routes WHERE active = 1")
+    }
     jobs: list[SweepJob] = []
-    for route in sorted(cfg.routes, key=lambda r: r.priority):
-        for pattern in cfg.patterns:
-            if not pattern.applies_to(route.dest):
-                continue
-            dates = departure_dates(cfg, pattern, today)
-            if not dates:
-                continue
+    for row in conn.execute("SELECT * FROM searches WHERE status = 'active' ORDER BY id"):
+        pattern = search_pattern(row)
+        dates = departure_dates(cfg, pattern, today)
+        if not dates:
+            continue
+        for dest in pattern.routes:
+            route = routes.get((row["origin"], dest))
+            if route is None:
+                continue  # not expanded yet
             for start, end in windows(dates[0], dates[-1]):
                 jobs.append(SweepJob(route, pattern, start, end))
+    jobs.sort(key=lambda j: j.route.priority)  # stable: search order within a priority
     return jobs
 
 
@@ -120,22 +137,25 @@ def _rotate(jobs: list[SweepJob], conn: sqlite3.Connection, cap: int) -> list[Sw
 def _query_lookup(
     conn: sqlite3.Connection, cfg: Config, route: Route
 ) -> dict[tuple[str, str | None], int]:
+    """The active date pairs of one route, by (depart, return)."""
     rows = conn.execute(
         """
         SELECT q.id, q.depart_date, q.return_date FROM queries q
         JOIN routes r ON r.id = q.route_id
         WHERE r.origin = ? AND r.destination = ? AND q.active = 1
         """,
-        (cfg.home, route.dest),
+        (route.origin_or(cfg.home), route.dest),
     ).fetchall()
     return {(r["depart_date"], r["return_date"]): r["id"] for r in rows}
 
 
-def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: float = 30.0):
+def fetch_window(
+    transport: Transport, cfg: Config, job: SweepJob, timeout: float = 30.0
+) -> tuple[list[DatePrice], Response]:
     """One RPC. Returns (list[DatePrice], response). Raises TransportError."""
     nights = job.pattern.nights or None
     body = build_body(
-        cfg.home,
+        job.route.origin_or(cfg.home),
         job.route.dest,
         job.start,
         job.end,
@@ -151,7 +171,7 @@ def fetch_window(transport: Transport, cfg: Config, job: SweepJob, timeout: floa
     return parse_calendar(resp.text), resp
 
 
-def calendar_filters(cfg: Config) -> dict:
+def calendar_filters(cfg: Config) -> dict[str, bool]:
     """What a stored calendar price means, so later readers do not compare it with the wrong
     thing."""
     return {
@@ -207,7 +227,7 @@ def run(
     transport: Transport | None = None,
     confirm_source: Source | None = None,
     now: datetime | None = None,
-    sleeper=time.sleep,
+    sleeper: Callable[[float], None] = time.sleep,
     verbose: bool = True,
 ) -> SweepStats:
     stats = SweepStats()
@@ -231,7 +251,7 @@ def run(
             log.warning(f"[sweep] skipped — cooldown until {until}")
         return stats
 
-    jobs = plan(cfg, now.date())
+    jobs = plan(conn, cfg, now.date())
     stats.planned = len(jobs)
     jobs = _rotate(jobs, conn, cfg.calendar.max_calls_per_run)
     if verbose:
@@ -311,8 +331,8 @@ def run(
         hit = len(matched)
         cheapest = {qid for qid, _, _ in sorted(matched, key=lambda m: m[1])[:CHEAPEST_PER_WINDOW]}
         filters = calendar_filters(cfg)
-        target = job.route.target_price
         for qid, cents, dp in matched:
+            target = target_for(conn, qid)
             ok, why = promising(
                 conn, cfg, qid, cents, target, now=now, cheapest_in_window=qid in cheapest
             )

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from helpers import make_config, make_db
 
-from flighttrack import expand
+from flighttrack import expand, watches
 
 
 def test_expands_full_grid(tmp_path):
@@ -71,8 +71,19 @@ def test_dropped_route_is_deactivated_not_deleted(tmp_path):
     cfg = make_config()
     conn, cfg = make_db(tmp_path, cfg)
 
-    trimmed = make_config(routes=[r for r in cfg.routes if r.dest != "NRT"])
-    expand.expand(conn, trimmed, build_links=False)
+    before = conn.execute(
+        "SELECT COUNT(*) FROM queries q JOIN routes r ON r.id = q.route_id "
+        "WHERE r.destination = 'NRT'"
+    ).fetchone()[0]
+    for s in watches.list_searches(conn):  # take NRT out of every search
+        data = {**s.model_dump(include=set(watches.SearchIn.model_fields))}
+        data["destinations"] = [d for d in s.destinations if d != "NRT"]
+        watches.update_search(conn, cfg, s.id, data)
 
     row = conn.execute("SELECT active FROM routes WHERE destination='NRT'").fetchone()
     assert row is not None and row[0] == 0
+    nrt = conn.execute(
+        "SELECT COUNT(*), SUM(q.active) FROM queries q JOIN routes r ON r.id = q.route_id "
+        "WHERE r.destination = 'NRT'"
+    ).fetchone()
+    assert nrt[0] == before and not nrt[1]  # every row kept, none fetched any more

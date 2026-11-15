@@ -27,7 +27,8 @@ from typing import Any, ClassVar, Protocol
 
 from .config import Config, Route
 from .gflights import PageKind, classify, itineraries
-from .gflights.results import has_itinerary_lists, page_min_price
+from .gflights.page import Page
+from .gflights.results import Itinerary, has_itinerary_lists, page_min_price
 from .gflights.tfs import Leg, Query
 from .gflights.transport import BASE_HEADERS, Response, Transport, TransportError, default_transport
 
@@ -165,9 +166,10 @@ def price_is_plausible(cents: int) -> bool:
 
 
 def build_query(cfg: Config, route: Route, depart: str, ret: str | None) -> Query:
-    legs = [Leg(depart, cfg.home, route.dest, max_stops=route.max_stops)]
+    origin = route.origin_or(cfg.home)
+    legs = [Leg(depart, origin, route.dest, max_stops=route.max_stops)]
     if ret:
-        legs.append(Leg(ret, route.dest, cfg.home, max_stops=route.max_stops))
+        legs.append(Leg(ret, route.dest, origin, max_stops=route.max_stops))
     return Query(
         legs=tuple(legs),
         seat=cfg.search.seat,
@@ -243,14 +245,14 @@ class GoogleHtmlSource:
         self.transport = transport or default_transport()
         self.failures = failures or FailureStore(None)
         self.timeout = timeout
-        self.last_page = None
+        self.last_page: Page | None = None
         self.last_response: Response | None = None
 
     def fetch(
         self, cfg: Config, route: Route, depart: str, ret: str | None, limit: int
     ) -> list[Offer]:
         q = build_query(cfg, route, depart, ret)
-        label = f"{cfg.home}-{route.dest}-{depart}"
+        label = f"{route.origin_or(cfg.home)}-{route.dest}-{depart}"
         try:
             resp = self.transport.get(
                 SEARCH_URL, params=q.params(), headers=BASE_HEADERS, timeout=self.timeout
@@ -310,7 +312,9 @@ def mark_page_min(offers: list[Offer], page_min: int | float | None) -> bool:
     return True
 
 
-def offers_from_itineraries(its: list, currency: str, source: str, limit: int) -> list[Offer]:
+def offers_from_itineraries(
+    its: list[Itinerary], currency: str, source: str, limit: int
+) -> list[Offer]:
     offers: list[Offer] = []
     for it in its:
         if it.price is None:
@@ -373,7 +377,10 @@ class FastFlightsSource:
 
         legs = [
             FlightQuery(
-                date=depart, from_airport=cfg.home, to_airport=route.dest, max_stops=route.max_stops
+                date=depart,
+                from_airport=route.origin_or(cfg.home),
+                to_airport=route.dest,
+                max_stops=route.max_stops,
             )
         ]
         if ret:
@@ -381,7 +388,7 @@ class FastFlightsSource:
                 FlightQuery(
                     date=ret,
                     from_airport=route.dest,
-                    to_airport=cfg.home,
+                    to_airport=route.origin_or(cfg.home),
                     max_stops=route.max_stops,
                 )
             )
@@ -469,7 +476,7 @@ class SerpApiSource:
     def params(self, cfg: Config, route: Route, depart: str, ret: str | None) -> dict[str, str]:
         p = {
             "engine": "google_flights",
-            "departure_id": cfg.home,
+            "departure_id": route.origin_or(cfg.home),
             "arrival_id": route.dest,
             "outbound_date": depart,
             "type": "1" if ret else "2",
@@ -512,7 +519,9 @@ class SerpApiSource:
         return offers_from_serpapi(data, cfg.search.currency, self.name, limit)
 
 
-def offers_from_serpapi(data: dict, currency: str, source: str, limit: int) -> list[Offer]:
+def offers_from_serpapi(
+    data: dict[str, Any], currency: str, source: str, limit: int
+) -> list[Offer]:
     offers: list[Offer] = []
     for bucket in ("best_flights", "other_flights"):
         for it in data.get(bucket) or []:
@@ -685,7 +694,11 @@ class FakeSource:
 
     name = "fake"
 
-    def __init__(self, prices_by_key=None, default: list[int] | None = None):
+    def __init__(
+        self,
+        prices_by_key: dict[tuple[str, str, str | None], list[int] | str] | None = None,
+        default: list[int] | None = None,
+    ) -> None:
         self.prices = prices_by_key or {}
         self.default = default or [45000, 47500, 52000]
         self.calls: list[tuple[str, str, str | None]] = []

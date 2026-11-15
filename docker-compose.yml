@@ -2,6 +2,8 @@
 # and serves the static page. Later milestones split it into a worker and an API.
 #   cp .env.example .env
 #   GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
+#   docker compose run --rm -v "$PWD/my-trips.yaml:/tmp/t.yaml:ro" flighttrack \
+#       flighttrack import-config /tmp/t.yaml      # what to track (see the README)
 #   open http://<host>:8091/   (LAN only: this server has no sign-in yet)
 name: flightwatch
 
@@ -28,10 +30,7 @@ services:
     environment:
       TZ: ${TZ:-America/Los_Angeles} # the daily run time (--at 03:15) is local time
     volumes:
-      - ./data:/data
-      # What is tracked, until milestone 3 moves it into the database. Edit it
-      # locally; do not commit your real trips.
-      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/data # the database (prices and what is tracked), the page, backups
     ports:
       - "8091:8080"
     mem_limit: 384m

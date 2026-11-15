@@ -17,7 +17,7 @@ Update this table in the same pull request that finishes a milestone.
 | M1 | Collector fixes | done | [#5](https://github.com/alaurin10/flight-tracking/pull/5) | 239 tests; ntfy removed instead of fixed; exclude-basic calendar slot still unknown; new problem 13 found in the live check |
 | A | Owner: start collecting on the mini PC (optional) | not started | | |
 | M2 | Restructure to the Snow Watch layout | done | [#6](https://github.com/alaurin10/flight-tracking/pull/6) | 258 tests; root `Dockerfile` removed now, not in M5; watch file can still override tunables |
-| M3 | Database as the source of truth | not started | | |
+| M3 | Database as the source of truth | in review | [#11](https://github.com/alaurin10/flight-tracking/pull/11) | 287 tests; a pattern's one search takes its routes' highest priority; routes keep their own label and target |
 | M4 | The worker | not started | | |
 | M5 | API and deploy kit | not started | | |
 | B | Owner: go live at flights.andrewlaurin.com | not started | | |
@@ -74,6 +74,33 @@ Decisions log (add a line when a milestone departs from this document, with the 
 - 2026-11-15 (M2): the compose service is still called `flighttrack` (checkpoint A's
   `docker compose exec flighttrack …` commands keep working). Compose mounts `./config.yaml`
   read-only over the copy in the image until M3 removes it.
+- 2026-11-15 (M3): a pattern becomes one search, so it has one priority and one target. The
+  search takes the highest priority among its routes (the shipped config's NRT moves from
+  priority 2 to 1, because it shares two patterns with HND) and the target only when all its
+  routes share it. Otherwise the target stays on each route, which its date pairs fall back on.
+- 2026-11-15 (M3): routes keep their own label and target. A new route is labelled with its
+  destination's city from `airports.csv`; an existing label is never overwritten (NRT's city
+  is "Narita"; its label stays "Tokyo"). A route's priority and stops limit are derived from
+  the active watches that use it.
+- 2026-11-15 (M3): `deals.enabled` is a tunable again. The `deal_feeds` table is the list of
+  feeds; while it is empty, the default feeds in `config/flighttrack.yaml` are polled.
+- 2026-11-15 (M3): `HOME_AIRPORT` (default `SEA`) is the default origin and what `doctor` tests
+  from; `doctor` no longer needs a database. The `--config` option is gone, and a tunables file
+  that still has `home`, `routes`, `trips`, `patterns` or `deals.watches` is refused with a
+  pointer to `import-config`.
+- 2026-11-15 (M3): imported trips and searches keep the old names as their slugs (underscores
+  included), so `queries.pattern` and the history behind it are unchanged.
+- 2026-11-15 (M3): `export-config` writes a few keys the old file did not have (`title`,
+  `origin`, `status`, `notes`, and `target_price`, `max_stops`, `priority` on patterns), so a
+  backup round-trips. `import-config` reads them, and they are optional.
+- 2026-11-15 (M3): a date pair nothing links to is deactivated by `expand`. That includes
+  `ingest`'s `manual` rows, and, on an upgraded database, every pair until `import-config`
+  runs (it reactivates them; no history is touched). `ingest` now needs a tracked route.
+- 2026-11-15 (M3): the modules this milestone changed (alert, cli, config, deals, demo, expand,
+  fetch, health, html, report, source, sweep) are off the mypy exception list and pass strict.
+- 2026-11-15 (M3): `.gitignore` anchors `data/` and `out/` to the repository root, because
+  `backend/flighttrack/data/airports.csv` is committed. The acceptance grep for the old trip
+  date is written `"2027-04-1[0]"` so the line stating it does not match itself.
 
 ## How to work from this document
 
@@ -596,7 +623,7 @@ and their validation), `alert.find_candidates`, `sweep.plan`, `deals.first_match
   would exceed a limit is refused with the count in the message.
 - A database with history from before this milestone still shows the same history for the
   same date pairs after migration and import.
-- `git grep -n "2027-04-10"` finds nothing outside `backend/tests`.
+- `git grep -n "2027-04-1[0]"` finds nothing outside `backend/tests` (the bracket keeps this line from matching itself).
 
 ### M4. The worker
 
