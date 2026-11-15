@@ -16,17 +16,22 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import app_settings, deals, jobs, watches
+from .. import fetch as fetch_mod
 from ..config import Config
+from ..gflights.transport import Transport, default_transport
 from ..settings import Settings
 from ..store.db import now as clock_now
 from ..store.db import open_db
 from .auth import Owner
 from .models import (
+    BudgetOut,
+    CollectingOut,
     DealTestIn,
     DealTestOut,
     JobIn,
     JobOut,
     OkOut,
+    SearchPreviewOut,
     SearchSaved,
     StatusIn,
     TripSaved,
@@ -71,6 +76,34 @@ def _queue_search(conn: sqlite3.Connection, search: watches.Search) -> int | Non
     if search.status != "active":
         return None
     return jobs.enqueue(conn, "fetch_search", {"search": search.slug}, "owner")
+
+
+def _cooldown_check(conn: sqlite3.Connection) -> None:
+    """A fetch asked for during a cooldown would only fail: say when collecting resumes."""
+    until = fetch_mod.cooldown_active(conn, clock_now())
+    if until:
+        raise HTTPException(
+            409,
+            f"Collecting is paused until {until} (Google asked us to slow down); "
+            "nothing was queued.",
+        )
+
+
+def _feed_check(request: Request) -> watches.FeedCheck | None:
+    """Fetch a new feed's address once and refuse it unless it is a feed. Skipped with
+    FLIGHTTRACK_SOURCE=fake, which makes no outside requests."""
+    settings: Settings = request.app.state.settings
+    if settings.fake_source:
+        return None
+    transport: Transport | None = getattr(request.app.state, "feed_transport", None)
+
+    def check(url: str) -> None:
+        try:
+            deals.check_feed(url, transport or default_transport("urllib"))
+        except deals.FeedError as exc:
+            raise watches.WatchError(f"url: {url} can't be added: {exc}") from None
+
+    return check
 
 
 def _status(body: StatusIn, allowed: tuple[str, ...]) -> Any:
@@ -140,6 +173,27 @@ def make_admin_router() -> APIRouter:
         search = watches.set_search_status(conn, _cfg(request), search_id, status, today=_today())
         return SearchSaved(search=search, job_id=_queue_search(conn, search))
 
+    @r.post("/searches/preview", response_model=SearchPreviewOut)
+    def preview_search(
+        body: watches.SearchIn,
+        request: Request,
+        _: Owner,
+        conn: RW,
+        search_id: int | None = None,
+    ) -> SearchPreviewOut:
+        """How many date pairs the search would track, saved as active, and how long a
+        full detail refresh takes at the current budget. Saves nothing."""
+        cfg = _cfg(request)
+        p = watches.preview_search(conn, cfg, body, search_id=search_id, today=_today())
+        per_day = fetch_mod.detail_fetches_per_day(cfg)
+        return SearchPreviewOut(
+            pairs=p.pairs,
+            total_pairs=p.total_pairs,
+            max_pairs=watches.MAX_ACTIVE_PAIRS,
+            detail_per_day=per_day,
+            refresh_days=max(1, -(-p.total_pairs // per_day)),
+        )
+
     @r.delete("/searches/{search_id}", response_model=OkOut)
     def delete_search(search_id: int, request: Request, _: Owner, conn: RW) -> OkOut:
         watches.delete_search(conn, _cfg(request), search_id, today=_today())
@@ -192,14 +246,18 @@ def make_admin_router() -> APIRouter:
         return watches.list_deal_feeds(conn)
 
     @r.post("/deal-feeds", response_model=watches.DealFeed, status_code=201)
-    def create_deal_feed(body: watches.DealFeedIn, _: Owner, conn: RW) -> watches.DealFeed:
-        return watches.create_deal_feed(conn, body)
+    def create_deal_feed(
+        body: watches.DealFeedIn, request: Request, _: Owner, conn: RW
+    ) -> watches.DealFeed:
+        """Fetches the address once first and refuses one that is not a feed."""
+        return watches.create_deal_feed(conn, body, check=_feed_check(request))
 
     @r.put("/deal-feeds/{feed_id}", response_model=watches.DealFeed)
     def update_deal_feed(
-        feed_id: int, body: watches.DealFeedIn, _: Owner, conn: RW
+        feed_id: int, body: watches.DealFeedIn, request: Request, _: Owner, conn: RW
     ) -> watches.DealFeed:
-        return watches.update_deal_feed(conn, feed_id, body)
+        """A changed address is fetched once, as when adding a feed."""
+        return watches.update_deal_feed(conn, feed_id, body, check=_feed_check(request))
 
     @r.put("/deal-feeds/{feed_id}/status", response_model=watches.DealFeed)
     def deal_feed_status(feed_id: int, body: StatusIn, _: Owner, conn: RW) -> watches.DealFeed:
@@ -225,12 +283,37 @@ def make_admin_router() -> APIRouter:
         app_settings.save_alert_settings(conn, body)
         return app_settings.alert_settings(conn, _cfg(request))
 
+    # -- collecting ---------------------------------------------------------------------
+
+    @r.get("/collecting", response_model=CollectingOut)
+    def collecting(request: Request, _: Owner, conn: RW) -> CollectingOut:
+        """Limits, today's request budget and any cooldown, for the Manage page."""
+        cfg = _cfg(request)
+        now = clock_now()
+        used = fetch_mod.budget_used(conn, now)
+        limit = cfg.collect.daily_request_budget
+        c = watches.counts(conn)
+        return CollectingOut(
+            cooldown_until=fetch_mod.cooldown_active(conn, now),
+            budget=BudgetOut(used=used, limit=limit, remaining=max(0, limit - used)),
+            detail_per_day=fetch_mod.detail_fetches_per_day(cfg),
+            active_trips=c["trips"],
+            max_trips=watches.MAX_ACTIVE_TRIPS,
+            active_searches=c["searches"],
+            max_searches=watches.MAX_ACTIVE_SEARCHES,
+            active_pairs=c["pairs"],
+            max_pairs=watches.MAX_ACTIVE_PAIRS,
+            default_feeds=list(cfg.deals.feeds),
+        )
+
     # -- jobs -------------------------------------------------------------------------
 
     @r.post("/jobs", response_model=JobOut, status_code=201)
     def create_job(body: JobIn, _: Owner, conn: RW) -> JobOut:
         """ "Check now": queue work for the worker, which picks it up within 15 seconds."""
         payload: dict[str, Any] = {}
+        if body.kind in ("fetch_trip", "fetch_search", "run_batch"):
+            _cooldown_check(conn)
         if body.kind == "fetch_trip":
             if not body.trip:
                 raise watches.WatchError("trip: say which trip to fetch")

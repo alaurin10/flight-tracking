@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
@@ -631,6 +632,57 @@ def delete_search(
     _save(conn, cfg, write, today=today, check=False, expand=True)
 
 
+@dataclass(frozen=True)
+class SearchPreview:
+    pairs: int  # date pairs this search would track
+    total_pairs: int  # date pairs tracked in all, with this search saved as active
+
+
+def preview_search(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    data: SearchIn | dict[str, Any],
+    *,
+    search_id: int | None = None,
+    today: date | None = None,
+) -> SearchPreview:
+    """How many date pairs a search would track if saved as active, and the total with
+    it, without saving anything: the change is made inside a transaction that is always
+    rolled back. `search_id` previews a change to an existing search."""
+    from .expand import wanted_owners
+
+    s = _parse(SearchIn, data).model_copy(update={"status": "active"})
+    if search_id is not None:
+        get_search(conn, search_id)
+    try:
+        conn.commit()
+        conn.execute("BEGIN")
+        if search_id is None:
+            now = utcnow()
+            cur = conn.execute(
+                """INSERT INTO searches (slug, name, origin, destinations, depart_dows, nights,
+                       window_start, window_end, min_days_ahead, target_price, max_stops,
+                       priority, status, created_at, updated_at)
+                   VALUES ('__preview__', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (*_search_values(s), now, now),
+            )
+            sid = int(cur.lastrowid or 0)
+        else:
+            sid = search_id
+            conn.execute(
+                """UPDATE searches SET name = ?, origin = ?, destinations = ?, depart_dows = ?,
+                       nights = ?, window_start = ?, window_end = ?, min_days_ahead = ?,
+                       target_price = ?, max_stops = ?, priority = ?, status = ?
+                   WHERE id = ?""",
+                (*_search_values(s), sid),
+            )
+        owners = wanted_owners(conn, cfg, today)
+    finally:
+        conn.execute("ROLLBACK")
+    mine = sum(1 for who in owners.values() if any(o[0] == "search" and o[1] == sid for o in who))
+    return SearchPreview(pairs=mine, total_pairs=len(owners))
+
+
 # ---------------------------------------------------------------------------
 # deal watches and feeds (no date pairs, so no expansion)
 # ---------------------------------------------------------------------------
@@ -720,10 +772,22 @@ def get_deal_feed(conn: sqlite3.Connection, feed_id: int) -> DealFeed:
     return DealFeed.model_validate(dict(row))
 
 
-def create_deal_feed(conn: sqlite3.Connection, data: DealFeedIn | dict[str, Any]) -> DealFeed:
+FeedCheck = Callable[[str], None]
+
+
+def create_deal_feed(
+    conn: sqlite3.Connection,
+    data: DealFeedIn | dict[str, Any],
+    *,
+    check: FeedCheck | None = None,
+) -> DealFeed:
+    """`check(url)` (the API fetches the feed once) raises WatchError for a URL that is
+    not a feed; it runs after the cheap checks and before anything is written."""
     f = _parse(DealFeedIn, data)
     if conn.execute("SELECT 1 FROM deal_feeds WHERE url = ?", (f.url,)).fetchone():
         raise WatchError(f"url: {f.url} is already a feed")
+    if check is not None:
+        check(f.url)
     with conn:
         cur = conn.execute(
             "INSERT INTO deal_feeds (url, name, status, created_at) VALUES (?, ?, ?, ?)",
@@ -733,15 +797,22 @@ def create_deal_feed(conn: sqlite3.Connection, data: DealFeedIn | dict[str, Any]
 
 
 def update_deal_feed(
-    conn: sqlite3.Connection, feed_id: int, data: DealFeedIn | dict[str, Any]
+    conn: sqlite3.Connection,
+    feed_id: int,
+    data: DealFeedIn | dict[str, Any],
+    *,
+    check: FeedCheck | None = None,
 ) -> DealFeed:
-    get_deal_feed(conn, feed_id)
+    """`check` runs only when the URL changes."""
+    old = get_deal_feed(conn, feed_id)
     f = _parse(DealFeedIn, data)
     clash = conn.execute(
         "SELECT id FROM deal_feeds WHERE url = ? AND id != ?", (f.url, feed_id)
     ).fetchone()
     if clash:
         raise WatchError(f"url: {f.url} is already a feed")
+    if check is not None and f.url != old.url:
+        check(f.url)
     with conn:
         conn.execute(
             "UPDATE deal_feeds SET url = ?, name = ?, status = ? WHERE id = ?",

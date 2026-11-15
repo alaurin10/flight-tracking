@@ -81,6 +81,10 @@ AFTER_BLOCK_MINUTES = (5.0, 20.0)
 CANARY_EVERY_HOURS = 24
 
 
+def _no_sleep(_seconds: float) -> None:
+    return None
+
+
 class Worker:
     """Holds the lock and the pacing rules. Every scheduled job is a method, so tests
     call them directly with an injected clock (`store.db.set_clock`) and no sleeping."""
@@ -100,7 +104,8 @@ class Worker:
         self.cfg = cfg
         self.fake = settings.fake_source
         self.lock = threading.Lock()
-        self.sleeper = sleeper
+        # The fake source has nobody to be polite to: no pauses between its requests.
+        self.sleeper = _no_sleep if self.fake and sleeper is time.sleep else sleeper
         self.rng = rng or random.Random()
         self.transport = transport  # calendar, canary and feeds; None = the default
         self._source_factory = source_factory or (lambda c: make_source(c, fake=self.fake))

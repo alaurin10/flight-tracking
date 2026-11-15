@@ -6,6 +6,7 @@ Offline: the database is seeded with `demo.seed` (synthetic prices) on a fixed c
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from collections.abc import Iterator
@@ -13,14 +14,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import FakeTransport
 
-from flighttrack import alert, app_settings, demo, jobs, watches
+from flighttrack import alert, app_settings, demo, fetch, jobs, watches
 from flighttrack import config as config_mod
 from flighttrack.api import ratelimit
 from flighttrack.api.app import create_app, inline_script_hashes
 from flighttrack.cli import api_schema, main
+from flighttrack.gflights.transport import TransportError
 from flighttrack.settings import REPO_ROOT, Settings
-from flighttrack.store.db import iso, open_db, set_clock
+from flighttrack.store.db import iso, open_db, set_clock, set_state
 
 TODAY = date(2027, 1, 10)
 NOW = datetime(2027, 1, 10, 12, 0, tzinfo=UTC)  # demo prices are stamped 10:00 each day
@@ -687,13 +690,23 @@ def test_deal_watches_and_the_headline_test(owner: TestClient) -> None:
     )
 
 
+FEED_XML = """<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Deals</title>
+<item><title>Alaska: Seattle - Honolulu $298</title><guid>a1</guid></item>
+</channel></rss>"""
+
+
 def test_deal_feeds(owner: TestClient) -> None:
     url = "https://www.theflightdeal.com/feed/"
+    t = FakeTransport([(200, None, FEED_XML)])
+    owner.app.state.feed_transport = t  # type: ignore[attr-defined]
     r = owner.post("/api/admin/deal-feeds", json={"url": url, "name": "TFD"}, headers=SAME_SITE)
     assert r.status_code == 201
+    assert [c["url"] for c in t.calls] == [url]  # fetched once before saving
     f = r.json()
     r = owner.post("/api/admin/deal-feeds", json={"url": url}, headers=SAME_SITE)
     assert r.status_code == 422 and "already a feed" in r.json()["detail"]
+    assert len(t.calls) == 1  # a duplicate is refused without fetching
     r = owner.post("/api/admin/deal-feeds", json={"url": "not a url!!"}, headers=SAME_SITE)
     assert r.status_code == 422 and r.json()["detail"].startswith("url:")
     r = owner.put(
@@ -704,8 +717,145 @@ def test_deal_feeds(owner: TestClient) -> None:
         f"/api/admin/deal-feeds/{f['id']}", json={"url": url, "name": "x"}, headers=SAME_SITE
     )
     assert r.json()["name"] == "x"
+    assert len(t.calls) == 1  # same address: not fetched again
     assert [x["url"] for x in owner.get("/api/admin/deal-feeds").json()] == [url]
     assert owner.delete(f"/api/admin/deal-feeds/{f['id']}", headers=SAME_SITE).json()["ok"]
+
+
+@pytest.mark.parametrize(
+    ("reply", "says"),
+    [
+        ((200, None, "<!DOCTYPE html><html><body>Home</body></html>"), "a web page, not a feed"),
+        ((404, None, "gone"), "HTTP 404"),
+        ((200, None, '{"items": []}'), "not an RSS or Atom feed"),
+        ((200, None, "<svg xmlns='http://www.w3.org/2000/svg'/>"), "not an RSS or Atom feed"),
+        (TransportError("connection refused"), "couldn't fetch it"),
+    ],
+)
+def test_a_url_that_is_not_a_feed_is_refused(
+    owner: TestClient, settings: Settings, reply: object, says: str
+) -> None:
+    owner.app.state.feed_transport = FakeTransport([reply])  # type: ignore[attr-defined]
+    url = "https://example.com/deals"
+    r = owner.post("/api/admin/deal-feeds", json={"url": url}, headers=SAME_SITE)
+    assert r.status_code == 422
+    assert r.json()["detail"].startswith(f"url: {url} can't be added: ")
+    assert says in r.json()["detail"]
+    assert owner.get("/api/admin/deal-feeds").json() == []  # nothing saved
+
+
+def test_changing_a_feed_address_checks_the_new_one(owner: TestClient) -> None:
+    t = FakeTransport([(200, None, FEED_XML), (200, None, "<html>moved</html>")])
+    owner.app.state.feed_transport = t  # type: ignore[attr-defined]
+    f = owner.post(
+        "/api/admin/deal-feeds", json={"url": "https://a.example.com/feed"}, headers=SAME_SITE
+    ).json()
+    r = owner.put(
+        f"/api/admin/deal-feeds/{f['id']}",
+        json={"url": "https://b.example.com/feed"},
+        headers=SAME_SITE,
+    )
+    assert r.status_code == 422 and "a web page" in r.json()["detail"]
+    assert owner.get("/api/admin/deal-feeds").json()[0]["url"] == "https://a.example.com/feed"
+
+
+def test_the_fake_source_adds_feeds_without_fetching(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FLIGHTTRACK_SOURCE", "fake")
+    set_clock(lambda: NOW)
+    seed(settings)
+    with TestClient(create_app(Settings())) as c:
+        t = FakeTransport([])
+        c.app.state.feed_transport = t  # type: ignore[attr-defined]
+        sign_in(c)
+        r = c.post(
+            "/api/admin/deal-feeds", json={"url": "https://a.example.com/feed"}, headers=SAME_SITE
+        )
+        assert r.status_code == 201 and t.calls == []
+
+
+def test_search_preview_counts_without_saving(owner: TestClient, settings: Settings) -> None:
+    before = owner.get("/api/admin/collecting").json()["active_pairs"]
+    r = owner.post("/api/admin/searches/preview", json=SEARCH_IN, headers=SAME_SITE)
+    assert r.status_code == 200, r.text
+    p = r.json()
+    # Fridays from 14 days out to the end of the horizon, one destination.
+    assert p["pairs"] > 10
+    assert p["total_pairs"] == before + p["pairs"]
+    assert p["max_pairs"] == watches.MAX_ACTIVE_PAIRS
+    cfg = owner.app.state.cfg  # type: ignore[attr-defined]
+    assert p["detail_per_day"] == fetch.detail_fetches_per_day(cfg)
+    assert p["refresh_days"] == -(-p["total_pairs"] // p["detail_per_day"])
+    assert len(owner.get("/api/admin/searches").json()) == 2  # nothing saved
+    assert owner.get("/api/admin/collecting").json()["active_pairs"] == before
+
+    # Saving it gives the same count.
+    saved = owner.post("/api/admin/searches", json=SEARCH_IN, headers=SAME_SITE).json()["search"]
+    assert owner.get("/api/admin/collecting").json()["active_pairs"] == p["total_pairs"]
+
+    # Previewing a change to it: two weekdays instead of one, counted once.
+    r = owner.post(
+        f"/api/admin/searches/preview?search_id={saved['id']}",
+        json={**SEARCH_IN, "depart_dows": ["FRI", "SAT"]},
+        headers=SAME_SITE,
+    )
+    q = r.json()
+    assert q["pairs"] > p["pairs"] and q["total_pairs"] == p["total_pairs"] + (
+        q["pairs"] - p["pairs"]
+    )
+    assert owner.get("/api/admin/searches").json()[-1]["depart_dows"] == ["FRI"]
+
+    r = owner.post(
+        "/api/admin/searches/preview", json={**SEARCH_IN, "nights": -1}, headers=SAME_SITE
+    )
+    assert r.status_code == 422 and r.json()["detail"].startswith("nights:")
+    r = owner.post("/api/admin/searches/preview?search_id=999", json=SEARCH_IN, headers=SAME_SITE)
+    assert r.status_code == 404
+
+
+def test_detail_fetches_per_day_leaves_room_for_the_sweep_and_the_canary() -> None:
+    cfg = config_mod.load(strict_secrets=False, settings=Settings())
+    off = dataclasses.replace(cfg, calendar=dataclasses.replace(cfg.calendar, enabled=False))
+    on = dataclasses.replace(
+        cfg, calendar=dataclasses.replace(cfg.calendar, enabled=True, max_calls_per_run=12)
+    )
+    budget = cfg.collect.daily_request_budget
+    assert fetch.detail_fetches_per_day(off) == budget - 1
+    assert fetch.detail_fetches_per_day(on) == budget - 12 - 1
+    tiny = dataclasses.replace(on, collect=dataclasses.replace(cfg.collect, daily_request_budget=5))
+    assert fetch.detail_fetches_per_day(tiny) == 1
+
+
+def test_collecting_reports_limits_budget_and_cooldown(
+    owner: TestClient, settings: Settings
+) -> None:
+    c = owner.get("/api/admin/collecting").json()
+    assert c["cooldown_until"] is None
+    assert c["budget"]["limit"] == 50
+    assert c["active_trips"] == 1 and c["max_trips"] == watches.MAX_ACTIVE_TRIPS
+    assert c["active_searches"] == 2 and c["max_searches"] == watches.MAX_ACTIVE_SEARCHES
+    assert 0 < c["active_pairs"] <= c["max_pairs"]
+    assert c["default_feeds"] == list(owner.app.state.cfg.deals.feeds)  # type: ignore[attr-defined]
+    conn = db(settings)
+    set_state(conn, fetch.STATE_COOLDOWN_UNTIL, "2027-01-10T15:00:00Z")
+    assert owner.get("/api/admin/collecting").json()["cooldown_until"] == "2027-01-10T15:00:00Z"
+
+
+def test_check_now_is_refused_during_a_cooldown(owner: TestClient, settings: Settings) -> None:
+    conn = db(settings)
+    set_state(conn, fetch.STATE_COOLDOWN_UNTIL, "2027-01-10T15:00:00Z")
+    for body in ({"kind": "fetch_trip", "trip": TRIP}, {"kind": "fetch_search", "search": SEARCH}):
+        r = owner.post("/api/admin/jobs", json=body, headers=SAME_SITE)
+        assert r.status_code == 409
+        assert r.json()["detail"].startswith("Collecting is paused until 2027-01-10T15:00:00Z")
+    assert jobs.pending(conn) == 0
+    # Polling the deal feeds is not a Google request: it is still queued.
+    r = owner.post("/api/admin/jobs", json={"kind": "poll_deals"}, headers=SAME_SITE)
+    assert r.status_code == 201
+    set_clock(lambda: datetime(2027, 1, 10, 15, 1, tzinfo=UTC))  # the cooldown is over
+    r = owner.post("/api/admin/jobs", json={"kind": "fetch_trip", "trip": TRIP}, headers=SAME_SITE)
+    assert r.status_code == 201
 
 
 def test_alert_settings_are_stored_and_used(owner: TestClient, settings: Settings) -> None:

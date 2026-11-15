@@ -154,6 +154,67 @@
       "title": "CanaryOut",
       "type": "object"
     },
+    "CollectingOut": {
+      "description": "What the Manage page shows about collecting: limits, budget and any cooldown.",
+      "properties": {
+        "active_pairs": {
+          "type": "integer"
+        },
+        "active_searches": {
+          "type": "integer"
+        },
+        "active_trips": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetOut"
+        },
+        "cooldown_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "collecting is paused until then"
+        },
+        "default_feeds": {
+          "description": "polled while no feed has been added in the app",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "detail_per_day": {
+          "type": "integer"
+        },
+        "max_pairs": {
+          "type": "integer"
+        },
+        "max_searches": {
+          "type": "integer"
+        },
+        "max_trips": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cooldown_until",
+        "budget",
+        "detail_per_day",
+        "active_trips",
+        "max_trips",
+        "active_searches",
+        "max_searches",
+        "active_pairs",
+        "max_pairs",
+        "default_feeds"
+      ],
+      "title": "CollectingOut",
+      "type": "object"
+    },
     "DatePairOut": {
       "properties": {
         "age_hours": {
@@ -1862,6 +1923,40 @@
       "title": "SearchOut",
       "type": "object"
     },
+    "SearchPreviewOut": {
+      "description": "What saving a search would track, before it is saved.",
+      "properties": {
+        "detail_per_day": {
+          "description": "detail fetches a day at the current budget",
+          "type": "integer"
+        },
+        "max_pairs": {
+          "description": "the limit on active date pairs",
+          "type": "integer"
+        },
+        "pairs": {
+          "description": "date pairs this search would track",
+          "type": "integer"
+        },
+        "refresh_days": {
+          "description": "days a detail fetch of every tracked pair takes",
+          "type": "integer"
+        },
+        "total_pairs": {
+          "description": "date pairs tracked in all, with it saved as active",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pairs",
+        "total_pairs",
+        "max_pairs",
+        "detail_per_day",
+        "refresh_days"
+      ],
+      "title": "SearchPreviewOut",
+      "type": "object"
+    },
     "SearchSaved": {
       "properties": {
         "job_id": {
@@ -2963,6 +3058,9 @@
     "alert_settings": {
       "$ref": "#/$defs/AlertSettings"
     },
+    "collecting": {
+      "$ref": "#/$defs/CollectingOut"
+    },
     "deal_feed_in": {
       "$ref": "#/$defs/DealFeedIn"
     },
@@ -3017,6 +3115,9 @@
     "search_in": {
       "$ref": "#/$defs/SearchIn"
     },
+    "search_preview": {
+      "$ref": "#/$defs/SearchPreviewOut"
+    },
     "search_saved": {
       "$ref": "#/$defs/SearchSaved"
     },
@@ -3065,7 +3166,9 @@
     "alert_settings",
     "job_in",
     "job",
-    "ok"
+    "ok",
+    "search_preview",
+    "collecting"
   ],
   "title": "ApiTypes",
   "type": "object"
