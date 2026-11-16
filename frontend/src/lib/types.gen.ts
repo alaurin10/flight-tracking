@@ -43,6 +43,10 @@ export interface ApiTypes {
 export interface DealFeed {
 	created_at: string;
 	id: number;
+	/**
+	 * feed (RSS or Atom) or page (a web page read as a list of posts); found by fetching it once when it is saved
+	 */
+	kind?: 'feed' | 'page';
 	name?: string | null;
 	status?: 'active' | 'paused' | 'archived';
 	url: string;
@@ -248,6 +252,38 @@ export interface DealWatch {
 		| [string, string, string, string, string, string, string, string, string]
 		| [string, string, string, string, string, string, string, string, string, string];
 	max_price?: number | null;
+	/**
+	 * travel months, 1-12; a post that names months must name one of these
+	 *
+	 * @maxItems 12
+	 */
+	months?:
+		| []
+		| [number]
+		| [number, number]
+		| [number, number, number]
+		| [number, number, number, number]
+		| [number, number, number, number, number]
+		| [number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number, number, number]
+		| [
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number
+		  ];
 	name: string;
 	/**
 	 * @maxItems 20
@@ -568,6 +604,10 @@ export interface BudgetOut {
  * via the `definition` "DealFeedIn".
  */
 export interface DealFeedIn {
+	/**
+	 * feed (RSS or Atom) or page (a web page read as a list of posts); found by fetching it once when it is saved
+	 */
+	kind?: 'feed' | 'page';
 	name?: string | null;
 	status?: 'active' | 'paused' | 'archived';
 	url: string;
@@ -592,6 +632,10 @@ export interface DealTestOut {
 	 * every active watch the headline matches
 	 */
 	matches: string[];
+	/**
+	 * travel months named in the headline, 1-12
+	 */
+	months: number[];
 	price: number | null;
 }
 /**
@@ -793,6 +837,38 @@ export interface DealWatchIn {
 		| [string, string, string, string, string, string, string, string, string]
 		| [string, string, string, string, string, string, string, string, string, string];
 	max_price?: number | null;
+	/**
+	 * travel months, 1-12; a post that names months must name one of these
+	 *
+	 * @maxItems 12
+	 */
+	months?:
+		| []
+		| [number]
+		| [number, number]
+		| [number, number, number]
+		| [number, number, number, number]
+		| [number, number, number, number, number]
+		| [number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number, number]
+		| [number, number, number, number, number, number, number, number, number, number, number]
+		| [
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number
+		  ];
 	name: string;
 	/**
 	 * @maxItems 20

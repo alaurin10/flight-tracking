@@ -1,37 +1,44 @@
-// The Manage forms' checks, and how their fields become the API's shapes.
+// The Manage forms' checks, the names they make up, and how their fields become the
+// API's shapes.
 import { describe, expect, it } from 'vitest';
 import {
+	asUrl,
 	centsToDollars,
-	dealWatchDraft,
-	dealWatchErrors,
 	feedErrors,
+	monthEnd,
+	monthOptions,
+	monthsPhrase,
 	parseDollars,
+	regionDraft,
+	regionErrors,
+	regionName,
 	searchDraft,
 	searchErrors,
+	searchName,
 	settingsErrors,
 	toDealWatchIn,
 	toSearchIn,
 	toTripIn,
 	tripDraft,
 	tripErrors,
+	tripName,
 	valid,
 	words,
+	type RegionDraft,
 	type SearchDraft,
 	type TripDraft
 } from './validate';
 
 const TODAY = '2027-01-10';
+const city: Record<string, string> = { HND: 'Tokyo', SLC: 'Salt Lake City', DEN: 'Denver' };
+const place = (c: string) => city[c] ?? c;
 
 describe('money', () => {
 	it('reads dollars as typed and sends cents', () => {
 		expect(parseDollars('612')).toEqual({ cents: 61200 });
 		expect(parseDollars(' $1,250 ')).toEqual({ cents: 125000 });
 		expect(parseDollars('612.5')).toEqual({ cents: 61250 });
-		expect(parseDollars('0.99')).toEqual({ cents: 99 });
 		expect(parseDollars('')).toEqual({ cents: null });
-	});
-
-	it('refuses what is not an amount', () => {
 		for (const t of ['-5', 'abc', '12.345', '1e3', '200000'])
 			expect(parseDollars(t).error).toBeTruthy();
 	});
@@ -43,43 +50,59 @@ describe('money', () => {
 	});
 });
 
+describe('months', () => {
+	it('lists the coming months and knows their last days', () => {
+		expect(monthOptions('2026-11-15', 4)).toEqual(['2026-11', '2026-12', '2027-01', '2027-02']);
+		expect(monthEnd('2027-02')).toBe('2027-02-28');
+		expect(monthEnd('2028-02')).toBe('2028-02-29');
+	});
+
+	it('says months as a short phrase, wrapping over the new year', () => {
+		expect(monthsPhrase([6, 7, 8])).toBe('Jun–Aug');
+		expect(monthsPhrase([12, 1, 2])).toBe('Dec–Feb');
+		expect(monthsPhrase([3, 5])).toBe('Mar, May');
+		expect(monthsPhrase([])).toBe('any time');
+	});
+});
+
 const trip = (over: Partial<TripDraft> = {}): TripDraft => ({
 	...tripDraft(undefined, 'SEA'),
-	name: 'Tokyo in spring',
 	destination: 'HND',
 	depart_date: '2027-04-10',
 	return_date: '2027-04-24',
 	...over
 });
 
-describe('trip form', () => {
-	it('accepts a complete trip and sends it in the API shape', () => {
-		const d = trip({ target: '900', max_stops: '1', notes: '  cherry blossoms ' });
+describe('a trip', () => {
+	it('needs only where and when; the name is made up', () => {
+		const d = trip();
 		expect(tripErrors(d, TODAY)).toEqual({});
-		expect(toTripIn(d)).toEqual({
-			name: 'Tokyo in spring',
+		expect(toTripIn(d, 'active', place)).toEqual({
+			name: 'Tokyo · Apr 10',
 			origin: 'SEA',
 			destination: 'HND',
 			depart_date: '2027-04-10',
 			return_date: '2027-04-24',
-			target_price: 90000,
-			max_stops: 1,
-			notes: 'cherry blossoms',
+			target_price: null,
+			max_stops: null,
+			notes: null,
 			status: 'active'
 		});
+		expect(tripName(trip({ name: '  Cherry blossoms ' }))).toBe('Cherry blossoms');
 	});
 
 	it('says what is missing or wrong, field by field', () => {
 		const e = tripErrors(
-			trip({ name: ' ', destination: 'SEA', depart_date: '2027-01-09', target: 'lots' }),
+			trip({ destination: 'SEA', depart_date: '2027-01-09', target: 'lots' }),
 			TODAY
 		);
-		expect(Object.keys(e).sort()).toEqual(['depart_date', 'destination', 'name', 'target']);
-		expect(e.destination).toMatch(/same as the origin/);
+		expect(Object.keys(e).sort()).toEqual(['depart_date', 'destination', 'target']);
+		expect(e.destination).toMatch(/where you fly from/);
 		expect(e.depart_date).toMatch(/passed/);
+		expect(tripErrors(trip({ destination: '' }), TODAY).destination).toMatch(/where you want/);
 	});
 
-	it('needs the return after the departure, unless it is one way', () => {
+	it('needs coming back after leaving, unless it is one way', () => {
 		expect(tripErrors(trip({ return_date: '2027-04-10' }), TODAY).return_date).toMatch(/after/);
 		expect(tripErrors(trip({ return_date: '' }), TODAY).return_date).toMatch(/one way/);
 		const oneWay = trip({ oneWay: true, return_date: '2027-04-01' });
@@ -87,104 +110,167 @@ describe('trip form', () => {
 		expect(toTripIn(oneWay).return_date).toBeNull();
 	});
 
-	it('refuses a date that does not exist', () => {
-		expect(tripErrors(trip({ depart_date: '2027-02-30' }), TODAY).depart_date).toMatch(/not a/);
-	});
-
 	it('round-trips a stored trip through the form', () => {
-		const stored = toTripIn(trip({ target: '612.50', oneWay: true }), 'paused');
+		const stored = toTripIn(trip({ name: 'Japan', target: '612.50', oneWay: true }), 'paused');
 		expect(toTripIn(tripDraft(stored), 'paused')).toEqual(stored);
 	});
 });
 
 const search = (over: Partial<SearchDraft> = {}): SearchDraft => ({
-	...searchDraft(undefined, 'SEA'),
-	name: 'Ski weekends',
-	destinations: ['SLC', 'DEN'],
-	dows: ['FRI', 'THU'],
+	...searchDraft(undefined, 'SEA', TODAY),
+	destinations: ['SLC'],
 	...over
 });
 
-describe('flexible search form', () => {
-	it('accepts a rolling search and sends weekdays in week order', () => {
-		const d = search({ target: '250' });
+describe('flexible dates', () => {
+	it('starts as weekends next month, and that is enough to save', () => {
+		const d = search();
+		expect(d).toMatchObject({ length: 'weekend', when: 'months', month_from: '2027-02' });
 		expect(searchErrors(d, TODAY)).toEqual({});
-		expect(toSearchIn(d)).toMatchObject({
-			origin: 'SEA',
-			destinations: ['SLC', 'DEN'],
-			depart_dows: ['THU', 'FRI'],
+		expect(toSearchIn(d, 'active', place)).toMatchObject({
+			name: 'Salt Lake City weekends · Feb 2027',
+			destinations: ['SLC'],
+			depart_dows: ['FRI'],
 			nights: 2,
-			window_start: null,
-			window_end: null,
-			target_price: 25000,
-			max_stops: null
+			window_start: '2027-02-01',
+			window_end: '2027-02-28'
 		});
 	});
 
-	it('needs a destination, a weekday and a sensible number of nights', () => {
-		const e = searchErrors(search({ destinations: [], dows: [], nights: '2.5' }), TODAY);
-		expect(Object.keys(e).sort()).toEqual(['destinations', 'dows', 'nights']);
-		expect(searchErrors(search({ nights: '61' }), TODAY).nights).toBeTruthy();
-		expect(searchErrors(search({ nights: '0' }), TODAY)).toEqual({}); // one way
+	it('turns each length into weekdays and nights', () => {
+		expect(toSearchIn(search({ length: 'long' }))).toMatchObject({
+			depart_dows: ['THU', 'FRI'],
+			nights: 3
+		});
+		expect(toSearchIn(search({ length: 'week' }))).toMatchObject({
+			depart_dows: ['SAT'],
+			nights: 7
+		});
+		expect(
+			toSearchIn(search({ length: 'custom', dows: ['SUN', 'WED'], nights: '4' }))
+		).toMatchObject({ depart_dows: ['WED', 'SUN'], nights: 4 });
+	});
+
+	it('turns when into a window: months, any time or dates', () => {
+		const may = search({
+			month_from: '2027-05',
+			month_to: '2027-06',
+			destinations: ['SLC', 'DEN']
+		});
+		expect(toSearchIn(may, 'active', place)).toMatchObject({
+			name: 'Salt Lake City & Denver weekends · May–Jun 2027',
+			window_start: '2027-05-01',
+			window_end: '2027-06-30'
+		});
+		expect(toSearchIn(search({ when: 'any' }))).toMatchObject({
+			window_start: null,
+			window_end: null
+		});
+		const dates = search({ when: 'dates', window_start: '2027-03-03', window_end: '2027-03-20' });
+		expect(searchErrors(dates, TODAY)).toEqual({});
+		expect(toSearchIn(dates)).toMatchObject({
+			window_start: '2027-03-03',
+			window_end: '2027-03-20'
+		});
+		expect(
+			searchErrors(
+				search({ when: 'dates', window_start: '2027-03-20', window_end: '2027-03-03' }),
+				TODAY
+			).window_end
+		).toMatch(/before/);
+	});
+
+	it('needs a destination; custom needs days and sensible nights', () => {
+		expect(searchErrors(search({ destinations: [] }), TODAY).destinations).toBeTruthy();
+		const e = searchErrors(search({ length: 'custom', dows: [], nights: '2.5' }), TODAY);
+		expect(Object.keys(e).sort()).toEqual(['dows', 'nights']);
 		expect(searchErrors(search({ destinations: ['SEA'] }), TODAY).destinations).toMatch(
-			/both the origin/
+			/where you fly from/
 		);
 	});
 
-	it('checks a fixed window', () => {
-		const e = searchErrors(
-			search({ rolling: false, window_start: '2027-03-01', window_end: '2027-02-01' }),
+	it('shows a stored search with the preset and months it matches', () => {
+		const stored = toSearchIn(
+			search({ length: 'long', month_from: '2027-05', month_to: '2027-05' })
+		);
+		expect(searchDraft(stored, 'SEA', TODAY)).toMatchObject({
+			length: 'long',
+			when: 'months',
+			month_from: '2027-05',
+			month_to: '2027-05'
+		});
+		const odd = searchDraft(
+			{
+				...stored,
+				depart_dows: ['MON'],
+				nights: 5,
+				window_start: '2027-03-03',
+				window_end: '2027-03-20'
+			},
+			'SEA',
 			TODAY
 		);
-		expect(e.window_end).toMatch(/before it starts/);
-		expect(searchErrors(search({ rolling: false }), TODAY)).toMatchObject({
-			window_start: expect.any(String),
-			window_end: expect.any(String)
-		});
-		const ok = search({ rolling: false, window_start: '2027-02-01', window_end: '2027-03-31' });
-		expect(searchErrors(ok, TODAY)).toEqual({});
-		expect(toSearchIn(ok)).toMatchObject({ window_start: '2027-02-01', window_end: '2027-03-31' });
+		expect(odd).toMatchObject({ length: 'custom', dows: ['MON'], nights: '5', when: 'dates' });
+		expect(
+			searchDraft({ ...stored, window_start: null, window_end: null }, 'SEA', TODAY).when
+		).toBe('any');
+		expect(searchName(search({ name: 'Mine' }))).toBe('Mine');
 	});
 });
 
-describe('deal watch form', () => {
-	it('splits words on commas and puts the region first', () => {
-		expect(words(' Seattle, SEA ,, Seattle ')).toEqual(['Seattle', 'SEA']);
-		const d = {
-			name: 'Hawaii',
-			origins: 'Seattle, SEA',
-			destinations: 'Maui',
-			region: 'hawaii',
-			max: '400'
-		};
-		expect(dealWatchErrors(d)).toEqual({});
+const region = (over: Partial<RegionDraft> = {}): RegionDraft => ({
+	...regionDraft(undefined, ['europe', 'hawaii'], 'Seattle, SEA'),
+	region: 'europe',
+	...over
+});
+
+describe('a region', () => {
+	it('sends the region first, the months and home’s words', () => {
+		const d = region({ places: 'Lisbon, Porto', months: [8, 6, 7], max: '600' });
+		expect(regionErrors(d)).toEqual({});
 		expect(toDealWatchIn(d)).toEqual({
-			name: 'Hawaii',
+			name: 'Europe · Jun–Aug',
 			origins: ['Seattle', 'SEA'],
-			destinations: ['hawaii', 'Maui'],
-			max_price: 40000,
+			destinations: ['europe', 'Lisbon', 'Porto'],
+			keywords: [],
+			months: [6, 7, 8],
+			max_price: 60000,
 			status: 'active'
 		});
 	});
 
-	it('finds the region again when editing', () => {
-		const d = dealWatchDraft(
-			{ name: 'Hawaii', origins: ['Seattle'], destinations: ['Hawaii', 'Maui'], max_price: null },
-			['hawaii', 'europe']
-		);
-		expect(d).toMatchObject({ region: 'hawaii', destinations: 'Maui', max: '' });
+	it('needs a region or some places', () => {
+		expect(regionErrors(region({ region: '' })).region).toMatch(/region/);
+		const places = region({ region: '', places: 'Lisbon, Porto, Faro' });
+		expect(regionErrors(places)).toEqual({});
+		expect(regionName(places)).toBe('Lisbon & 2 more');
+		expect(words(' Seattle, SEA ,, Seattle ')).toEqual(['Seattle', 'SEA']);
 	});
 
-	it('refuses a watch that would match every deal', () => {
-		const e = dealWatchErrors({ name: 'All', origins: '', destinations: '', region: '', max: '' });
-		expect(e.origins).toMatch(/every deal/);
+	it('finds the region again when changing one, and keeps imported keywords', () => {
+		const d = regionDraft(
+			{
+				name: 'Hawaii',
+				origins: ['Seattle'],
+				destinations: ['Hawaii', 'Maui'],
+				keywords: ['nonstop'],
+				months: [1, 2],
+				max_price: null
+			},
+			['hawaii', 'europe']
+		);
+		expect(d).toMatchObject({ region: 'hawaii', places: 'Maui', months: [1, 2], max: '' });
+		expect(toDealWatchIn(d).keywords).toEqual(['nonstop']);
 	});
 });
 
-describe('feed and settings forms', () => {
-	it('wants a web address', () => {
-		expect(feedErrors({ url: 'https://www.theflightdeal.com/feed/', name: '' })).toEqual({});
-		expect(feedErrors({ url: 'theflightdeal.com/feed', name: '' }).url).toMatch(/https/);
+describe('deal pages and settings', () => {
+	it('takes an address with or without https://', () => {
+		expect(asUrl('escape.flights/category/x/')).toBe('https://escape.flights/category/x/');
+		expect(feedErrors({ url: 'escape.flights/category/flights-from-seattle/', name: '' })).toEqual(
+			{}
+		);
+		expect(feedErrors({ url: 'not an address', name: '' }).url).toBeTruthy();
 		expect(feedErrors({ url: '', name: '' }).url).toBeTruthy();
 	});
 

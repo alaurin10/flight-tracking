@@ -15,6 +15,8 @@
 		error?: string;
 		hint?: string;
 		placeholder?: string;
+		/** Each chosen code's city, filled in as the picker learns them (for names). */
+		places?: Record<string, string>;
 	}
 	let {
 		id,
@@ -24,7 +26,8 @@
 		max = 10,
 		error,
 		hint,
-		placeholder = 'Code, city or airport'
+		placeholder = 'Code, city or airport',
+		places = $bindable({})
 	}: Props = $props();
 
 	// What we know about each code shown, so chips can say the city.
@@ -48,7 +51,7 @@
 			searchAirports(code)
 				.then((found) => {
 					const hit = found.find((a) => a.iata === code);
-					if (hit) known[code] = hit;
+					if (hit) learn(hit);
 				})
 				.catch(() => {});
 		}
@@ -78,9 +81,14 @@
 		}, 200);
 	}
 
+	function learn(a: AirportOut) {
+		known[a.iata] = a;
+		places = { ...places, [a.iata]: a.city || a.name };
+	}
+
 	function pick(code: string, airport?: AirportOut) {
 		const c = code.toUpperCase();
-		if (airport) known[c] = airport;
+		if (airport) learn(airport);
 		if (!value.includes(c)) value = multiple ? [...value, c] : [c];
 		text = '';
 		results = [];

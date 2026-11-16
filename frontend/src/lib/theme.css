@@ -710,3 +710,71 @@ fieldset.field {
 	border: 1px solid var(--caution-border);
 	color: var(--caution-ink);
 }
+
+/* "More options": the fields most people never need, folded away. */
+details.more {
+	border-top: 1px solid var(--grid);
+	padding-top: 4px;
+}
+details.more > summary {
+	cursor: pointer;
+	min-height: 44px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 0.92rem;
+	font-weight: 600;
+	color: var(--text-2);
+	list-style: none;
+}
+details.more > summary::-webkit-details-marker {
+	display: none;
+}
+details.more > summary::before {
+	content: '';
+	width: 7px;
+	height: 7px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(-45deg);
+	transition: transform var(--ease);
+	margin: 0 4px 0 2px;
+}
+details.more[open] > summary::before {
+	transform: rotate(45deg);
+}
+details.more .morebody {
+	display: grid;
+	gap: 14px;
+	padding: 4px 0 6px;
+}
+.field > .label {
+	display: block;
+}
+
+/* A choice among a few: a tile with a name and a hint, raised when chosen. */
+.choice {
+	display: grid;
+	gap: 1px;
+	align-content: center;
+	text-align: left;
+	min-height: 52px;
+	padding: 8px 12px;
+	border-radius: 14px;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	cursor: pointer;
+	font-size: 0.92rem;
+}
+.choice span {
+	font-size: 0.78rem;
+	color: var(--text-3);
+}
+.choice[aria-pressed='true'] {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+.choice.invalid {
+	border-color: var(--warn);
+}

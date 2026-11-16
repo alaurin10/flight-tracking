@@ -1,8 +1,9 @@
-<!-- Add or change a trip: one fixed date pair, priced until it departs. -->
+<!-- A trip on set dates: where to and when; Flight Watch finds the cheapest flight and
+     prices it until it departs. Everything else is under "More options". -->
 <script lang="ts">
 	import AirportPicker from './AirportPicker.svelte';
 	import { focusFirstError, Touched } from './touched.svelte';
-	import { toTripIn, tripDraft, tripErrors, valid } from './validate';
+	import { toTripIn, tripDraft, tripErrors, tripName, valid } from './validate';
 	import type { Trip, TripIn } from '../types.gen';
 
 	interface Props {
@@ -21,6 +22,8 @@
 	const errors = $derived(tripErrors(d));
 	const show = (f: string) => t.show(f, errors);
 	let form = $state<HTMLFormElement | null>(null);
+	let places = $state<Record<string, string>>({});
+	const place = (c: string) => places[c] ?? c;
 
 	let origin = $state<string[]>(d.origin ? [d.origin] : []);
 	let destination = $state<string[]>(d.destination ? [d.destination] : []);
@@ -28,123 +31,128 @@
 		d.origin = origin[0] ?? '';
 		d.destination = destination[0] ?? '';
 	});
+	// "More options" opens by itself when something in it needs attention or is set.
+	// svelte-ignore state_referenced_locally
+	let more = $state(
+		!!initial && (initial.origin !== home || initial.max_stops != null || !!initial.notes)
+	);
+	$effect(() => {
+		if (t.tried && errors.origin) more = true;
+	});
 
 	function submit(e: SubmitEvent) {
 		e.preventDefault();
 		t.tried = true;
 		if (!valid(errors)) return focusFirstError(form);
-		onsave(toTripIn(d, initial?.status ?? 'active'));
+		onsave(toTripIn(d, initial?.status ?? 'active', place));
 	}
 </script>
 
 <form class="form" bind:this={form} onsubmit={submit} novalidate>
-	<div class="field">
-		<label for="trip-name">Name</label>
-		<input
-			id="trip-name"
-			type="text"
-			bind:value={d.name}
-			onblur={() => t.touch('name')}
-			placeholder="e.g. Tokyo in spring"
-			maxlength="80"
-			aria-invalid={show('name') ? 'true' : undefined}
-		/>
-		{#if show('name')}<p class="err">{show('name')}</p>{/if}
-	</div>
+	<AirportPicker
+		id="trip-to"
+		label="Where to"
+		bind:value={destination}
+		bind:places
+		error={show('destination') || undefined}
+		placeholder="City or airport, e.g. Tokyo"
+	/>
 
-	<div class="row2">
-		<AirportPicker
-			id="trip-from"
-			label="From"
-			bind:value={origin}
-			error={show('origin') || undefined}
-		/>
-		<AirportPicker
-			id="trip-to"
-			label="To"
-			bind:value={destination}
-			error={show('destination') || undefined}
-		/>
-	</div>
-
-	<label class="check">
-		<input type="checkbox" bind:checked={d.oneWay} /> One way
-	</label>
-
-	<div class="row2">
-		<div class="field">
-			<label for="trip-depart">Depart</label>
-			<input
-				id="trip-depart"
-				type="date"
-				bind:value={d.depart_date}
-				onblur={() => t.touch('depart_date')}
-				aria-invalid={show('depart_date') ? 'true' : undefined}
-			/>
-			{#if show('depart_date')}<p class="err">{show('depart_date')}</p>{/if}
-		</div>
-		{#if !d.oneWay}
+	<fieldset class="field">
+		<legend>When</legend>
+		<div class="row2">
 			<div class="field">
-				<label for="trip-return">Return</label>
+				<label for="trip-depart">Leave</label>
 				<input
-					id="trip-return"
+					id="trip-depart"
 					type="date"
-					bind:value={d.return_date}
-					min={d.depart_date || undefined}
-					onblur={() => t.touch('return_date')}
-					aria-invalid={show('return_date') ? 'true' : undefined}
+					bind:value={d.depart_date}
+					onblur={() => t.touch('depart_date')}
+					aria-invalid={show('depart_date') ? 'true' : undefined}
 				/>
-				{#if show('return_date')}<p class="err">{show('return_date')}</p>{/if}
+				{#if show('depart_date')}<p class="err">{show('depart_date')}</p>{/if}
 			</div>
-		{/if}
-	</div>
-
-	<div class="row2">
-		<div class="field">
-			<label for="trip-target">Target price</label>
-			<div class="money">
-				<span aria-hidden="true">$</span>
-				<input
-					id="trip-target"
-					type="text"
-					inputmode="decimal"
-					bind:value={d.target}
-					onblur={() => t.touch('target')}
-					placeholder="optional"
-					aria-invalid={show('target') ? 'true' : undefined}
-					aria-describedby="trip-target-hint"
-				/>
-			</div>
-			{#if show('target')}<p class="err">{show('target')}</p>
-			{:else}<p class="hint" id="trip-target-hint">
-					In dollars. At or under it, the verdict is BOOK.
-				</p>{/if}
+			{#if !d.oneWay}
+				<div class="field">
+					<label for="trip-return">Come back</label>
+					<input
+						id="trip-return"
+						type="date"
+						bind:value={d.return_date}
+						min={d.depart_date || undefined}
+						onblur={() => t.touch('return_date')}
+						aria-invalid={show('return_date') ? 'true' : undefined}
+					/>
+					{#if show('return_date')}<p class="err">{show('return_date')}</p>{/if}
+				</div>
+			{/if}
 		</div>
-		<div class="field">
-			<label for="trip-stops">Stops</label>
-			<select id="trip-stops" bind:value={d.max_stops}>
-				<option value="">Any number</option>
-				<option value="0">Nonstop only</option>
-				<option value="1">At most 1</option>
-				<option value="2">At most 2</option>
-			</select>
-		</div>
-	</div>
+		<label class="check"><input type="checkbox" bind:checked={d.oneWay} /> One way</label>
+	</fieldset>
 
 	<div class="field">
-		<label for="trip-notes">Notes</label>
-		<textarea
-			id="trip-notes"
-			bind:value={d.notes}
-			maxlength="2000"
-			placeholder="optional; only you see them here"></textarea>
-		{#if show('notes')}<p class="err">{show('notes')}</p>{/if}
+		<label for="trip-target">Alert me when it’s under</label>
+		<div class="money">
+			<span aria-hidden="true">$</span>
+			<input
+				id="trip-target"
+				type="text"
+				inputmode="decimal"
+				bind:value={d.target}
+				onblur={() => t.touch('target')}
+				placeholder="optional"
+				aria-invalid={show('target') ? 'true' : undefined}
+			/>
+		</div>
+		{#if show('target')}<p class="err">{show('target')}</p>
+		{:else}<p class="hint">
+				Without one, you’re alerted at the lowest price seen and when it drops unusually.
+			</p>{/if}
 	</div>
+
+	<details class="more" bind:open={more}>
+		<summary>More options</summary>
+		<div class="morebody">
+			<AirportPicker
+				id="trip-from"
+				label="Flying from"
+				bind:value={origin}
+				bind:places
+				error={show('origin') || undefined}
+			/>
+			<div class="field">
+				<label for="trip-stops">Stops</label>
+				<select id="trip-stops" bind:value={d.max_stops}>
+					<option value="">Any number</option>
+					<option value="0">Nonstop only</option>
+					<option value="1">At most 1</option>
+					<option value="2">At most 2</option>
+				</select>
+			</div>
+			<div class="field">
+				<label for="trip-name">Name</label>
+				<input
+					id="trip-name"
+					type="text"
+					bind:value={d.name}
+					maxlength="80"
+					placeholder={tripName({ ...d, name: '' }, place) || 'Made from where and when'}
+					aria-invalid={show('name') ? 'true' : undefined}
+				/>
+				{#if show('name')}<p class="err">{show('name')}</p>{/if}
+			</div>
+			<div class="field">
+				<label for="trip-notes">Notes</label>
+				<textarea id="trip-notes" bind:value={d.notes} maxlength="2000" placeholder="optional"
+				></textarea>
+			</div>
+		</div>
+	</details>
 
 	<div class="actions">
 		<button type="button" class="btn" onclick={oncancel}>Cancel</button>
 		<button type="submit" class="btn primary" disabled={saving}>
-			{saving ? 'Saving…' : initial ? 'Save changes' : 'Add trip'}
+			{saving ? 'Saving…' : initial ? 'Save changes' : 'Start watching'}
 		</button>
 	</div>
 </form>
