@@ -4,22 +4,14 @@ stage that called it, and a failing channel never loses the notification row."""
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from email import message_from_bytes, policy
-from typing import ClassVar
 
 import pytest
 from helpers import add_obs, first_query_id, make_config, make_db
 
-from flighttrack import alert, deals, health
-from flighttrack.config import Alerts, Deals, DealWatch
-from flighttrack.notifier import (
-    FileChannel,
-    Notifier,
-    NotifyError,
-    SmtpChannel,
-    channels_from_config,
-    recent,
-)
+from flighttrack import alert, deals, health, push
+from flighttrack.config import Alerts, Deals, DealWatch, Trip
+from flighttrack.notifier import LogChannel, Notifier, PushChannel, recent
+from flighttrack.settings import Settings
 from flighttrack.store.db import set_state
 
 # The subjects the real callers send (alert.run, deals.alert, health.run).
@@ -36,7 +28,7 @@ class Boom:
 
     name = "boom"
 
-    def send(self, title, body, url):
+    def send(self, conn, kind, title, body, url):
         raise ValueError("synthetic channel failure")
 
 
@@ -46,32 +38,12 @@ class Keep:
     def __init__(self):
         self.sent = []
 
-    def send(self, title, body, url):
+    def send(self, conn, kind, title, body, url):
         self.sent.append((title, body, url))
 
 
 def count(conn, table):
     return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-
-
-def test_none_channel_means_record_only():
-    assert channels_from_config({"channel": "none"}) == []
-    assert channels_from_config(None) == []
-
-
-def test_unknown_channel_raises():
-    with pytest.raises(NotifyError, match="unknown notify channel"):
-        channels_from_config({"channel": "smoke-signal"})
-
-
-def test_ntfy_is_gone():
-    with pytest.raises(NotifyError, match="unknown notify channel 'ntfy'"):
-        channels_from_config({"channel": "ntfy", "ntfy": {"topic": "abc"}})
-
-
-def test_smtp_requires_host_and_recipient():
-    with pytest.raises(NotifyError, match="host and to"):
-        channels_from_config({"channel": "smtp", "smtp": {"port": 587}})
 
 
 def test_send_writes_the_row_then_delivers(tmp_path):
@@ -114,68 +86,105 @@ def test_unknown_kind_is_refused(tmp_path):
     assert count(conn, "notifications") == 0
 
 
-def test_file_channel_appends(tmp_path):
-    ch = FileChannel(tmp_path / "digest.md")
-    ch.send("First", "body one", "https://example.test/a")
-    ch.send("Second", "body two", None)
-    text = (tmp_path / "digest.md").read_text()
-    assert "First" in text and "Second" in text and "https://example.test/a" in text
+# ---------------------------------------------------------------------------
+# Push (M8): to each device that wants the kind; a gone device is dropped
+# ---------------------------------------------------------------------------
+
+KEYS = {"vapid_public_key": "pub", "vapid_private_key": "priv", "contact_email": "me@example.test"}
 
 
-@pytest.mark.parametrize("subject", SUBJECTS)
-def test_file_channel_keeps_real_subjects(tmp_path, subject):
-    path = tmp_path / "digest.md"
-    FileChannel(path).send(subject, "SEA→HND $612", None)
-    assert f"## {subject}\n" in path.read_text(encoding="utf-8")
-
-
-def test_file_channel_from_config(tmp_path):
-    (ch,) = channels_from_config({"channel": "file", "file": {"path": str(tmp_path / "d.md")}})
-    assert isinstance(ch, FileChannel) and ch.path == tmp_path / "d.md"
-
-
-class FakeSMTP:
-    """Stands in for smtplib.SMTP; keeps the message exactly as it would go on the wire."""
-
-    sent: ClassVar[list[bytes]] = []
-
-    def __init__(self, host, port, timeout=None):
-        self.host, self.port = host, port
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def starttls(self):
-        pass
-
-    def login(self, user, password):
-        pass
-
-    def send_message(self, msg):
-        FakeSMTP.sent.append(msg.as_bytes())
-
-
-@pytest.mark.parametrize("subject", SUBJECTS)
-def test_smtp_encodes_non_ascii_subjects(monkeypatch, subject):
-    FakeSMTP.sent = []
-    monkeypatch.setattr("smtplib.SMTP", FakeSMTP)
-    (ch,) = channels_from_config(
-        {"channel": "smtp", "smtp": {"host": "mail.example", "to": "me@example.test"}}
+def device(conn, name, kinds):
+    push.subscribe(
+        conn,
+        push.SubscribeIn(
+            subscription={
+                "endpoint": f"https://fcm.googleapis.com/fcm/send/{name}",
+                "keys": {"p256dh": "p", "auth": "a"},
+            },
+            kinds=kinds,
+        ),
     )
-    assert isinstance(ch, SmtpChannel)
-    ch.send(subject, "SEA→HND $612", "https://google.test/flights?tfs=xyz")
 
-    wire = FakeSMTP.sent[0]
-    headers = wire.split(b"\n\n", 1)[0]
-    headers.decode("ascii")  # RFC 5322: header bytes are ASCII
-    assert b"=?utf-8?" in headers.lower()  # the subject went out RFC 2047-encoded
-    parsed = message_from_bytes(wire, policy=policy.default)
-    assert parsed["Subject"] == subject
-    content = parsed.get_content()
-    assert "SEA→HND $612" in content and "https://google.test/flights?tfs=xyz" in content
+
+class Sender:
+    """Stands in for pywebpush: records each push and answers with a status per device."""
+
+    def __init__(self, status=None):
+        self.sent = []
+        self.status = status or {}
+
+    def __call__(self, info, data, key, claims):
+        self.sent.append((info["endpoint"].rsplit("/", 1)[1], data, key, claims))
+        return self.status.get(info["endpoint"].rsplit("/", 1)[1], 201)
+
+
+def test_push_goes_only_to_devices_that_want_the_kind(tmp_path):
+    conn, _ = make_db(tmp_path)
+    device(conn, "phone", ["price", "deal", "health"])
+    device(conn, "laptop", ["health"])
+    sender = Sender()
+    n = Notifier([PushChannel(Settings(**KEYS), sender)])
+    d = n.send(conn, "price", "✈ $612 Tokyo · Apr 10", "body", "/trip/japan")
+    assert d.error is None and [s[0] for s in sender.sent] == ["phone"]
+    _, data, key, claims = sender.sent[0]
+    assert '"url": "/trip/japan"' in data and key == "priv"
+    assert claims == {"sub": "mailto:me@example.test"}
+    n.send(conn, "health", "⚠ Flight Watch has stopped collecting prices", "body", "/status")
+    assert [s[0] for s in sender.sent[1:]] == ["phone", "laptop"]
+
+
+def test_a_gone_device_is_dropped_and_a_failed_push_keeps_the_row_and_record(tmp_path):
+    conn, _ = make_db(tmp_path)
+    device(conn, "old", ["deal"])
+    device(conn, "flaky", ["deal"])
+    sender = Sender({"old": 410, "flaky": 500})
+    d = Notifier([PushChannel(Settings(**KEYS), sender)]).send(
+        conn, "deal", "T", "B", "/deals",
+        record=lambda c: c.execute("INSERT INTO state VALUES ('rec', 'yes')"),
+    )  # fmt: skip
+    assert d.error == "push failed for 2 device(s)"
+    assert count(conn, "notifications") == 1
+    assert conn.execute("SELECT value FROM state WHERE key = 'rec'").fetchone()[0] == "yes"
+    left = [s.endpoint.rsplit("/", 1)[1] for s in push.subscriptions(conn)]
+    assert left == ["flaky"]  # 410: gone; 500: kept, one failure counted
+    for _ in range(push.MAX_FAILURES):
+        push.send_kind(conn, Settings(**KEYS), "deal", "T", "B", "/deals", sender)
+    assert push.subscriptions(conn) == []  # five failures in a row: dropped
+
+
+def test_push_is_used_only_when_the_keys_are_set():
+    assert isinstance(Notifier.from_settings(Settings()).channels[0], LogChannel)
+    assert isinstance(Notifier.from_settings(Settings(**KEYS)).channels[0], PushChannel)
+
+
+def test_only_browser_push_services_and_at_most_20_devices(tmp_path):
+    conn, _ = make_db(tmp_path)
+    assert push.is_push_service("https://web.push.apple.com/abc")
+    assert push.is_push_service("https://wns2-bl2p.notify.windows.com/w/?token=x")
+    for bad in ("http://fcm.googleapis.com/x", "https://evil.example/x",
+                "https://fcm.googleapis.com:8443/x", "https://u@fcm.googleapis.com/x"):  # fmt: skip
+        assert not push.is_push_service(bad)
+    for i in range(push.MAX_SUBSCRIPTIONS):
+        device(conn, f"d{i}", ["health"])
+    with pytest.raises(push.SubscriptionLimitError):
+        device(conn, "one-too-many", ["health"])
+    device(conn, "d0", ["price"])  # an existing device may change its choice
+    assert push.prefs(conn, "https://fcm.googleapis.com/fcm/send/d0").kinds == ["price"]
+
+
+def test_a_price_alert_opens_its_trips_page(tmp_path):
+    from datetime import date
+
+    depart = (date.today() + timedelta(days=40)).isoformat()
+    trip = Trip("japan", "HND", depart, None, target_price=80000)
+    cfg = make_config(trips=[trip], alerts=Alerts(min_observations_for_all_time_low=99))
+    conn, cfg = make_db(tmp_path, cfg)
+    qid = conn.execute("SELECT query_id FROM watch_queries WHERE trip_id IS NOT NULL").fetchone()[0]
+    add_obs(conn, qid, 70000)
+    keep = Keep()
+    alert.run(conn, cfg, verbose=False, notifier=Notifier([keep]))
+    (_title, body, url) = keep.sent[0]
+    assert url == "/trip/japan" and body.startswith("Tokyo")
 
 
 # ---------------------------------------------------------------------------

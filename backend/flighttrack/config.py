@@ -32,7 +32,6 @@ log = logging.getLogger(__name__)
 
 DOW = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
 SEATS = {"economy", "premium-economy", "business", "first"}
-CHANNELS = {"smtp", "file", "none"}
 SOURCES = {"google_html", "fast_flights", "serpapi"}
 TRANSPORTS = {"auto", "primp", "urllib"}
 _IATA = re.compile(r"^[A-Z]{3}$")
@@ -278,7 +277,6 @@ class Config:
     search: Search
     fetch: Fetch
     alerts: Alerts
-    notify: dict[str, Any] = field(default_factory=dict)
     db_path: str = "data/flights.db"
     calendar: Calendar = field(default_factory=Calendar)
     deals: Deals = field(default_factory=Deals)
@@ -851,30 +849,12 @@ def load(
     _require(finds.confirm_slack_pct >= 0, "finds.confirm_slack_pct must not be negative")
     _require(finds.recheck_hours > 0, "finds.recheck_hours must be positive")
 
-    # --- notify -----------------------------------------------------------
-    n = raw.get("notify") or {}
-    _require(isinstance(n, dict), "notify: must be a mapping")
-    channel = str(n.get("channel", "none"))
-    _require(
-        channel != "ntfy",
-        "notify.channel ntfy has been removed — use file, smtp or none "
-        "(alerts move to browser push in the web app)",
-    )
-    _require(channel in CHANNELS, f"notify.channel must be one of {sorted(CHANNELS)}")
-    if channel == "smtp" and alerts.enabled and strict_secrets:
-        smtp = n.get("smtp") or {}
-        _require(
-            bool(smtp.get("host")) and bool(smtp.get("to")),
-            "notify.smtp.host or notify.smtp.to is empty — set SMTP_HOST and SMTP_TO "
-            "(or hard-code them) before enabling alerts",
+    # --- notify (gone since M8: alerts go by browser push) --------------------
+    if "notify" in raw:
+        log.warning(
+            "the notify: section is ignored: alerts are recorded in the app and pushed to "
+            "the owner's devices once VAPID keys are set (`flighttrack push keys`)"
         )
-
-    # The file channel writes under DATA_DIR unless given an absolute path.
-    n = dict(n)
-    file_conf = dict(n.get("file") or {})
-    digest = Path(str(file_conf.get("path") or "out/digest.md"))
-    file_conf["path"] = str(digest if digest.is_absolute() else settings.data_dir / digest)
-    n["file"] = file_conf
 
     return Config(
         home=home,
@@ -883,7 +863,6 @@ def load(
         search=search,
         fetch=fetch,
         alerts=alerts,
-        notify=n,
         db_path=str(settings.database),
         calendar=calendar,
         deals=deals,

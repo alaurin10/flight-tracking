@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
-from .. import __version__, watches
+from .. import __version__, push, watches
 from .. import config as config_mod
 from ..config import Config
 from ..settings import Settings, get_settings
@@ -32,6 +32,7 @@ from .admin import make_admin_router
 from .auth import MIN_PASSWORD, make_auth_router, owner_login_enabled
 from .models import LivezOut, MetaOut
 from .public import make_router
+from .push_api import make_push_router
 from .ratelimit import LoginThrottle, RateLimiter
 
 log = logging.getLogger("flighttrack.api")
@@ -201,7 +202,7 @@ def create_app(
             home_airport=cfg.home,
             currency=cfg.search.currency,
             owner_login_enabled=owner_login_enabled(settings),
-            push_enabled=bool(settings.vapid_public_key and settings.vapid_private_key),
+            push_enabled=push.enabled(settings),
         )
 
     @app.get("/robots.txt", include_in_schema=False)
@@ -220,6 +221,7 @@ def create_app(
         )
     )
     app.include_router(make_admin_router())
+    app.include_router(make_push_router())
 
     if spa and static is not None:
         root = static.resolve()

@@ -9,6 +9,7 @@ dependencies = [
     "primp>=2,<3", # browser TLS fingerprint for the Google Flights client
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
+    "pywebpush>=2.5.0",
     "pyyaml>=6.0",
     "uvicorn[standard]>=0.30",
 ]
@@ -52,7 +53,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fast_flights.*", "primp.*", "apscheduler.*"]
+module = ["fast_flights.*", "primp.*", "apscheduler.*", "pywebpush.*", "py_vapid.*"]
 ignore_missing_imports = true
 
 # Modules from before the restructure. New modules are never added here; a

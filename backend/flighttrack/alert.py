@@ -333,8 +333,24 @@ def run(
             stats.sent, stats.digested = 1, len(passing)
         return stats
 
-    notifier = notifier or Notifier.from_config(cfg)
+    notifier = notifier or Notifier.from_settings()
     errors: list[str] = []
+
+    def page(c: Candidate) -> str | None:
+        """The app page of the trip or search that wants this date pair (where a tap on
+        the alert goes; Google Flights is linked from there), else the Google link."""
+        row = conn.execute(
+            "SELECT t.slug AS trip, s.slug AS search FROM watch_queries wq "
+            "LEFT JOIN trips t ON t.id = wq.trip_id LEFT JOIN searches s ON s.id = wq.search_id "
+            "WHERE wq.query_id = ? ORDER BY wq.trip_id IS NULL LIMIT 1",
+            (c.query_id,),
+        ).fetchone()
+        if row is not None and row["trip"]:
+            return f"/trip/{row['trip']}"
+        if row is not None and row["search"]:
+            return f"/search/{row['search']}"
+        return c.deep_link
+
     if len(passing) <= cfg.alerts.max_per_run:
         # Few enough to send individually, each with its own deep link.
         for c in passing:
@@ -342,8 +358,8 @@ def run(
                 conn,
                 "price",
                 f"✈ {fmt_money(c.price_cents)} {c.label} · {fmt_date(c.depart_date)}",
-                c.line(),
-                c.deep_link,
+                c.line() + (f"\n{c.deep_link}" if c.deep_link else ""),
+                page(c),
                 record=partial(_record, cands=[c]),
             )
             errors += d.errors
@@ -355,7 +371,7 @@ def run(
             "price",
             f"✈ {len(passing)} fares worth a look (cheapest {fmt_money(passing[0].price_cents)})",
             "\n\n".join(c.line() for c in passing),
-            passing[0].deep_link,
+            page(passing[0]),
             record=partial(_record, cands=passing),
         )
         errors += d.errors

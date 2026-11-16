@@ -14,9 +14,7 @@ from flighttrack.store.db import get_state, open_db
 
 
 def _seeded(tmp_path, **ret):
-    cfg = replace(
-        make_config(max_days_ahead=60, notify={"channel": "none"}), retention=Retention(**ret)
-    )
+    cfg = replace(make_config(max_days_ahead=60), retention=Retention(**ret))
     conn = open_db(tmp_path / "c.db")
     demo.seed(conn, cfg, days=120)
     return conn, cfg

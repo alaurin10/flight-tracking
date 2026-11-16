@@ -211,19 +211,3 @@ retention:
   enabled: true
   runner_up_days: 90
   attempts_days: 180
-
-# ---------------------------------------------------------------------------
-# Notification. ${VAR} is expanded from the environment at load time.
-# `file` appends every alert to a Markdown digest (a relative path is under
-# DATA_DIR); `smtp` sends email. The web app replaces both with browser push.
-# ---------------------------------------------------------------------------
-notify:
-  channel: file              # file | smtp | none
-  smtp:
-    host: ${SMTP_HOST}
-    port: 587
-    username: ${SMTP_USER}
-    password: ${SMTP_PASS}
-    to: ${SMTP_TO}
-  file:
-    path: out/digest.md

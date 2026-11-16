@@ -1,29 +1,27 @@
 """Alerts: a record first, a delivery second.
 
 `Notifier.send` always writes a row to `notifications` (what the app shows), then
-hands the message to each configured channel. A channel failing is logged and
-reported back; it never loses the row and never raises. Callers that keep their
-own record of what was sent (`alerts_sent`, `deal_posts.alerted_at`) pass it as
+hands the message to each channel. A channel failing is logged and reported back; it
+never loses the row and never raises. Callers that keep their own record of what was
+sent (`alerts_sent`, `deal_posts.alerted_at`, `finds.notified_cents`) pass it as
 `record=`, and it is written in the same transaction as the row.
 
-Channels for now: `file` (append to a Markdown digest) and `smtp`, chosen by
-`notify.channel` in config/flighttrack.yaml. Browser push replaces both in M8.
-
-Stdlib only.
+Channels (M8): browser push to the owner's devices (`push.py`) when VAPID keys are
+set, each device getting only the kinds it chose; otherwise a log line, so alerts are
+recorded and shown in the app either way. The old `file` and `smtp` channels and the
+`notify:` tunables section are gone.
 """
 
 from __future__ import annotations
 
 import logging
-import smtplib
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from email.message import EmailMessage
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
-from .config import Config
+from . import push
+from .settings import Settings, get_settings
 from .store.db import utcnow
 
 log = logging.getLogger(__name__)
@@ -38,86 +36,37 @@ class NotifyError(Exception):
 class Channel(Protocol):
     name: str
 
-    def send(self, title: str, body: str, url: str | None) -> None: ...
+    def send(
+        self, conn: sqlite3.Connection, kind: str, title: str, body: str, url: str | None
+    ) -> None: ...
 
 
 @dataclass
-class FileChannel:
-    """Append each message to a Markdown digest file."""
+class LogChannel:
+    """Push is not set up: say so in the log. The app shows the alert either way."""
 
-    path: Path
-    name: str = "file"
+    name: str = "log"
 
-    def send(self, title: str, body: str, url: str | None) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        entry = f"\n## {title}\n\n_{utcnow()}_\n\n{body}\n"
-        if url:
-            entry += f"\n[Open]({url})\n"
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(entry)
+    def send(
+        self, conn: sqlite3.Connection, kind: str, title: str, body: str, url: str | None
+    ) -> None:
+        log.info("alert (%s, not pushed: push is not set up): %s", kind, title)
 
 
 @dataclass
-class SmtpChannel:
-    host: str
-    to: str
-    port: int = 587
-    username: str | None = None
-    password: str | None = None
-    name: str = "smtp"
+class PushChannel:
+    """Browser push to every subscribed device that wants this kind."""
 
-    def send(self, title: str, body: str, url: str | None) -> None:
-        # EmailMessage's default policy encodes a non-ASCII Subject (✈, ⚠) as
-        # RFC 2047 when the message is serialized.
-        msg = EmailMessage()
-        msg["Subject"] = title
-        msg["From"] = self.username or f"flighttrack@{self.host}"
-        msg["To"] = self.to
-        msg.set_content(body + (f"\n\n{url}\n" if url else "\n"))
-        try:
-            with smtplib.SMTP(self.host, self.port, timeout=30) as s:
-                s.starttls()
-                if self.username and self.password:
-                    s.login(self.username, self.password)
-                s.send_message(msg)
-        except (smtplib.SMTPException, OSError) as exc:
-            raise NotifyError(f"SMTP send failed: {exc}") from exc
+    settings: Settings
+    sender: push.Sender = push.webpush_sender
+    name: str = "push"
 
-
-def channels_from_config(conf: dict[str, Any] | None) -> list[Channel]:
-    """The channels `notify:` names. `none` (or no section) means record only."""
-    conf = conf or {}
-    channel = conf.get("channel", "none")
-    if channel == "none":
-        return []
-    if channel == "file":
-        file_conf = conf.get("file") or {}
-        return [FileChannel(Path(str(file_conf.get("path") or "out/digest.md")))]
-    if channel == "smtp":
-        smtp = conf.get("smtp") or {}
-        if not smtp.get("host") or not smtp.get("to"):
-            raise NotifyError("notify.smtp needs at least host and to")
-        return [
-            SmtpChannel(
-                host=str(smtp["host"]),
-                to=str(smtp["to"]),
-                port=int(smtp.get("port", 587)),
-                username=smtp.get("username") or None,
-                password=smtp.get("password") or None,
-            )
-        ]
-    raise NotifyError(f"unknown notify channel {channel!r}")
-
-
-@dataclass
-class BrokenChannel:
-    """A channel the config names but that cannot work: every send says why."""
-
-    error: str
-    name: str = "config"
-
-    def send(self, title: str, body: str, url: str | None) -> None:
-        raise NotifyError(self.error)
+    def send(
+        self, conn: sqlite3.Connection, kind: str, title: str, body: str, url: str | None
+    ) -> None:
+        sent, failed = push.send_kind(conn, self.settings, kind, title, body, url, self.sender)
+        if failed and not sent:
+            raise NotifyError(f"push failed for {failed} device(s)")
 
 
 @dataclass
@@ -137,13 +86,10 @@ class Notifier:
         self.channels = list(channels)
 
     @classmethod
-    def from_config(cls, cfg: Config) -> Notifier:
-        """The configured channels. A broken `notify:` section never stops alerts from
-        being recorded: each send reports the problem as a delivery error instead."""
-        try:
-            return cls(channels_from_config(cfg.notify))
-        except NotifyError as exc:
-            return cls([BrokenChannel(str(exc))])
+    def from_settings(cls, settings: Settings | None = None) -> Notifier:
+        """Push when the VAPID keys are set, else a log line."""
+        settings = settings or get_settings()
+        return cls([PushChannel(settings)] if push.enabled(settings) else [LogChannel()])
 
     def send(
         self,
@@ -171,7 +117,7 @@ class Notifier:
         delivery = Delivery(id=int(cur.lastrowid or 0))
         for ch in self.channels:
             try:
-                ch.send(title, body, url)
+                ch.send(conn, kind, title, body, url)
             except Exception as exc:
                 msg = (
                     str(exc)

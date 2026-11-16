@@ -44,7 +44,6 @@ def test_fixed_trip_tracks_up_to_departure_and_uses_its_own_target(tmp_path):
     cfg = make_config(
         patterns=[Pattern("thu", "THU", 4)],
         trips=[Trip("japan", "HND", "2026-09-30", "2026-10-14", target_price=90000)],
-        notify={"channel": "none"},
     )
     conn, cfg = make_db(tmp_path, cfg)
     res = expand.expand(conn, cfg, today=TODAY, build_links=False)
@@ -84,8 +83,6 @@ routes:
     label: Tokyo
   - dest: SLC
     label: Salt Lake City
-notify:
-  channel: none
 """
 
 
@@ -193,8 +190,8 @@ def test_old_shipped_config_covers_all_three_scenarios(tmp_path):
 
 def test_shipped_tunables(tmp_path):
     cfg = _shipped_tunables(tmp_path)
-    # M1: ntfy is gone, the dead and Europe-only feeds are gone, the cap is conservative.
-    assert cfg.notify["channel"] == "file"
+    # M1: the dead and Europe-only feeds are gone, the cap is conservative. M8: no notify.
+    assert not hasattr(cfg, "notify")
     assert cfg.deals.enabled
     assert cfg.deals.feeds == (
         "https://www.theflightdeal.com/feed/",
@@ -203,7 +200,6 @@ def test_shipped_tunables(tmp_path):
     assert cfg.fetch.max_queries_per_run == 25
     assert cfg.db_path == str(tmp_path / "flights.db")
     assert cfg.failure_dir == str(tmp_path / "failures")
-    assert cfg.notify["file"]["path"] == str(tmp_path / "out" / "digest.md")
 
 
 def test_nothing_personal_is_shipped():
@@ -216,7 +212,7 @@ def test_nothing_personal_is_shipped():
 
     tunables = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
     assert set(tunables) == {
-        "search", "fetch", "calendar", "alerts", "health", "retention", "horizon", "notify",
+        "search", "fetch", "calendar", "alerts", "health", "retention", "horizon",
         "deals", "collect", "explore", "finds",
     }  # fmt: skip
     assert set(tunables["deals"]) == {"enabled", "feeds", "max_alerts_per_run", "lookback_days"}
