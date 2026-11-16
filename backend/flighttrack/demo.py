@@ -243,6 +243,7 @@ def seed(
         )
     _seed_alerts(conn, now)
     _seed_explore(conn, cfg, now, today, rng)
+    _seed_finds(conn, cfg, now, today)
     conn.commit()
     return {"queries": len(rows), "observations": written, "days": days}
 
@@ -259,6 +260,55 @@ EXPLORE_PLACES = (
     ("Lisbon", "Portugal", "LIS", 61000),
     ("Tokyo", "Japan", "HND", 72000),
 )
+
+
+def _seed_finds(conn: sqlite3.Connection, cfg: Config, now: datetime, today: date) -> None:
+    """Two confirmed finds and one waiting for its check, on the week-long Anywhere board."""
+    from . import explore, finds
+
+    board = next((b for b in explore.boards(conn, cfg) if b.key == "anywhere-7"), None)
+    if board is None:
+        return
+    days = explore.board_departures(cfg, board, today)
+    if len(days) < 3:
+        return
+    rows = (
+        ("LAX", "Los Angeles", "United States", days[0], 12500, 19800, 13900, "confirmed"),
+        ("LIS", "Lisbon", "Portugal", days[2], 44000, 66000, 51800, "confirmed"),
+        ("KEF", "Reykjavík", "Iceland", days[1], 33000, 52000, None, "candidate"),
+    )
+    for airport, name, country, depart, estimate, usual, price, status in rows:
+        pct = round((usual - estimate) / usual * 100)
+        checked = _iso(now - timedelta(hours=3)) if price else None
+        conn.execute(
+            """INSERT OR IGNORE INTO finds (key, origin, airport, place_id, name, country,
+                   depart_date, nights, board_key, estimate_cents, usual_cents, why, status,
+                   price_cents, airline, stops, duration_min, found_at, checked_at,
+                   confirmed_at, notified_cents)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Alaska', ?, ?, ?, ?, ?, ?)""",
+            (
+                finds.find_key(board.origin, airport, depart, board.nights),
+                board.origin,
+                airport,
+                f"/demo/{airport.lower()}",
+                name,
+                country,
+                depart,
+                board.nights,
+                board.key,
+                estimate,
+                usual,
+                f"{pct}% under its usual {_money(usual)}",
+                status,
+                price,
+                0 if airport == "LAX" else 1,
+                150 if airport == "LAX" else 690,
+                _iso(now - timedelta(hours=5)),
+                checked,
+                checked,
+                price,
+            ),
+        )
 
 
 def _seed_explore(

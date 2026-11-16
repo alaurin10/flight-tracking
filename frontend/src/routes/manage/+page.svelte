@@ -135,6 +135,30 @@
 		return () => leaving.abort();
 	});
 
+	// A found deal's "Track this" (/manage?to=LIS&depart=…): open a new trip with its
+	// fields, once (Back from the form returns here without opening it again).
+	let prefillUsed = false;
+	$effect(() => {
+		if (prefillUsed || !owner.me?.is_owner || !loaded) return;
+		const q = page.url.searchParams;
+		const to = q.get('to');
+		if (!to) return;
+		prefillUsed = true;
+		formError = null;
+		pushState('', {
+			manage: {
+				form: 'trip',
+				prefill: {
+					name: q.get('name') ?? undefined,
+					origin: q.get('from') ?? undefined,
+					destination: to,
+					depart_date: q.get('depart') ?? undefined,
+					return_date: q.get('return')
+				}
+			}
+		});
+	});
+
 	// Home's words for a region ("Seattle, SEA"): what a deal post says it leaves from.
 	$effect(() => {
 		const code = home;
@@ -434,7 +458,14 @@
 			{@const t = find(trips, open.id)}
 			<h2 id="form-h">{t ? `Change ${t.name}` : heading}</h2>
 			{#if !t}<p class="muted intro">{intro}</p>{/if}
-			<TripForm initial={t} {home} {saving} onsave={onTrip} oncancel={closeForm} />
+			<TripForm
+				initial={t}
+				prefill={open.prefill}
+				{home}
+				{saving}
+				onsave={onTrip}
+				oncancel={closeForm}
+			/>
 		{:else if open.form === 'search'}
 			{@const s = find(searches, open.id)}
 			<h2 id="form-h">{s ? `Change ${s.name}` : heading}</h2>

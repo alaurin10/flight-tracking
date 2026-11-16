@@ -146,6 +146,14 @@ for every week ahead and again daily (`explore.refresh_hours`), keeps every fare
 calendar prices, Explore fares include basic economy and are estimates. A reply without
 destinations is `gated` and pauses only the explore lane.
 
+### B2a. The deal finder on top of Explore (D3)
+
+Explore fares are estimates, so the app never alerts on one. A fare well under the place's
+usual Explore price (the median daily low for that trip length and travel month over 45 days)
+becomes a candidate and is searched once on the results page, with the bag and fare filters,
+for the exact dates. Only a real fare within 30% of the estimate, or under the watch's price,
+is shown and alerted as a find; it is searched again every 12 hours until it goes.
+
 ### B3. What the results page does not have
 
 Google's "prices are low / typical / high" insight and typical price range are drawn by the

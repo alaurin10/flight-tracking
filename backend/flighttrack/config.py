@@ -232,6 +232,22 @@ class Explore:
 
 
 @dataclass(frozen=True)
+class Finds:
+    """The deal finder (D3): Explore fares well under a place's usual price become
+    candidates, confirmed by one real results-page search with the owner's filters."""
+
+    enabled: bool = False
+    under_usual_pct: float = 25.0  # a candidate is this far under the usual price
+    new_low_pct: float = 10.0  # ...or this far under the lowest fare seen before
+    usual_days: int = 45  # the usual price is the median daily low over these days
+    min_history_days: int = 7  # days of fares before "under its usual" is claimed
+    cheapest_per_board: int = 3  # with too little history: each board's cheapest few
+    confirm_slack_pct: float = 30.0  # the real price may be this far over the estimate
+    recheck_hours: float = 12.0  # a confirmed find is searched again this often
+    renotify_drop_pct: float = 10.0  # alert again only when it drops this much more
+
+
+@dataclass(frozen=True)
 class Collect:
     """How the worker paces collecting. Every Google request counts against one rolling
     24-hour allowance that the worker learns (`pace.py`): it starts at
@@ -271,6 +287,7 @@ class Config:
     failure_dir: str = "data/failures"
     collect: Collect = field(default_factory=Collect)
     explore: Explore = field(default_factory=Explore)
+    finds: Finds = field(default_factory=Finds)
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +828,29 @@ def load(
     _require(explore.refresh_hours > 0, "explore.refresh_hours must be positive")
     _require(explore.fresh_hours > 0, "explore.fresh_hours must be positive")
 
+    # --- finds (the deal finder, D3) -------------------------------------------
+    fd = raw.get("finds") or {}
+    _require(isinstance(fd, dict), "finds: must be a mapping")
+    finds = Finds(
+        enabled=bool(fd.get("enabled", False)),
+        under_usual_pct=float(fd.get("under_usual_pct", Finds.under_usual_pct)),
+        new_low_pct=float(fd.get("new_low_pct", Finds.new_low_pct)),
+        usual_days=_int(fd.get("usual_days", Finds.usual_days), "finds.usual_days", lo=7),
+        min_history_days=_int(
+            fd.get("min_history_days", Finds.min_history_days), "finds.min_history_days", lo=1
+        ),
+        cheapest_per_board=_int(
+            fd.get("cheapest_per_board", Finds.cheapest_per_board), "finds.cheapest_per_board", lo=0
+        ),
+        confirm_slack_pct=float(fd.get("confirm_slack_pct", Finds.confirm_slack_pct)),
+        recheck_hours=float(fd.get("recheck_hours", Finds.recheck_hours)),
+        renotify_drop_pct=float(fd.get("renotify_drop_pct", Finds.renotify_drop_pct)),
+    )
+    _require(0 < finds.under_usual_pct < 100, "finds.under_usual_pct must be between 0 and 100")
+    _require(0 <= finds.new_low_pct < 100, "finds.new_low_pct must be between 0 and 100")
+    _require(finds.confirm_slack_pct >= 0, "finds.confirm_slack_pct must not be negative")
+    _require(finds.recheck_hours > 0, "finds.recheck_hours must be positive")
+
     # --- notify -----------------------------------------------------------
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
@@ -852,4 +892,5 @@ def load(
         failure_dir=str(settings.failure_dir),
         collect=collect,
         explore=explore,
+        finds=finds,
     )

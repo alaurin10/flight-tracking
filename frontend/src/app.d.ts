@@ -10,7 +10,18 @@ declare global {
 		// interface PageData {}
 		interface PageState {
 			/** The Manage page's open form (shallow routing: Back closes it). */
-			manage?: { form: 'trip' | 'search' | 'deal-watch' | 'feed'; id?: number };
+			manage?: {
+				form: 'trip' | 'search' | 'deal-watch' | 'feed';
+				id?: number;
+				/** A new trip's fields from a found deal's "Track this" link. */
+				prefill?: {
+					name?: string;
+					origin?: string;
+					destination?: string;
+					depart_date?: string;
+					return_date?: string | null;
+				};
+			};
 		}
 		// interface Platform {}
 	}

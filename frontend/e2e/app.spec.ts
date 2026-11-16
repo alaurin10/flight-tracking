@@ -107,8 +107,21 @@ test('the search grid opens a date and shows its history', async ({ page }) => {
 	await expect(detail).toHaveCount(0);
 });
 
-test('deals open on the Explore boards; posts are one tap away', async ({ page }) => {
+test('deals open on what the app found; Track this fills in a trip', async ({ page }) => {
 	await page.goto('/deals');
+	const finds = page.getByTestId('find');
+	await expect(finds.first()).toContainText('Los Angeles');
+	await expect(finds.first()).toContainText('confirmed');
+	await expect(finds.filter({ hasText: 'Reykjavík' })).toContainText('checking');
+	const track = finds.first().getByRole('link', { name: 'Track this' });
+	await expect(track).toHaveAttribute('href', /\/manage\?.*to=LAX/);
+	await page.goto('/');
+	await expect(page.getByTestId('overview-finds')).toContainText('Los Angeles');
+});
+
+test('the Explore boards are one tap away, posts another', async ({ page }) => {
+	await page.goto('/deals');
+	await page.getByRole('button', { name: 'Explore' }).click();
 	const board = page.getByTestId('board').first();
 	await expect(board.getByRole('heading')).toContainText('Anywhere from SEA');
 	const places = board.getByTestId('place');
@@ -221,6 +234,7 @@ test('an empty database shows the empty state', async ({ page }) => {
 				searches: [],
 				notifications: [],
 				deals: [],
+				finds: [],
 				health: { ok: false, problems: [], last_success_at: null, cooldown_until: null }
 			})
 		})

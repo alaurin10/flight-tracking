@@ -25,7 +25,7 @@ Update this table in the same pull request that finishes a milestone.
 | M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
 | D1 | Deal finder track: a learned pace, lanes, failures named | done | [#24](https://github.com/alaurin10/flight-tracking/pull/24) | 417 backend tests, 69 unit, 51 e2e; 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
 | D2 | Deal finder track: price regions with Explore | done | [#25](https://github.com/alaurin10/flight-tracking/pull/25) | 433 backend tests, 70 unit, 53 e2e; 4 live requests: Explore answers plain HTTP; 92 places, 6–8 with a fare per call (fixture saved) |
-| D3 | Deal finder track: find and confirm deals | not started | | |
+| D3 | Deal finder track: find and confirm deals | done | [#26](https://github.com/alaurin10/flight-tracking/pull/26) | 446 backend tests, 70 unit, 57 e2e; no live requests needed (built on D2's Explore data and the results page) |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
 | M9 | Hardening and 1.0 | not started | | |
@@ -362,6 +362,21 @@ Decisions log (add a line when a milestone departs from this document, with the 
   prunes it. `expand` does not write Explore scans: the worker works out the boards' departures
   when the lane's turn comes (`explore.due`), as the calendar does since D1, and the shared
   bookkeeping is `scans.py`. Deals opens on the Explore tab; Posts is one tap away.
+- 2026-11-16 (D3): the usual price comes from `explore_prices` only, per origin, place, trip
+  length and travel month (the median daily low over 45 days, at least 7 days). Calendar
+  prices are per tracked route and date pair, not per Explore place, so they are not mixed
+  in; a find on a tracked route still has its own price history on its trip or search page.
+- 2026-11-16 (D3): confirmation is one results page for the exact dates, not a calendar call
+  first: the calendar lane can be paused for hours (D1), and one detail request settles it.
+  The real fare (bag and exclude-basic filters) is compared with the Explore estimate (basic
+  economy included): within 30% confirms, or at or under the region watch's price. A higher
+  fare closes the find with the real fare in its note. Finds are checked in the detail lane,
+  first in each slot after dates a person asked for, and spend the detail share of the pace.
+- 2026-11-16 (D3): `finds` is a state table (008, not append-only): a find is a candidate,
+  confirmed or gone. A gone find returns only when its estimate drops 10% more or after a
+  week. Three failed checks in a row close it. Deals opens on Found; "Track this" opens
+  Manage's new-trip form filled in (`/manage?to=…&depart=…&return=…`); the overview lists
+  the top three confirmed finds. Alerts are `deal` notifications (push arrives with M8).
 
 ## How to work from this document
 

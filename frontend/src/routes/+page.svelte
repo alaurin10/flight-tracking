@@ -159,6 +159,28 @@
 		</div>
 	{/if}
 
+	{#if o.finds?.length}
+		<section class="card found" aria-labelledby="found-h" data-testid="overview-finds">
+			<h2 id="found-h">
+				Found deals <a class="more" href={resolve('/deals')}>All finds</a>
+			</h2>
+			<ul class="rows">
+				{#each o.finds ?? [] as f (f.id)}
+					<li class="deal-row">
+						<span class="dprice num">{fmt(f.price ?? f.estimate)}</span>
+						<div class="ntext">
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- an outside link -->
+							<a href={f.link} target="_blank" rel="noopener noreferrer"
+								>{f.name} · {tripDates(f.depart_date, f.return_date)}</a
+							>
+							<p class="faint">{f.why} · from {f.origin}</p>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
 	<div class="lower">
 		<section class="card" aria-labelledby="alerts-h">
 			<h2 id="alerts-h">Recent alerts</h2>

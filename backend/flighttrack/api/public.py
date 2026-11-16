@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from .. import __version__, airports, pace, report, watches
 from .. import explore as explore_mod
 from .. import fetch as fetch_mod
+from .. import finds as finds_mod
 from .. import health as health_mod
 from .. import scans as scans_mod
 from ..canary import STATE_LAST_CANARY
@@ -41,6 +42,7 @@ from .models import (
     ExploreBoardOut,
     ExplorePlaceOut,
     FeedOut,
+    FindOut,
     HealthOut,
     HealthSummary,
     HistoryOut,
@@ -338,6 +340,39 @@ def _lanes(conn: sqlite3.Connection, cfg: Config, now: datetime) -> list[LaneOut
     return out
 
 
+def _finds(
+    conn: sqlite3.Connection, cfg: Config, now: datetime, *, confirmed_only: bool = False
+) -> list[FindOut]:
+    if not cfg.finds.enabled:
+        return []
+    return [
+        FindOut(
+            id=f["id"],
+            status=f["status"],
+            name=f["name"],
+            country=f["country"],
+            origin=f["origin"],
+            airport=f["airport"],
+            depart_date=f["depart_date"],
+            return_date=f["return_date"],
+            nights=f["nights"],
+            price=f["price_cents"],
+            estimate=f["estimate_cents"],
+            usual=f["usual_cents"],
+            why=f["why"],
+            airline=f["airline"],
+            stops=f["stops"],
+            duration_min=f["duration_min"],
+            board_key=f["board_key"],
+            found_at=f["found_at"],
+            checked_at=f["checked_at"],
+            confirmed_at=f["confirmed_at"],
+            link=f["link"],
+        )
+        for f in finds_mod.listing(conn, cfg, now, confirmed_only=confirmed_only)
+    ]
+
+
 def _deals(conn: sqlite3.Connection, limit: int, *, matched_only: bool) -> list[DealOut]:
     where = "WHERE watch IS NOT NULL " if matched_only else ""
     rows = conn.execute(
@@ -512,6 +547,7 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
                 NotificationOut.model_validate(dict(n)) for n in recent_notifications(conn, 10)
             ],
             deals=_deals(conn, 10, matched_only=True),
+            finds=_finds(conn, cfg, now, confirmed_only=True)[:3],
             health=HealthSummary(
                 ok=rep.ok,
                 problems=_problems(rep),
@@ -620,6 +656,13 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
         watch, trip or flexible search a post matched (and alerted for), else null."""
         response.headers["Cache-Control"] = CACHE
         return _deals(conn, limit, matched_only=matched)
+
+    @r.get("/finds", response_model=list[FindOut], dependencies=limited)
+    def finds(request: Request, conn: Conn, response: Response) -> list[FindOut]:
+        """Deals the app found on its Explore boards: confirmed ones first (biggest saving
+        first), then candidates still waiting for their check on the results page."""
+        response.headers["Cache-Control"] = CACHE
+        return _finds(conn, _cfg(request), clock_now())
 
     @r.get("/explore", response_model=list[ExploreBoardOut], dependencies=limited)
     def explore(request: Request, conn: Conn, response: Response) -> list[ExploreBoardOut]:

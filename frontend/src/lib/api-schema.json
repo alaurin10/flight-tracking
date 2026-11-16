@@ -1131,6 +1131,187 @@
       "title": "FeedOut",
       "type": "object"
     },
+    "FindOut": {
+      "description": "A deal the app found on an Explore board and checked on the results page.",
+      "properties": {
+        "airline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "airport": {
+          "type": "string"
+        },
+        "board_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confirmed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "duration_min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estimate": {
+          "description": "cents: the Explore fare that raised it",
+          "type": "integer"
+        },
+        "found_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "link": {
+          "description": "Google Flights for these dates",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nights": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "cents: the real fare with your filters, once checked"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for one way"
+        },
+        "status": {
+          "description": "candidate = waiting for its check; confirmed = the real fare holds",
+          "enum": [
+            "candidate",
+            "confirmed"
+          ],
+          "type": "string"
+        },
+        "stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usual": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "cents: the place's usual fare; null = too little history"
+        },
+        "why": {
+          "description": "why it was raised, in words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "name",
+        "country",
+        "origin",
+        "airport",
+        "depart_date",
+        "return_date",
+        "nights",
+        "price",
+        "estimate",
+        "usual",
+        "why",
+        "airline",
+        "stops",
+        "duration_min",
+        "board_key",
+        "found_at",
+        "checked_at",
+        "confirmed_at",
+        "link"
+      ],
+      "title": "FindOut",
+      "type": "object"
+    },
     "HealthOut": {
       "description": "`/api/health`: 200 when `status` is ok, 503 otherwise.",
       "properties": {
@@ -1765,6 +1946,13 @@
           },
           "type": "array"
         },
+        "finds": {
+          "description": "the best confirmed finds, at most three",
+          "items": {
+            "$ref": "#/$defs/FindOut"
+          },
+          "type": "array"
+        },
         "generated_at": {
           "type": "string"
         },
@@ -1800,6 +1988,7 @@
         "searches",
         "notifications",
         "deals",
+        "finds",
         "health"
       ],
       "title": "OverviewOut",
@@ -3593,6 +3782,12 @@
       },
       "type": "array"
     },
+    "finds": {
+      "items": {
+        "$ref": "#/$defs/FindOut"
+      },
+      "type": "array"
+    },
     "health": {
       "$ref": "#/$defs/HealthOut"
     },
@@ -3660,6 +3855,7 @@
     "search",
     "history",
     "deals",
+    "finds",
     "explore",
     "status",
     "airports",

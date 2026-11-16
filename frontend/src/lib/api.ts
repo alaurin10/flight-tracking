@@ -23,6 +23,7 @@ import type {
 	TripSaved,
 	DealOut,
 	ExploreBoardOut,
+	FindOut,
 	HealthOut,
 	HistoryOut,
 	MetaOut,
@@ -110,6 +111,7 @@ export const getSearch = (slug: string) =>
 export const getHistory = (queryId: number) => get<HistoryOut>(`/api/queries/${queryId}/history`);
 export const getDeals = () => get<DealOut[]>('/api/deals');
 export const getExplore = () => get<ExploreBoardOut[]>('/api/explore');
+export const getFinds = () => get<FindOut[]>('/api/finds');
 export const getStatus = () => get<StatusOut>('/api/status');
 
 /** /api/health answers 503 when prices are stale or missing; that's still an answer. */

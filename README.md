@@ -306,6 +306,7 @@ recorded, so the dedup window still holds and it is not sent twice.
 | slot | evenly through the day (3 requests about every 6 min at 720 a day) | detail fetches, then alerts; or the stalest calendar windows, whose best dates are flagged for the next detail fetches |
 | pace | hourly | raise the learned pace after a clean, busy day |
 | explore | in the slots, about 15% of them | one Explore call per region board and week ahead, each again when a day old: every place of a region priced at once (Deals → Explore) |
+| deal finder | after each Explore slot; checks in the detail slots | fares well under a place's usual price (or under a watch's price, or a new low) are searched once with your filters; confirmed ones show on Deals → Found and alert once |
 | deals | every 3 h | poll the feeds, record matches |
 | health | hourly | notify when collecting stops, and when it recovers |
 | canary | once a day | one known-busy search, checked for layout drift |
