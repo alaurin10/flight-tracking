@@ -16,6 +16,7 @@ export interface ApiTypes {
 	deal_test_out: DealTestOut;
 	deal_watch_in: DealWatchIn;
 	deals: DealOut[];
+	explore: ExploreBoardOut[];
 	health: HealthOut;
 	history: HistoryOut;
 	job: JobOut;
@@ -285,6 +286,14 @@ export interface DealWatch {
 				number
 		  ];
 	name: string;
+	/**
+	 * trip length a region is priced for on Google's Explore map; null = a week, 0 = one way
+	 */
+	nights?: number | null;
+	/**
+	 * airport a region is priced from; null = the home airport
+	 */
+	origin?: string | null;
 	/**
 	 * @maxItems 20
 	 */
@@ -871,6 +880,14 @@ export interface DealWatchIn {
 		  ];
 	name: string;
 	/**
+	 * trip length a region is priced for on Google's Explore map; null = a week, 0 = one way
+	 */
+	nights?: number | null;
+	/**
+	 * airport a region is priced from; null = the home airport
+	 */
+	origin?: string | null;
+	/**
 	 * @maxItems 20
 	 */
 	origins?:
@@ -1063,6 +1080,84 @@ export interface DealOut {
 	seen_at: string;
 	title: string;
 	watch: string | null;
+}
+/**
+ * A region priced from an airport for a trip length, every week ahead.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "ExploreBoardOut".
+ */
+export interface ExploreBoardOut {
+	/**
+	 * departure dates the board prices
+	 */
+	departures: number;
+	/**
+	 * 'anywhere-7' for a built-in board, 'watch-<id>' for a watch
+	 */
+	key: string;
+	max_price: number | null;
+	/**
+	 * travel months priced; [] = every month
+	 */
+	months: number[];
+	/**
+	 * trip length; null for one way
+	 */
+	nights: number | null;
+	origin: string;
+	places: ExplorePlaceOut[];
+	/**
+	 * of those, with a current fare for some place
+	 */
+	priced_departures: number;
+	/**
+	 * the Explore place asked: anywhere, europe, asia, …
+	 */
+	region: string;
+	title: string;
+	updated_at: string | null;
+	watch_id: number | null;
+}
+/**
+ * A place on an Explore board: its cheapest current fare over the board's weeks.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "ExplorePlaceOut".
+ */
+export interface ExplorePlaceOut {
+	airline: string | null;
+	/**
+	 * where the cheapest itinerary lands
+	 */
+	airport: string | null;
+	country: string | null;
+	currency: string;
+	depart_date: string;
+	duration_min: number | null;
+	/**
+	 * Google Flights for these dates
+	 */
+	link: string | null;
+	name: string;
+	observed_at: string;
+	/**
+	 * Google's id for the place; stable across replies
+	 */
+	place_id: string;
+	/**
+	 * cents; an estimate (basic economy included)
+	 */
+	price: number;
+	/**
+	 * null for one way
+	 */
+	return_date: string | null;
+	stops: number | null;
+	/**
+	 * at or under the region watch's price
+	 */
+	under_max: boolean;
 }
 /**
  * `/api/health`: 200 when `status` is ok, 503 otherwise.
@@ -1435,6 +1530,14 @@ export interface StatusOut {
 	commit: string | null;
 	cooldown_until: string | null;
 	database_bytes: number;
+	/**
+	 * Explore calls the region boards need
+	 */
+	explore_departures: number;
+	/**
+	 * of those, not priced within explore.refresh_hours
+	 */
+	explore_departures_due: number;
 	feeds: FeedOut[];
 	generated_at: string;
 	info: string[];

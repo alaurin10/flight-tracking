@@ -17,8 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from .. import __version__, airports, pace, report, watches
+from .. import explore as explore_mod
 from .. import fetch as fetch_mod
 from .. import health as health_mod
+from .. import scans as scans_mod
 from ..canary import STATE_LAST_CANARY
 from ..config import Config
 from ..notifier import recent as recent_notifications
@@ -36,6 +38,8 @@ from .models import (
     DatePairOut,
     DealOut,
     DestinationOut,
+    ExploreBoardOut,
+    ExplorePlaceOut,
     FeedOut,
     HealthOut,
     HealthSummary,
@@ -334,17 +338,6 @@ def _lanes(conn: sqlite3.Connection, cfg: Config, now: datetime) -> list[LaneOut
     return out
 
 
-def _calendar_windows(conn: sqlite3.Connection, cfg: Config, now: datetime) -> tuple[int, int]:
-    """Calendar windows in use, and how many are older than `calendar.refresh_hours`."""
-    cut = iso(now - timedelta(hours=cfg.calendar.refresh_hours))
-    row = conn.execute(
-        "SELECT COUNT(*), COALESCE(SUM(last_run_at IS NULL OR last_run_at < ?), 0) FROM scans "
-        "WHERE kind = 'calendar' AND active = 1",
-        (cut,),
-    ).fetchone()
-    return int(row[0]), int(row[1])
-
-
 def _deals(conn: sqlite3.Connection, limit: int, *, matched_only: bool) -> list[DealOut]:
     where = "WHERE watch IS NOT NULL " if matched_only else ""
     rows = conn.execute(
@@ -628,6 +621,54 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
         response.headers["Cache-Control"] = CACHE
         return _deals(conn, limit, matched_only=matched)
 
+    @r.get("/explore", response_model=list[ExploreBoardOut], dependencies=limited)
+    def explore(request: Request, conn: Conn, response: Response) -> list[ExploreBoardOut]:
+        """The region boards: per board, each place's cheapest current fare over the weeks
+        it prices, cheapest first. Fares are estimates (basic economy included)."""
+        cfg = _cfg(request)
+        response.headers["Cache-Control"] = CACHE
+        if not cfg.explore.enabled:
+            return []
+        now = clock_now()
+        out = []
+        for board in explore_mod.boards(conn, cfg):
+            v = explore_mod.view(conn, cfg, board, now)
+            out.append(
+                ExploreBoardOut(
+                    key=board.key,
+                    title=board.title,
+                    origin=board.origin,
+                    region=board.region,
+                    nights=board.nights,
+                    months=list(board.months),
+                    watch_id=board.watch_id,
+                    max_price=board.max_price,
+                    departures=v.departures,
+                    priced_departures=v.priced_departures,
+                    updated_at=v.updated_at,
+                    places=[
+                        ExplorePlaceOut(
+                            place_id=p.place_id,
+                            name=p.name,
+                            country=p.country,
+                            airport=p.airport,
+                            price=p.price_cents,
+                            currency=p.currency,
+                            depart_date=p.depart_date,
+                            return_date=p.return_date,
+                            airline=p.airline,
+                            stops=p.stops,
+                            duration_min=p.duration_min,
+                            observed_at=p.observed_at,
+                            link=p.link,
+                            under_max=p.under_max,
+                        )
+                        for p in v.places
+                    ],
+                )
+            )
+        return out
+
     @r.get("/status", response_model=StatusOut, dependencies=limited)
     def status(request: Request, conn: Conn, response: Response) -> StatusOut:
         """Is the collector working: problems, runs, requests, budget, feeds, backups."""
@@ -693,7 +734,8 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
         used = fetch_mod.budget_used(conn, now)
         p = pace.load(conn, cfg)
         limit = p.per_day
-        windows, windows_due = _calendar_windows(conn, cfg, now)
+        windows, windows_due = scans_mod.counts(conn, "calendar", now, cfg.calendar.refresh_hours)
+        boards, boards_due = scans_mod.counts(conn, "explore", now, cfg.explore.refresh_hours)
         beat = health_mod.heartbeat_age(settings.heartbeat_path, now)
         try:
             db_bytes = settings.database.stat().st_size
@@ -733,6 +775,8 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
             lanes=_lanes(conn, cfg, now),
             calendar_windows=windows,
             calendar_windows_due=windows_due,
+            explore_departures=boards,
+            explore_departures_due=boards_due,
             requests_by_day=[RequestDay(day=d, outcomes=o) for d, o in sorted(by_day.items())],
             recent_runs=runs,
             feeds=feeds,

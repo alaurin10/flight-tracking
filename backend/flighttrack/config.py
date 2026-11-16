@@ -175,6 +175,8 @@ class DealWatch:
     max_price: int | None = None  # cents
     keywords: tuple[str, ...] = ()  # extra words that must ALL appear (rare)
     months: tuple[int, ...] = ()  # travel months (1-12) a post must mention, if it names any
+    nights: int | None = None  # trip length Explore prices a region for; None = a week
+    origin: str | None = None  # IATA Explore prices a region from; None = home
 
 
 @dataclass(frozen=True)
@@ -217,6 +219,19 @@ class Alerts:
 
 
 @dataclass(frozen=True)
+class Explore:
+    """Whole regions priced with Google's Explore call (D2). Each board is a region from
+    an airport for a trip length, priced for every week ahead (`horizon`), each departure
+    again when it is `refresh_hours` old. `boards` are the built-in "anywhere from home"
+    boards, by trip length; region watches add their own."""
+
+    enabled: bool = False
+    refresh_hours: float = 24.0
+    boards: tuple[int, ...] = (3, 7)  # nights; 0 = one way
+    fresh_hours: float = 72.0  # a fare older than this is not shown on a board
+
+
+@dataclass(frozen=True)
 class Collect:
     """How the worker paces collecting. Every Google request counts against one rolling
     24-hour allowance that the worker learns (`pace.py`): it starts at
@@ -255,6 +270,7 @@ class Config:
     retention: Retention = field(default_factory=Retention)
     failure_dir: str = "data/failures"
     collect: Collect = field(default_factory=Collect)
+    explore: Explore = field(default_factory=Explore)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +513,10 @@ def parse_watch_file(raw: dict[str, Any]) -> WatchFile:
                 max_price=_cents(w.get("max_price"), f"{where}.max_price"),
                 keywords=_str_list(w.get("keywords"), f"{where}.keywords"),
                 months=_months(w.get("months"), f"{where}.months"),
+                nights=_opt_int(w.get("nights"), f"{where}.nights"),
+                origin=None
+                if w.get("origin") in (None, "")
+                else _airport(w.get("origin"), f"{where}.origin"),
             )
         )
     feeds = list(_str_list(deals_raw.get("feeds"), "deals.feeds"))
@@ -773,6 +793,24 @@ def load(
     _require(0 < collect.pace_step_up_pct <= 200, "collect.pace.step_up_pct must be 1 to 200")
     _require(collect.min_gap_seconds >= 0, "collect.min_gap_seconds must not be negative")
 
+    # --- explore (whole regions, D2) ------------------------------------------
+    ex = raw.get("explore") or {}
+    _require(isinstance(ex, dict), "explore: must be a mapping")
+    boards = ex.get("boards", list(Explore.boards))
+    _require(
+        isinstance(boards, list)
+        and all(isinstance(n, int) and not isinstance(n, bool) and 0 <= n <= 30 for n in boards),
+        "explore.boards must be a list of trip lengths in nights, 0 (one way) to 30",
+    )
+    explore = Explore(
+        enabled=bool(ex.get("enabled", False)),
+        refresh_hours=float(ex.get("refresh_hours", Explore.refresh_hours)),
+        boards=tuple(dict.fromkeys(int(n) for n in boards)),
+        fresh_hours=float(ex.get("fresh_hours", Explore.fresh_hours)),
+    )
+    _require(explore.refresh_hours > 0, "explore.refresh_hours must be positive")
+    _require(explore.fresh_hours > 0, "explore.fresh_hours must be positive")
+
     # --- notify -----------------------------------------------------------
     n = raw.get("notify") or {}
     _require(isinstance(n, dict), "notify: must be a mapping")
@@ -813,4 +851,5 @@ def load(
         retention=retention,
         failure_dir=str(settings.failure_dir),
         collect=collect,
+        explore=explore,
     )

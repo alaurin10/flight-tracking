@@ -37,7 +37,7 @@
 		{
 			"name": "detail",
 			"enabled": true,
-			"share": 0.706,
+			"share": 0.6,
 			"used": 48,
 			"paused_until": null,
 			"pause_reason": null,
@@ -47,7 +47,7 @@
 		{
 			"name": "calendar",
 			"enabled": true,
-			"share": 0.294,
+			"share": 0.25,
 			"used": 12,
 			"paused_until": null,
 			"pause_reason": null,
@@ -56,17 +56,19 @@
 		},
 		{
 			"name": "explore",
-			"enabled": false,
-			"share": 0.0,
-			"used": 0,
+			"enabled": true,
+			"share": 0.15,
+			"used": 7,
 			"paused_until": null,
 			"pause_reason": null,
-			"last_outcome": null,
-			"last_at": null
+			"last_outcome": "ok",
+			"last_at": "2026-11-15T09:50:00Z"
 		}
 	],
 	"calendar_windows": 6,
 	"calendar_windows_due": 2,
+	"explore_departures": 62,
+	"explore_departures_due": 9,
 	"requests_by_day": [
 		{
 			"day": "2026-11-02",

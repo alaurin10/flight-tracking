@@ -79,7 +79,9 @@ docker compose run --rm worker flighttrack calibrate --count 20 --interval 6 --y
 `doctor` makes one results-page request and checks the transport, the page, the
 parser and the price units; compare its dollar amounts with google.com/travel/flights
 for the same search. `doctor --calendar` adds one calendar request; if its prices
-look right, set `calendar.enabled: true` in `config/flighttrack.yaml`. You do not need to
+look right, set `calendar.enabled: true` in `config/flighttrack.yaml`.
+`doctor --explore anywhere` adds one Explore request and lists the places it returned
+and the few with a fare (expect a handful; see `docs/data-sources.md`). You do not need to
 set a request budget: the worker learns its pace from how Google answers, starting at 50
 a day and rising after clean days up to `collect.pace.max_per_day` (720). `calibrate`
 measures a short burst; `collect.daily_request_budget` pins the pace to a fixed number if
@@ -227,6 +229,7 @@ above); the worker logs "applied database migrations" when an update brings one.
 | `/api/health` says `stale` | No price stored for 36 h. `docker compose exec worker flighttrack status`: a cooldown after blocks, the budget spent, or every request failing |
 | `/api/health` says `worker_stopped` | The worker's heartbeat is over three minutes old: `docker compose ps`, `docker compose logs worker` |
 | `in cooldown until …` | Google blocked a request; the worker waits (1 h, then 4, 12, 24), cuts its pace to 60% of what it had sent, and carries on by itself. Frequent blocks: lower `collect.pace.max_per_day` |
+| Explore lane "paused" on the status page | Google answered Explore calls without places. Detail and calendar go on; the lane retries after 30 min, 2, 6 and 24 h |
 | Calendar lane "paused" on the status page | Google answered calendar calls without prices (it has done so since 2026-08 for some clients). Detail fetches go on; the lane retries after 30 min, 2, 6 and 24 h. A warning appears after a day |
 | `layout_drift` on the status page | The daily canary search no longer looks right: Google may have changed the page. The page is saved in `data/failures/`; run `doctor` |
 | Owner sign-in doesn't stick | Sign in through the HTTPS address. If a proxy rewrites the Host header, set `PUBLIC_URL` |

@@ -24,7 +24,7 @@ Update this table in the same pull request that finishes a milestone.
 | M6 | Frontend: read-only app | done | [#18](https://github.com/alaurin10/flight-tracking/pull/18) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
 | M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
 | D1 | Deal finder track: a learned pace, lanes, failures named | done | [#24](https://github.com/alaurin10/flight-tracking/pull/24) | 417 backend tests, 69 unit, 51 e2e; 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
-| D2 | Deal finder track: price regions with Explore | not started | | |
+| D2 | Deal finder track: price regions with Explore | done | [#25](https://github.com/alaurin10/flight-tracking/pull/25) | 433 backend tests, 70 unit, 53 e2e; 4 live requests: Explore answers plain HTTP; 92 places, 6–8 with a fare per call (fixture saved) |
 | D3 | Deal finder track: find and confirm deals | not started | | |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
@@ -340,6 +340,28 @@ Decisions log (add a line when a milestone departs from this document, with the 
 - 2026-11-16 (D1): Google's price insights ("prices are low", a typical range) are not in the
   server-rendered results page (checked live: its five data blocks are the request, the
   itineraries and three reference lists). D3 works out usual prices itself.
+- 2026-11-16 (D2): Explore answers a plain HTTP client. Checked live from the cloud sandbox
+  (four requests through `doctor --explore anywhere`): SEA → Anywhere, 3 and 4 nights from
+  2027-01-15, returned 92 places each time and a fare for 6 and 8 of them, a different handful
+  each call (Dubai $548 and Mumbai $639 in one; Chicago $205 and Nashville $244 in the other).
+  The other fare records are empty (`["multi", "", 0, 0, …]`): Explore returns the fares Google
+  already has. So a board is priced for every week ahead, again each day, and shows each
+  place's cheapest current fare over its weeks; it fills in over time. The fallback (calendar
+  scans of a region's airports) was not needed. The reply is 1.4 MB, almost all of it country
+  outlines for the map; the saved fixture drops those and the image links (README there).
+- 2026-11-16 (D2): this supersedes the M7-era choice that "a region is matched against deal
+  pages and feeds, not priced on Google". A region watch now also gets an Explore board: its
+  region (Japan, Hawaii, Mexico and the Caribbean are read out of Asia, Anywhere and North
+  America by their words in `deals.REGIONS`), its months, a trip length (`deal_watches.nights`,
+  migration 007; NULL = a week, 0 = one way) and an airport (`deal_watches.origin`; NULL =
+  home). Watches that name only places ("Lisbon, Porto") are matched against posts only. Two
+  built-in boards price Anywhere from home for long weekends and weeks (`explore.boards`).
+  Weekends leave on Fridays, a week or longer on Saturdays.
+- 2026-11-16 (D2): `explore_prices` is append-only with triggers, like `observations`; a fare
+  is written again only when it changes or the last row is 20 hours old. Retention never
+  prunes it. `expand` does not write Explore scans: the worker works out the boards' departures
+  when the lane's turn comes (`explore.due`), as the calendar does since D1, and the shared
+  bookkeeping is `scans.py`. Deals opens on the Explore tab; Posts is one tap away.
 
 ## How to work from this document
 

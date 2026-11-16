@@ -107,6 +107,22 @@ test('the search grid opens a date and shows its history', async ({ page }) => {
 	await expect(detail).toHaveCount(0);
 });
 
+test('deals open on the Explore boards; posts are one tap away', async ({ page }) => {
+	await page.goto('/deals');
+	const board = page.getByTestId('board').first();
+	await expect(board.getByRole('heading')).toContainText('Anywhere from SEA');
+	const places = board.getByTestId('place');
+	await expect(places.first()).toBeVisible();
+	// Cheapest first, prices in dollars.
+	const prices = await places.locator('.price').allInnerTexts();
+	const cents = prices.map((p) => Number(p.replace(/[^0-9]/g, '')));
+	expect(cents).toEqual([...cents].sort((a, b) => a - b));
+	await expect(page.getByText('basic economy included')).toBeVisible();
+	await page.getByRole('button', { name: 'Posts' }).click();
+	await expect(page.getByTestId('deal').first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Matches only' })).toBeVisible();
+});
+
 test('the status page shows a healthy collector', async ({ page }) => {
 	await page.goto('/status');
 	await expect(page.getByTestId('health')).toContainText('Healthy');

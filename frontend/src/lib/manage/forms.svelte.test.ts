@@ -264,6 +264,8 @@ describe('RegionForm', () => {
 		await fireEvent.click(getByRole('button', { name: 'Europe' }));
 		await fireEvent.click(getByRole('button', { name: 'Summer' }));
 		expect(getByText(/Posts for Jun–Aug/)).toBeTruthy();
+		await fireEvent.click(getByRole('button', { name: 'Two weeks' }));
+		expect(getByText(/prices Europe for two-week trips/)).toBeTruthy();
 		await fireEvent.input(getByLabelText('Alert me when it’s under'), { target: { value: '600' } });
 		await fireEvent.click(getByRole('button', { name: 'Start watching' }));
 		expect(onsave.mock.calls[0][0]).toEqual({
@@ -273,7 +275,9 @@ describe('RegionForm', () => {
 			keywords: [],
 			months: [6, 7, 8],
 			max_price: 60000,
-			status: 'active'
+			status: 'active',
+			nights: 14,
+			origin: null
 		});
 	});
 

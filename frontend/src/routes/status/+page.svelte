@@ -127,6 +127,15 @@
 							>{/if}
 					</dd>
 				</div>
+				{#if s.explore_departures}
+					<div>
+						<dt>Explore departures</dt>
+						<dd>
+							{s.explore_departures_due} of {s.explore_departures} due
+							<span class="faint">(region boards)</span>
+						</dd>
+					</div>
+				{/if}
 				<div>
 					<dt>Date pairs tracked</dt>
 					<dd class="num">{s.active_pairs}</dd>

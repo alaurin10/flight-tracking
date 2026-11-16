@@ -17,7 +17,7 @@ pace the worker learns:
 
 Every Google request counts, whatever lane it belongs to (`fetch_attempts.source`):
 results pages and the fast-flights fallback are the detail lane, calendar calls the
-calendar lane, Explore calls the explore lane (from D2), and the canary none. SerpApi
+calendar lane, Explore calls the explore lane, and the canary none. SerpApi
 is not Google and counts nowhere. Each lane has a share of the allowance
 (`collect.shares`); a lane with nothing to do, or paused, leaves its share to the others.
 
@@ -55,8 +55,8 @@ NOT_GOOGLE = ("serpapi",)
 LANES = ("detail", "calendar", "explore")
 # fetch_attempts.source → lane; anything else is a detail request, except the canary.
 LANE_OF_SOURCE = {"google_calendar": "calendar", "google_explore": "explore", "canary": None}
-# Lanes the code can fill. Explore arrives in D2; until then its share goes to the others.
-BUILT_LANES = ("detail", "calendar")
+# Lanes the code can fill (explore since D2).
+BUILT_LANES = ("detail", "calendar", "explore")
 PAUSE_STEPS_HOURS = (0.5, 2.0, 6.0, 24.0)
 
 
@@ -98,7 +98,8 @@ def lane_shares(cfg: Config, lanes: tuple[str, ...] | None = None) -> dict[str, 
     """Each lane's fraction of the allowance, among `lanes` (default: the lanes that can
     run with this configuration). Fractions add up to 1."""
     if lanes is None:
-        lanes = tuple(lane for lane in BUILT_LANES if lane != "calendar" or cfg.calendar.enabled)
+        on = {"detail": True, "calendar": cfg.calendar.enabled, "explore": cfg.explore.enabled}
+        lanes = tuple(lane for lane in BUILT_LANES if on[lane])
     raw = dict(zip(LANES, cfg.collect.shares, strict=True))
     total = sum(raw[lane] for lane in lanes) or 1
     return {lane: raw[lane] / total for lane in lanes}

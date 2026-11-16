@@ -16,7 +16,6 @@ blocked, both wait.
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 import sqlite3
@@ -27,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from . import fetch as fetch_mod
+from . import scans as scans_mod
 from .config import Config, Pattern, Route
 from .expand import departure_dates, search_pattern
 from .gflights import PageKind, classify
@@ -164,51 +164,20 @@ def due_windows(
     routes first among equals. Marks which scans are still wanted (`scans.active`)."""
     now = now or clock_now()
     jobs = plan(conn, cfg, now.date())
-    last = {
-        r["key"]: r["last_run_at"]
-        for r in conn.execute("SELECT key, last_run_at FROM scans WHERE kind = 'calendar'")
-    }
-    keys = [j.scan_key() for j in jobs]
-    conn.execute(
-        f"UPDATE scans SET active = (key IN ({','.join('?' * len(keys))})) WHERE kind = 'calendar'",
-        keys,
+    scans_mod.mark_active(conn, "calendar", [j.scan_key() for j in jobs])
+    return scans_mod.stalest(
+        jobs,
+        SweepJob.scan_key,
+        scans_mod.last_runs(conn, "calendar"),
+        now,
+        cfg.calendar.refresh_hours,
+        tiebreak=lambda j: j.route.priority,
     )
-    conn.commit()
-    cut = iso(now - timedelta(hours=cfg.calendar.refresh_hours))
-    due = [j for j in jobs if (last.get(j.scan_key()) or "") < cut]
-    due.sort(key=lambda j: (last.get(j.scan_key()) or "", j.route.priority))
-    return due
 
 
 def record_scan(conn: sqlite3.Connection, job: SweepJob, outcome: str, now: datetime) -> None:
-    """Remember how a window's call went. Only an answer (ok, or a page we could not read)
-    counts as run; a block, a gated reply or a network error leaves it due."""
-    stamp = iso(now)
-    answered = outcome in ("ok", "layout")
-    conn.execute(
-        """
-        INSERT INTO scans (kind, key, spec, active, last_run_at, last_ok_at, last_outcome,
-                           fail_streak, created_at)
-        VALUES ('calendar', ?, ?, 1, ?, ?, ?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-            spec = excluded.spec,
-            active = 1,
-            last_run_at = COALESCE(excluded.last_run_at, scans.last_run_at),
-            last_ok_at = COALESCE(excluded.last_ok_at, scans.last_ok_at),
-            last_outcome = excluded.last_outcome,
-            fail_streak = CASE WHEN excluded.last_outcome = 'ok' THEN 0
-                               ELSE scans.fail_streak + 1 END
-        """,
-        (
-            job.scan_key(),
-            json.dumps(job.spec()),
-            stamp if answered else None,
-            stamp if outcome == "ok" else None,
-            outcome,
-            0 if outcome == "ok" else 1,
-            stamp,
-        ),
-    )
+    """Remember how a window's call went (see `scans.record`)."""
+    scans_mod.record(conn, "calendar", job.scan_key(), job.spec(), outcome, now)
 
 
 def _rotate(jobs: list[SweepJob], conn: sqlite3.Connection, cap: int) -> list[SweepJob]:

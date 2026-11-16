@@ -11,7 +11,7 @@ system, what each one is good for, how it fails, and the layered design that cam
 | 1 | **Our own Google Flights client** (`gflights/`) | primary, no third-party scraper, no key | built; **verified live on 2026-11-14**: every itinerary and price equal to the page rendered in Chromium |
 | 2 | `fast-flights` library | independent second parser of the same page | optional fallback, pinned |
 | 3 | **Calendar-graph RPC** (`sweep`) | one call prices ~2 months of dates; makes whole-grid coverage cheap | on; each window priced again every 6 h; prices include basic economy, so they are estimates; **sometimes answers without data** (since 2026-08 for others; seen 2026-11-15 and 16), which pauses only its lane |
-| 3b | **Explore RPC** (D2, not built yet) | one call prices ~75–90 destinations of a region for one date | format from an outside capture; to be checked live at the start of D2 |
+| 3b | **Explore RPC** (`explore`) | one call prices every destination of a region (~90) for one date and trip length | built in D2; **verified live on 2026-11-16** from plain HTTP: 92 places, 6–8 with a fare per call (cached fares), so boards fill in over weeks and days; estimates |
 | 4 | **SerpApi** `google_flights` | paid JSON API on someone else's IP | built; active only when a key is set |
 | 5 | **RSS deal feeds** (`deals`) | announced deals to a region | built; two feeds from The Flight Deal, checked 2026-11-14; the only fully sanctioned, stable input |
 | 6 | `ingest` | anything else (a browser session, the Expedia connector in Claude, a friend's screenshot) | built |
@@ -132,8 +132,19 @@ Google's bot-detection script, which is exactly the line this project stays behi
 slot by slot with what was confirmed from a browser capture, in
 [fli PR 226](https://github.com/punitarani/fli/pull/226) (MIT). It needs the same-origin headers
 the calendar call already sends; the PR reports it working over plain HTTP on 2026-11-11 and
-also reports intermittent error-13 refusals since 2026-09. D2 starts with a live check and falls
-back to calendar scans of each region's main airports if it will not answer.
+also reports intermittent error-13 refusals since 2026-09.
+
+**What we saw (2026-11-16, cloud sandbox, `doctor --explore anywhere`).** It answered both
+times: HTTP 200, 1.4 MB (almost all of it country outlines for the map), 92 places from Seattle
+(23 in the US, then Canada, Australia, Japan, …). Only 6 had a fare in the first call (3 nights:
+Dubai $548, Mumbai $639, Lima $823, …) and 8 in the second (4 nights: Chicago $205, Nashville
+$244, …); the rest of the fare records were empty. So Explore hands back the fares Google
+already has, not a fresh search per place, and coverage per call is thin for a mid-sized origin
+(London's busier routes gave 46 of 58 in the outside capture). Flight Watch prices each board
+for every week ahead and again daily (`explore.refresh_hours`), keeps every fare in
+`explore_prices`, and shows each place's cheapest current fare over the board's weeks. Like
+calendar prices, Explore fares include basic economy and are estimates. A reply without
+destinations is `gated` and pauses only the explore lane.
 
 ### B3. What the results page does not have
 

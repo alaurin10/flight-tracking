@@ -217,7 +217,7 @@ def test_nothing_personal_is_shipped():
     tunables = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
     assert set(tunables) == {
         "search", "fetch", "calendar", "alerts", "health", "retention", "horizon", "notify",
-        "deals", "collect",
+        "deals", "collect", "explore",
     }  # fmt: skip
     assert set(tunables["deals"]) == {"enabled", "feeds", "max_alerts_per_run", "lookback_days"}
     assert not (REPO_ROOT / "config.yaml").exists()

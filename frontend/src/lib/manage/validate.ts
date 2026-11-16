@@ -409,7 +409,18 @@ export interface RegionDraft {
 	max: string; // dollars
 	origins: string; // comma-separated words
 	keywords: string[]; // kept from an imported watch; not edited here
+	nights: number; // trip length the region is priced for on Explore; 0 = one way
+	origin: string; // airport it is priced from; '' = home
 }
+
+/** Trip lengths a region is priced for on Google's Explore map. */
+export const TRIP_LENGTHS: { label: string; nights: number }[] = [
+	{ label: 'Weekend', nights: 2 },
+	{ label: 'Long weekend', nights: 3 },
+	{ label: 'A week', nights: 7 },
+	{ label: 'Two weeks', nights: 14 },
+	{ label: 'One way', nights: 0 }
+];
 
 /** "Seattle, SEA,  west coast" → ["Seattle", "SEA", "west coast"]. */
 export function words(text: string): string[] {
@@ -431,6 +442,8 @@ export function regionErrors(d: RegionDraft): Errors {
 	if (!d.region && !words(d.places).length) e.region = 'Choose a region, or name some places';
 	if (words(d.places).length + (d.region ? 1 : 0) > 20) e.places = 'At most 20 places';
 	if (words(d.origins).length > 20) e.origins = 'At most 20 words';
+	if (d.origin.trim() && !/^[A-Za-z]{3}$/.test(d.origin.trim()))
+		e.origin = 'A three-letter airport code, e.g. SEA';
 	money(e, 'max', d.max);
 	return e;
 }
@@ -460,7 +473,9 @@ export function toDealWatchIn(
 		keywords: d.keywords as DealWatchIn['keywords'],
 		months: [...d.months].sort((a, b) => a - b) as DealWatchIn['months'],
 		max_price: parseDollars(d.max).cents,
-		status
+		status,
+		nights: d.nights,
+		origin: d.origin.trim() ? d.origin.trim().toUpperCase() : null
 	};
 }
 
@@ -479,7 +494,9 @@ export function regionDraft(
 		months: [...(w?.months ?? [])],
 		max: centsToDollars(w?.max_price),
 		origins: w ? (w.origins ?? []).join(', ') : homeWords,
-		keywords: [...(w?.keywords ?? [])]
+		keywords: [...(w?.keywords ?? [])],
+		nights: w?.nights ?? 7,
+		origin: w?.origin ?? ''
 	};
 }
 
