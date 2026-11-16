@@ -21,6 +21,7 @@ from .transport import Response
 class PageKind(Enum):
     RESULTS = "results"  # ds:1 payload present and parsed
     NO_RESULTS = "no_results"  # Google answered: no itineraries for this search
+    SERVER_ERROR = "server_error"  # Google answered with its own error (e.g. 13): try again
     CONSENT = "consent"  # bounced to the EU consent interstitial
     BLOCKED = "blocked"  # 429 / sorry page / unusual-traffic captcha
     ERROR_STATUS = "error_status"  # some other non-2xx
@@ -88,6 +89,9 @@ def parse_callback(js: str) -> Any:
         raise ValueError("callback has no data: member")
     body = js.split("data:", 1)[1].strip()
     if "errorHasStatus: true" in body[:200_000] and not body.startswith("[["):
+        m = _ERROR_CODE.match(body)
+        if m and "ErrorResponse" in body[:5_000]:
+            raise ServerErrorMarker(int(m.group(1)))
         raise NoResultsMarker()
     # Everything after the data array is `, sideChannel: {}});`. Rather than
     # guess where it starts, decode exactly one JSON value from the front.
@@ -101,6 +105,19 @@ def parse_callback(js: str) -> Any:
 
 class NoResultsMarker(ValueError):
     pass
+
+
+class ServerErrorMarker(ValueError):
+    """`ds:1` holds Google's own error envelope, `[13, null, [[".../ErrorResponse", …]]]`.
+    Seen on 2026-11-15 for a date the calendar priced and that answered seconds later
+    (tests/fixtures/live-20261115): an internal error, not "no flights"."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"Google returned error {code} instead of results")
+        self.code = code
+
+
+_ERROR_CODE = re.compile(r"^\[\s*(\d+)\s*,")
 
 
 def classify(resp: Response) -> Page:
@@ -119,6 +136,8 @@ def classify(resp: Response) -> Page:
     if js is not None and resp.status < 400:
         try:
             payload = parse_callback(js)
+        except ServerErrorMarker as exc:
+            return Page(PageKind.SERVER_ERROR, str(exc), **base)
         except NoResultsMarker:
             return Page(
                 PageKind.NO_RESULTS, "Google reported no itineraries (errorHasStatus)", **base

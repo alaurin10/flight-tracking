@@ -6,20 +6,21 @@ is due when its last fetch is older than its refresh interval (`fetch.select_due
 After a block, a restart or a week of downtime the worker looks at the same tables
 and carries on. There is no "today's run" to miss.
 
-One lock means a detail batch, a sweep group, a canary request, a queued job and the
-housekeeping never overlap. All Google traffic shares one pacing slot,
-`next_batch_at` in `state`: each slot is either a detail batch (`collect.batch_size`
-requests) or a group of four calendar calls, followed by a random gap
-(`collect.batch_gap_minutes`). Every request counts against one rolling 24-hour
-budget (`collect.daily_request_budget`), counted from `fetch_attempts`. A block
-starts the escalating cooldown, and the next slot is the end of the cooldown plus
-5 to 20 minutes.
+One lock means a slot, a canary request, a queued job and the housekeeping never
+overlap. All Google traffic shares one pacing slot, `next_batch_at` in `state`. Each slot
+sends up to `collect.batch_size` requests and goes to the lane furthest under its share of
+the last 24 hours (`collect.shares`): detail pages for date pairs, or calendar windows of
+the flexible searches that are older than `calendar.refresh_hours`. The gap after a slot
+spreads the day's allowance evenly: requests sent × 24 h ÷ the allowance, jittered ±40%,
+never under `collect.min_gap_seconds`. The allowance is learned (`pace.py`): it rises after
+clean busy days and falls on a block. A block also starts the escalating cooldown, and the
+next slot is the end of the cooldown plus 5 to 20 minutes. Google declining a calendar call
+without data pauses only the calendar lane.
 
 | Job        | When                                   | Does                                       |
 |------------|----------------------------------------|--------------------------------------------|
-| tick       | every minute                           | the next slot, when it is due              |
-| sweep      | daily at `collect.sweep_at`, and at    | plans the day's calendar windows; the      |
-|            | start if none finished in 26 h         | slots then run them four at a time         |
+| tick       | every 20 s                             | the next slot, when it is due              |
+| pace       | hourly                                 | `pace.review`: raise the pace if earned    |
 | deals      | every 3 h                              | `deals.run`                                |
 | health     | hourly                                 | `health.run`, notifying when it breaks and |
 |            |                                        | when it recovers                           |
@@ -40,7 +41,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -52,7 +53,7 @@ from . import canary as canary_mod
 from . import deals as deals_mod
 from . import fetch as fetch_mod
 from . import health as health_mod
-from . import jobs, watches
+from . import jobs, pace, watches
 from . import sweep as sweep_mod
 from .config import Config
 from .expand import expand
@@ -68,15 +69,13 @@ from .store.db import now as clock_now
 log = logging.getLogger("flighttrack.worker")
 
 STATE_NEXT_BATCH = "next_batch_at"
-# The day's calendar windows while they are being worked through:
-# {"started_at", "day", "keys": [...], "next": i, "candidates": [[ratio, cents, qid, why]]}
-STATE_SWEEP_PLAN = "sweep_plan"
-STATE_LAST_SWEEP = "last_sweep_at"  # when the last full sweep finished
+STATE_LAST_SWEEP = "last_sweep_at"  # when a calendar window last answered with prices
 STATE_LAST_BACKUP = "last_backup_at"
+STATE_OLD_SWEEP_PLAN = "sweep_plan"  # the once-a-day plan before D1; cleared at start
 
-SWEEP_GROUP = 4
-SWEEP_CATCHUP_HOURS = 26
 START_DELAY_MINUTES = (1.0, 5.0)
+IDLE_MINUTES = 10.0  # nothing due in any lane: look again after this
+JITTER = (0.6, 1.4)
 AFTER_BLOCK_MINUTES = (5.0, 20.0)
 CANARY_EVERY_HOURS = 24
 
@@ -175,20 +174,21 @@ class Worker:
             if until is not None:
                 first = max(first, until + self._minutes(AFTER_BLOCK_MINUTES))
             set_state(conn, STATE_NEXT_BATCH, iso(first))
+            set_state(conn, STATE_OLD_SWEEP_PLAN, None)
+            pace.review(conn, self.cfg, now)
             log.info(
-                "worker started%s; first batch at %s",
+                "worker started%s; first slot at %s; pace %d requests a day",
                 " (fake source: no outside requests)" if self.fake else "",
                 iso(first),
+                pace.allowance(conn, self.cfg),
             )
-            if self._sweep_overdue(conn, now):
-                self._begin_sweep(conn, now)
         finally:
             conn.close()
 
     # -- the pacing slot --------------------------------------------------------
 
     def tick(self) -> str:
-        """Every minute: run the next slot if it is due. Returns what it did."""
+        """Every 20 s: run the next slot if it is due. Returns what it did."""
         result: str = self._locked("tick", self._tick, wait=False)
         return result
 
@@ -204,11 +204,51 @@ class Worker:
         remaining = fetch_mod.budget_remaining(conn, self.cfg, now)
         if remaining <= 0:
             return "budget"
-        if self._sweep_plan(conn):
-            self._sweep_group(conn, now, remaining)
-            return "sweep"
+        lane = self.choose_lane(conn, now)
+        if lane is None:
+            set_state(conn, STATE_NEXT_BATCH, iso(now + timedelta(minutes=IDLE_MINUTES)))
+            return "idle"
+        if lane == "calendar":
+            self._calendar_slot(conn, now, remaining)
+            return "calendar"
         self._batch(conn, now, remaining)
         return "batch"
+
+    # -- lanes ------------------------------------------------------------------
+
+    def _detail_due(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        return bool(fetch_mod.select_due(conn, self.cfg, now=now, limit=1))
+
+    def _calendar_due(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        if not self.cfg.calendar.enabled or self.fake:
+            return False
+        if pace.lane_paused(conn, "calendar", now):
+            return False
+        return bool(sweep_mod.due_windows(conn, self.cfg, now))
+
+    def choose_lane(self, conn: sqlite3.Connection, now: datetime) -> str | None:
+        """The lane this slot goes to: dates a person asked for first; otherwise, among
+        the lanes with work due, the one furthest under its share of the last 24 hours.
+        A lane with nothing due leaves its share to the others."""
+        if fetch_mod.prune_requested(conn, now, save=False) and self._detail_due(conn, now):
+            return "detail"
+        ready = [
+            lane
+            for lane, due in (
+                ("detail", self._detail_due(conn, now)),
+                ("calendar", self._calendar_due(conn, now)),
+            )
+            if due
+        ]
+        if not ready:
+            return None
+        if len(ready) == 1:
+            return ready[0]
+        shares = pace.lane_shares(self.cfg, tuple(ready))
+        used = pace.lane_used(conn, now)
+        return min(ready, key=lambda lane: (used[lane] / shares[lane], lane != "detail"))
+
+    # -- the pacing slot --------------------------------------------------------
 
     def _push_past_cooldown(self, conn: sqlite3.Connection, until: str) -> None:
         """During a cooldown the next slot is its end plus 5–20 minutes."""
@@ -217,13 +257,17 @@ class Worker:
         if end is not None and (nxt is None or nxt < end):
             set_state(conn, STATE_NEXT_BATCH, iso(end + self._minutes(AFTER_BLOCK_MINUTES)))
 
-    def _schedule_next(self, conn: sqlite3.Connection) -> datetime:
+    def _schedule_next(self, conn: sqlite3.Connection, sent: int = 0) -> datetime:
+        """After a slot that sent `sent` requests: the even spacing for them at the
+        current pace, jittered, never under `collect.min_gap_seconds`."""
         now = self.now()
         until = parse_ts(fetch_mod.cooldown_active(conn, now))
         if until is not None:
             at = until + self._minutes(AFTER_BLOCK_MINUTES)
         else:
-            at = now + self._minutes(self.cfg.collect.batch_gap_minutes)
+            base = pace.gap_seconds(conn, self.cfg, max(1, sent))
+            gap = max(self.cfg.collect.min_gap_seconds, base * self.rng.uniform(*JITTER))
+            at = now + timedelta(seconds=gap)
         set_state(conn, STATE_NEXT_BATCH, iso(at))
         return at
 
@@ -243,8 +287,8 @@ class Worker:
         log.info("batch: %s", stats.summary())
         fetch_mod.prune_requested(conn)
         self._alerts(conn)
-        at = self._schedule_next(conn)
-        log.info("next batch at %s", iso(at))
+        at = self._schedule_next(conn, stats.attempted + stats.retries)
+        log.info("next slot at %s", iso(at))
         return stats
 
     def _alerts(self, conn: sqlite3.Connection) -> None:
@@ -255,101 +299,45 @@ class Worker:
         except Exception:
             log.exception("alerts failed")
 
-    # -- the calendar sweep -----------------------------------------------------
-
-    def sweep(self) -> str:
-        """Daily: plan today's calendar windows. The slots run them four at a time."""
-        result: str = self._locked("sweep", lambda c: self._begin_sweep(c, self.now()), wait=True)
-        return result
-
-    def _sweep_overdue(self, conn: sqlite3.Connection, now: datetime) -> bool:
-        if not self.cfg.calendar.enabled or self.fake or self._sweep_plan(conn):
-            return False
-        last = parse_ts(get_state(conn, STATE_LAST_SWEEP))
-        return last is None or now - last > timedelta(hours=SWEEP_CATCHUP_HOURS)
-
-    def _sweep_plan(self, conn: sqlite3.Connection) -> dict[str, Any] | None:
-        try:
-            plan = json.loads(get_state(conn, STATE_SWEEP_PLAN) or "null")
-        except ValueError:
-            return None
-        return plan if isinstance(plan, dict) and plan.get("keys") else None
-
-    def _begin_sweep(self, conn: sqlite3.Connection, now: datetime) -> str:
-        if not self.cfg.calendar.enabled:
-            return "disabled"
-        if self.fake:
-            log.info("sweep skipped: fake source")
-            return "skipped"
-        old = self._sweep_plan(conn)
-        if old:
-            self._finish_sweep(conn, old, now)  # yesterday's did not finish: keep its picks
-        today = now.date()
-        windows = sweep_mod._rotate(
-            sweep_mod.plan(conn, self.cfg, today), conn, self.cfg.calendar.max_calls_per_run
+    def _calendar_slot(
+        self, conn: sqlite3.Connection, now: datetime, remaining: int
+    ) -> sweep_mod.SweepStats:
+        """The stalest calendar windows, up to a slot's worth. Each window's best dates are
+        flagged for the next detail batches; a reply without data pauses this lane."""
+        group = sweep_mod.due_windows(conn, self.cfg, now)[
+            : min(self.cfg.collect.batch_size, remaining)
+        ]
+        stats = sweep_mod.run(
+            conn,
+            self.cfg,
+            transport=self.transport,
+            now=now,
+            sleeper=self.sleeper,
+            verbose=True,
+            jobs=group,
         )
-        if not windows:
+        log.info("calendar: %s", stats.summary())
+        if stats.flags:
+            fetch_mod.flag_from_sweep(conn, stats.flags, now)
+        if stats.ok:
             set_state(conn, STATE_LAST_SWEEP, iso(now))
-            return "nothing to sweep"
-        plan = {
-            "started_at": iso(now),
-            "day": today.isoformat(),
-            "keys": [w.key() for w in windows],
-            "next": 0,
-            "candidates": [],
-        }
-        set_state(conn, STATE_SWEEP_PLAN, json.dumps(plan))
-        log.info("sweep planned: %d calendar windows", len(windows))
-        return "planned"
+        if stats.gated:
+            until = pace.pause_lane(conn, "calendar", "Google answered without prices", now)
+            log.warning("calendar lane paused until %s (Google declined without data)", until)
+        elif stats.ok:
+            pace.clear_lane(conn, "calendar")
+        conn.commit()
+        self._schedule_next(conn, stats.calls)
+        return stats
 
-    def _sweep_group(self, conn: sqlite3.Connection, now: datetime, remaining: int) -> None:
-        plan = self._sweep_plan(conn)
-        assert plan is not None
-        started = parse_ts(plan.get("started_at"))
-        if started is None or now - started > timedelta(hours=SWEEP_CATCHUP_HOURS):
-            self._finish_sweep(conn, plan, now)  # too old: its windows have moved on
-            self._batch(conn, now, remaining)
-            return
-        keys: list[str] = plan["keys"][plan["next"] : plan["next"] + min(SWEEP_GROUP, remaining)]
-        current = {
-            w.key(): w for w in sweep_mod.plan(conn, self.cfg, date.fromisoformat(plan["day"]))
-        }
-        group = [current[k] for k in keys if k in current]
-        advance = len(keys)
-        if group:
-            stats = sweep_mod.run(
-                conn,
-                self.cfg,
-                transport=self.transport,
-                now=now,
-                sleeper=self.sleeper,
-                verbose=True,
-                jobs=group,
-            )
-            log.info("sweep group: %s", stats.summary())
-            plan["candidates"] += [list(c) for c in stats.candidates]
-            if stats.blocked and stats.calls:
-                # Try the blocked window again once the cooldown is over.
-                advance = keys.index(group[stats.calls - 1].key())
-        plan["next"] += advance
-        if plan["next"] >= len(plan["keys"]):
-            self._finish_sweep(conn, plan, now)
-        else:
-            set_state(conn, STATE_SWEEP_PLAN, json.dumps(plan))
-        self._schedule_next(conn)
-
-    def _finish_sweep(self, conn: sqlite3.Connection, plan: dict[str, Any], now: datetime) -> None:
-        """Flag the most promising dates; the next batches confirm them."""
-        picked: list[int] = []
-        for _ratio, _cents, qid, _why in sorted(plan.get("candidates") or []):
-            if qid not in picked:
-                picked.append(int(qid))
-            if len(picked) >= self.cfg.calendar.confirm_budget:
-                break
-        fetch_mod.flag_from_sweep(conn, picked, now)
-        set_state(conn, STATE_SWEEP_PLAN, None)
-        set_state(conn, STATE_LAST_SWEEP, iso(now))
-        log.info("sweep finished: %d dates flagged for a detail fetch", len(picked))
+    def review_pace(self) -> str:
+        """Hourly: let the pace rise when the last day earned it."""
+        result: str = self._locked(
+            "pace", lambda c: pace.review(c, self.cfg, self.now()), wait=True
+        )
+        if result == "raised":
+            log.info("pace raised")
+        return result
 
     # -- the job queue ----------------------------------------------------------
 
@@ -427,8 +415,8 @@ class Worker:
         if remaining <= 0:
             frees = fetch_mod.budget_frees_at(conn, self.cfg, now)
             return (
-                f"the daily request budget ({self.cfg.collect.daily_request_budget}) is "
-                f"spent; these dates go first at {iso(frees or now)}"
+                f"today's request allowance ({pace.allowance(conn, self.cfg)} in 24 hours) "
+                f"is spent; these dates go first at {iso(frees or now)}"
             )
         stats = self._batch(conn, now, remaining)
         if stats.blocked:
@@ -522,7 +510,7 @@ def _hm(text: str) -> tuple[int, int]:
 
 
 def build_scheduler(worker: Worker) -> BlockingScheduler:
-    """Local time (the container's TZ): `collect.sweep_at` and the nightly jobs."""
+    """Local time (the container's TZ) for the nightly jobs."""
     sched = BlockingScheduler()
     opts: dict[str, Any] = {"max_instances": 1, "coalesce": True, "misfire_grace_time": 1800}
     start = datetime.now().astimezone()
@@ -534,11 +522,12 @@ def build_scheduler(worker: Worker) -> BlockingScheduler:
         worker.heartbeat, IntervalTrigger(seconds=30), id="heartbeat", next_run_time=start, **opts
     )
     sched.add_job(
-        worker.tick, IntervalTrigger(minutes=1), id="tick", next_run_time=soon(0.1), **opts
+        worker.tick, IntervalTrigger(seconds=20), id="tick", next_run_time=soon(0.1), **opts
     )
     sched.add_job(worker.process_jobs, IntervalTrigger(seconds=15), id="jobs", **opts)
-    h, m = _hm(worker.cfg.collect.sweep_at)
-    sched.add_job(worker.sweep, CronTrigger(hour=h, minute=m), id="sweep", **opts)
+    sched.add_job(
+        worker.review_pace, IntervalTrigger(hours=1), id="pace", next_run_time=soon(5), **opts
+    )
     sched.add_job(worker.deals, IntervalTrigger(hours=3), id="deals", next_run_time=soon(2), **opts)
     sched.add_job(
         worker.health, IntervalTrigger(hours=1), id="health", next_run_time=soon(10), **opts

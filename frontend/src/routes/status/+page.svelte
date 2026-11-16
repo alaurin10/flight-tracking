@@ -1,6 +1,6 @@
 <!-- Is the collector working? Problems in plain words, the last good price, the next
-     batch, any cooldown, today's request budget, requests per day by outcome, the deal
-     feeds, the canary, backups and the version. -->
+     slot, any cooldown, the learned pace and each lane's share of it, requests per day by
+     outcome, the deal feeds, the canary, backups and the version. -->
 <script lang="ts">
 	import { getStatus } from '../../lib/api';
 	import { ago, bytes, instant, until } from '../../lib/format';
@@ -19,6 +19,17 @@
 	});
 
 	const future = (iso: string | null) => !!iso && Date.parse(iso) > Date.now();
+	const laneName: Record<string, string> = {
+		detail: 'Detail pages',
+		calendar: 'Calendar windows',
+		explore: 'Explore'
+	};
+	const every = (seconds: number) =>
+		seconds < 90
+			? `${seconds} s`
+			: seconds < 5400
+				? `${Math.round(seconds / 60)} min`
+				: `${Math.round(seconds / 3600)} h`;
 	const appVersion = __APP_VERSION__;
 </script>
 
@@ -85,7 +96,7 @@
 					<dd title={instant(s.last_success_at)}>{ago(s.last_success_at)}</dd>
 				</div>
 				<div>
-					<dt>Next batch</dt>
+					<dt>Next requests</dt>
 					<dd>
 						{#if s.next_batch_at}{until(s.next_batch_at)}
 							<span class="faint">({instant(s.next_batch_at)})</span>{:else}not scheduled{/if}
@@ -108,8 +119,13 @@
 					</div>
 				{/if}
 				<div>
-					<dt>Calendar sweep</dt>
-					<dd>{s.last_sweep_at ? ago(s.last_sweep_at) : 'not yet'}</dd>
+					<dt>Last calendar window</dt>
+					<dd>
+						{s.last_sweep_at ? ago(s.last_sweep_at) : 'not yet'}
+						{#if s.calendar_windows}<span class="faint"
+								>({s.calendar_windows_due} of {s.calendar_windows} due)</span
+							>{/if}
+					</dd>
 				</div>
 				<div>
 					<dt>Date pairs tracked</dt>
@@ -151,10 +167,38 @@
 				</div>
 				<p class="faint small">
 					{s.budget.remaining
-						? `${s.budget.remaining} left before collecting pauses`
-						: 'Budget spent: collecting waits until older requests age out.'}
+						? `${s.budget.remaining} left in the last 24 hours`
+						: 'All used: collecting waits until older requests age out.'}
 				</p>
 			</div>
+			<p class="pace" data-testid="pace">
+				{#if s.pace.fixed}
+					A fixed {s.pace.per_day} a day.
+				{:else}
+					The pace is <strong class="num">{s.pace.per_day}</strong> a day, learned from how Google
+					answers (at most {s.pace.ceiling}): {s.pace.reason}.
+					{#if future(s.pace.hold_until)}
+						Held after a block until {instant(s.pace.hold_until)}.
+					{:else if s.pace.per_day < s.pace.ceiling && s.pace.next_review_at}
+						It can rise {until(s.pace.next_review_at)} after a busy day without a block.
+					{/if}
+				{/if}
+				A few requests about every {every(s.pace.gap_seconds)}.
+			</p>
+			<ul class="lanes" aria-label="Requests by kind in the last 24 hours">
+				{#each s.lanes.filter((l) => l.enabled) as l (l.name)}
+					<li data-testid="lane">
+						<span class="lname">{laneName[l.name] ?? l.name}</span>
+						<span class="num">{l.used}</span>
+						<span class="faint">· {Math.round(l.share * 100)}% share</span>
+						{#if future(l.paused_until)}
+							<span class="pill warn" title={l.pause_reason ?? ''}
+								>paused {until(l.paused_until)}</span
+							>
+						{/if}
+					</li>
+				{/each}
+			</ul>
 			<RequestsChart days={s.requests_by_day} budget={s.budget.limit} />
 		</section>
 	</div>
@@ -357,6 +401,29 @@
 	.small {
 		font-size: 0.8rem;
 		margin: 0;
+	}
+	.pace {
+		margin: 0 0 8px;
+		font-size: 0.9rem;
+		color: var(--text-2);
+	}
+	.lanes {
+		list-style: none;
+		margin: 0 0 14px;
+		padding: 0;
+		display: grid;
+		gap: 4px;
+		font-size: 0.9rem;
+	}
+	.lanes li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 8px;
+	}
+	.lname {
+		min-width: 9.5em;
+		font-weight: 500;
 	}
 	.feed {
 		min-width: 0;

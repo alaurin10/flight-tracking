@@ -250,6 +250,29 @@ def _walk(node: Any, out: list[DatePrice], seen: set[tuple]) -> None:
         _walk(child, out, seen)
 
 
+# A batchexecute entry whose payload is null: `["wrb.fr","<rpc>",null,…` or, as captured
+# on 2026-11-16 (tests/fixtures/live-20261116), `["wrb.fr",null,null,…`.
+_EMPTY_ENTRY = re.compile(r'\[\s*"wrb\.fr"\s*,\s*(?:"[^"]*"|null)\s*,\s*null')
+GATED_MAX_BYTES = 1_000
+
+
+def looks_gated(text: str) -> bool:
+    """A reply with no prices that is Google declining, not a changed layout: an error
+    envelope, a payload-less entry, or a body too small to hold any data.
+
+    Since August 2026 other clients report this RPC answering so unless the page's own
+    script adds a token (`x-goog-batchexecute-bgr`); on 2026-11-15 one reply from home
+    was 363 bytes with no prices and the next, minutes later, had 31, and on 2026-11-16
+    the cloud sandbox got the same reply (saved in tests/fixtures/live-20261116). Waiting
+    helps; a parser fix would not."""
+    body = (text or "").strip()
+    return (
+        "ErrorResponse" in body
+        or _EMPTY_ENTRY.search(body) is not None
+        or len(body) < GATED_MAX_BYTES
+    )
+
+
 def parse_calendar(text: str) -> list[DatePrice]:
     """All (depart, return, price) tuples in the response, in date order."""
     out: list[DatePrice] = []

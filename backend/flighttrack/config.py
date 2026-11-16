@@ -160,8 +160,10 @@ class Fetch:
 @dataclass(frozen=True)
 class Calendar:
     enabled: bool = False
-    max_calls_per_run: int = 12
-    confirm_budget: int = 6  # detail fetches spent confirming sweep candidates
+    refresh_hours: float = 6.0  # the worker prices each window again when it is this old
+    flags_per_window: int = 2  # promising dates of each window sent on to a detail fetch
+    max_calls_per_run: int = 12  # windows per one-off `flighttrack sweep` / `run`
+    confirm_budget: int = 6  # detail fetches a one-off sweep spends confirming candidates
     priority_boost_pct: float = 10.0  # a sweep price this far under the 30d low earns a confirm
 
 
@@ -216,14 +218,23 @@ class Alerts:
 
 @dataclass(frozen=True)
 class Collect:
-    """How the worker paces collecting (M4). Every Google request counts against one
-    rolling 24-hour budget; detail fetches go out in small batches with a random gap."""
+    """How the worker paces collecting. Every Google request counts against one rolling
+    24-hour allowance that the worker learns (`pace.py`): it starts at
+    `pace_start_per_day`, rises after clean busy days up to `pace_max_per_day`, and
+    falls when Google blocks. `daily_request_budget` pins it to a fixed number instead.
+    Requests go out a few at a time (`batch_size`), spread evenly over the day, and each
+    slot goes to the lane (detail pages, calendar windows, explore) furthest under its
+    share."""
 
-    daily_request_budget: int = 50
-    batch_size: int = 5
-    batch_gap_minutes: tuple[float, float] = (25.0, 45.0)
-    sweep_at: str = "04:10"  # local time (TZ) of the daily calendar sweep
-    trip_refresh_hours: int = 20  # an active trip older than this goes first
+    daily_request_budget: int | None = None  # set: a fixed allowance, nothing learned
+    pace_start_per_day: int = 50
+    pace_max_per_day: int = 720
+    pace_step_up_pct: float = 50.0
+    batch_size: int = 3
+    min_gap_seconds: float = 60.0  # never closer than this between slots
+    shares: tuple[int, int, int] = (60, 25, 15)  # detail, calendar, explore (percent)
+    trip_refresh_hours: int = 4  # an active trip older than this goes first
+    pair_refresh_hours: int = 12  # the rotation: a priority-1 pair is due again after this
     top_dates_per_search: int = 3  # each search's cheapest dates, refreshed like trips
     canary_dest: str = "LAX"  # the daily canary: home airport to here, one way, 30 days out
 
@@ -642,10 +653,15 @@ def load(
     _require(isinstance(c, dict), "calendar: must be a mapping")
     calendar = Calendar(
         enabled=bool(c.get("enabled", False)),
+        refresh_hours=float(c.get("refresh_hours", Calendar.refresh_hours)),
+        flags_per_window=_int(
+            c.get("flags_per_window", Calendar.flags_per_window), "calendar.flags_per_window", lo=0
+        ),
         max_calls_per_run=int(c.get("max_calls_per_run", 12)),
         confirm_budget=int(c.get("confirm_budget", 6)),
         priority_boost_pct=float(c.get("priority_boost_pct", 10.0)),
     )
+    _require(calendar.refresh_hours > 0, "calendar.refresh_hours must be positive")
 
     # --- alerts -----------------------------------------------------------
     a = raw.get("alerts") or {}
@@ -697,31 +713,50 @@ def load(
     # --- collect (the worker) ----------------------------------------------
     co = raw.get("collect") or {}
     _require(isinstance(co, dict), "collect: must be a mapping")
-    gap = co.get("batch_gap_minutes", list(Collect.batch_gap_minutes))
+    for gone in ("batch_gap_minutes", "sweep_at"):
+        if gone in co:
+            log.warning(
+                "collect.%s is ignored: the worker now spreads requests over the whole day "
+                "at its learned pace (collect.pace)",
+                gone,
+            )
+    pc = co.get("pace") or {}
+    _require(isinstance(pc, dict), "collect.pace: must be a mapping")
+    budget = co.get("daily_request_budget")
+    sh = co.get("shares") or {}
     _require(
-        isinstance(gap, list)
-        and len(gap) == 2
-        and all(isinstance(x, (int, float)) and x >= 0 for x in gap)
-        and gap[0] <= gap[1],
-        "collect.batch_gap_minutes must be two numbers [low, high], low <= high",
+        isinstance(sh, dict) and set(sh) <= {"detail", "calendar", "explore"},
+        "collect.shares must map detail, calendar and explore to percentages",
     )
-    sweep_at = str(co.get("sweep_at", Collect.sweep_at))
-    _require(
-        re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", sweep_at) is not None,
-        "collect.sweep_at must be a local time HH:MM",
+    shares = (
+        _int(sh.get("detail", Collect.shares[0]), "collect.shares.detail", lo=1),
+        _int(sh.get("calendar", Collect.shares[1]), "collect.shares.calendar", lo=0),
+        _int(sh.get("explore", Collect.shares[2]), "collect.shares.explore", lo=0),
     )
     collect = Collect(
-        daily_request_budget=_int(
-            co.get("daily_request_budget", Collect.daily_request_budget),
-            "collect.daily_request_budget",
+        daily_request_budget=None
+        if budget is None
+        else _int(budget, "collect.daily_request_budget", lo=1),
+        pace_start_per_day=_int(
+            pc.get("start_per_day", Collect.pace_start_per_day),
+            "collect.pace.start_per_day",
             lo=1,
         ),
+        pace_max_per_day=_int(
+            pc.get("max_per_day", Collect.pace_max_per_day), "collect.pace.max_per_day", lo=1
+        ),
+        pace_step_up_pct=float(pc.get("step_up_pct", Collect.pace_step_up_pct)),
         batch_size=_int(co.get("batch_size", Collect.batch_size), "collect.batch_size", lo=1),
-        batch_gap_minutes=(float(gap[0]), float(gap[1])),
-        sweep_at=sweep_at,
+        min_gap_seconds=float(co.get("min_gap_seconds", Collect.min_gap_seconds)),
+        shares=shares,
         trip_refresh_hours=_int(
             co.get("trip_refresh_hours", Collect.trip_refresh_hours),
             "collect.trip_refresh_hours",
+            lo=1,
+        ),
+        pair_refresh_hours=_int(
+            co.get("pair_refresh_hours", Collect.pair_refresh_hours),
+            "collect.pair_refresh_hours",
             lo=1,
         ),
         top_dates_per_search=_int(
@@ -731,6 +766,12 @@ def load(
         ),
         canary_dest=_airport(co.get("canary_dest", Collect.canary_dest), "collect.canary_dest"),
     )
+    _require(
+        collect.pace_start_per_day <= collect.pace_max_per_day,
+        "collect.pace.start_per_day must not be above collect.pace.max_per_day",
+    )
+    _require(0 < collect.pace_step_up_pct <= 200, "collect.pace.step_up_pct must be 1 to 200")
+    _require(collect.min_gap_seconds >= 0, "collect.min_gap_seconds must not be negative")
 
     # --- notify -----------------------------------------------------------
     n = raw.get("notify") or {}

@@ -113,6 +113,8 @@ test('the status page shows a healthy collector', async ({ page }) => {
 	await expect(page.getByText('Requests per day')).toBeVisible();
 	await expect(page.locator('.bar').first()).toBeVisible();
 	await expect(page.getByRole('meter', { name: 'Request budget used' })).toBeVisible();
+	await expect(page.getByTestId('pace')).toContainText('learned from how Google answers');
+	await expect(page.getByTestId('lane').first()).toContainText('Detail pages');
 	await expect(page.getByText('Server version')).toBeVisible();
 });
 

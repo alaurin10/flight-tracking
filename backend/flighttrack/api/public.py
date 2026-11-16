@@ -16,7 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from .. import __version__, airports, report, watches
+from .. import __version__, airports, pace, report, watches
 from .. import fetch as fetch_mod
 from .. import health as health_mod
 from ..canary import STATE_LAST_CANARY
@@ -40,10 +40,12 @@ from .models import (
     HealthOut,
     HealthSummary,
     HistoryOut,
+    LaneOut,
     LayoverOut,
     NotificationOut,
     OfferOut,
     OverviewOut,
+    PaceOut,
     PricePoint,
     ProblemOut,
     RequestDay,
@@ -297,6 +299,50 @@ def _search_summary(
 
 def _problems(rep: health_mod.HealthReport) -> list[ProblemOut]:
     return [ProblemOut(code=p.code, severity=p.severity, message=p.message) for p in rep.problems]
+
+
+_LANE_SOURCES = {
+    "calendar": "source = 'google_calendar'",
+    "explore": "source = 'google_explore'",
+    "detail": "source NOT IN ('google_calendar', 'google_explore', 'canary', 'serpapi')",
+}
+
+
+def _lanes(conn: sqlite3.Connection, cfg: Config, now: datetime) -> list[LaneOut]:
+    """Each lane's share, use in the last 24 hours, pause and last answer."""
+    shares = pace.lane_shares(cfg)
+    used = pace.lane_used(conn, now)
+    out = []
+    for name in pace.LANES:
+        last = conn.execute(
+            f"SELECT outcome, at FROM fetch_attempts WHERE {_LANE_SOURCES[name]} "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        rec = pace.lane_pause(conn, name) or {}
+        out.append(
+            LaneOut(
+                name=name,
+                enabled=name in shares,
+                share=round(shares.get(name, 0.0), 3),
+                used=used[name],
+                paused_until=pace.lane_paused(conn, name, now),
+                pause_reason=rec.get("reason"),
+                last_outcome=last["outcome"] if last else None,
+                last_at=last["at"] if last else None,
+            )
+        )
+    return out
+
+
+def _calendar_windows(conn: sqlite3.Connection, cfg: Config, now: datetime) -> tuple[int, int]:
+    """Calendar windows in use, and how many are older than `calendar.refresh_hours`."""
+    cut = iso(now - timedelta(hours=cfg.calendar.refresh_hours))
+    row = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(last_run_at IS NULL OR last_run_at < ?), 0) FROM scans "
+        "WHERE kind = 'calendar' AND active = 1",
+        (cut,),
+    ).fetchone()
+    return int(row[0]), int(row[1])
 
 
 def _deals(conn: sqlite3.Connection, limit: int, *, matched_only: bool) -> list[DealOut]:
@@ -645,7 +691,9 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
             except (ValueError, AttributeError):
                 canary = CanaryOut(at=None, result=None, detail=raw)
         used = fetch_mod.budget_used(conn, now)
-        limit = cfg.collect.daily_request_budget
+        p = pace.load(conn, cfg)
+        limit = p.per_day
+        windows, windows_due = _calendar_windows(conn, cfg, now)
         beat = health_mod.heartbeat_age(settings.heartbeat_path, now)
         try:
             db_bytes = settings.database.stat().st_size
@@ -671,6 +719,20 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
             next_batch_at=get_state(conn, STATE_NEXT_BATCH),
             last_sweep_at=get_state(conn, STATE_LAST_SWEEP),
             budget=BudgetOut(used=used, limit=limit, remaining=max(0, limit - used)),
+            pace=PaceOut(
+                per_day=p.per_day,
+                ceiling=p.ceiling,
+                fixed=p.fixed,
+                reason=p.reason,
+                changed_at=p.changed_at,
+                hold_until=p.hold_until,
+                last_block_at=p.blocks[-1]["at"] if p.blocks else None,
+                next_review_at=pace.next_review_at(p),
+                gap_seconds=round(pace.gap_seconds(conn, cfg)),
+            ),
+            lanes=_lanes(conn, cfg, now),
+            calendar_windows=windows,
+            calendar_windows_due=windows_due,
             requests_by_day=[RequestDay(day=d, outcomes=o) for d, o in sorted(by_day.items())],
             recent_runs=runs,
             feeds=feeds,

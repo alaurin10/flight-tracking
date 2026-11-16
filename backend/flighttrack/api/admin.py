@@ -15,7 +15,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import app_settings, deals, jobs, watches
+from .. import app_settings, deals, jobs, pace, watches
 from .. import fetch as fetch_mod
 from ..config import Config
 from ..gflights.transport import Transport, default_transport
@@ -187,7 +187,7 @@ def make_admin_router() -> APIRouter:
         full detail refresh takes at the current budget. Saves nothing."""
         cfg = _cfg(request)
         p = watches.preview_search(conn, cfg, body, search_id=search_id, today=_today())
-        per_day = fetch_mod.detail_fetches_per_day(cfg)
+        per_day = fetch_mod.detail_fetches_per_day(conn, cfg)
         return SearchPreviewOut(
             pairs=p.pairs,
             total_pairs=p.total_pairs,
@@ -296,12 +296,12 @@ def make_admin_router() -> APIRouter:
         cfg = _cfg(request)
         now = clock_now()
         used = fetch_mod.budget_used(conn, now)
-        limit = cfg.collect.daily_request_budget
+        limit = pace.allowance(conn, cfg)
         c = watches.counts(conn)
         return CollectingOut(
             cooldown_until=fetch_mod.cooldown_active(conn, now),
             budget=BudgetOut(used=used, limit=limit, remaining=max(0, limit - used)),
-            detail_per_day=fetch_mod.detail_fetches_per_day(cfg),
+            detail_per_day=fetch_mod.detail_fetches_per_day(conn, cfg),
             active_trips=c["trips"],
             max_trips=watches.MAX_ACTIVE_TRIPS,
             active_searches=c["searches"],

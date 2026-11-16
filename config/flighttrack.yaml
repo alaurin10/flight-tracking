@@ -73,39 +73,58 @@ fetch:
 
 # ---------------------------------------------------------------------------
 # The worker (`flighttrack worker`). Every request to Google (results pages,
-# calendar calls, the canary) counts against one rolling 24-hour budget.
-# Detail fetches go out in batches of batch_size with a random gap between
-# batches; the calendar sweep runs daily at sweep_at (local time, TZ) in
-# groups of four calls with the same gaps.
+# calendar calls, the canary) counts against one rolling 24-hour allowance,
+# and the worker learns that allowance (backend/flighttrack/pace.py): it
+# starts at pace.start_per_day, rises by step_up_pct after each clean day in
+# which it was mostly used, never above max_per_day, and on a block falls to
+# 60% of what was sent in the 24 hours before it, holds 3 days, and creeps
+# back by 10% a day, staying under 85% of the volume that drew the block.
+# Requests go out batch_size at a time, spread evenly over the whole day.
 #
-# daily_request_budget  50 until the home address's limit has been measured
-#                       with `calibrate`; then about half of it, at most 80.
+# daily_request_budget  set it to pin the allowance to a fixed number instead
+#                       of learning it (the e2e tests do).
+# shares                each slot goes to the lane furthest under its share
+#                       of the last 24 hours: detail = results pages for date
+#                       pairs, calendar = 2-month price windows of flexible
+#                       searches, explore = whole regions (from D2). A lane
+#                       with nothing to do leaves its share to the others.
 # trip_refresh_hours    an active trip older than this is fetched first; each
 #                       search's top_dates_per_search cheapest dates likewise.
+# pair_refresh_hours    every other date pair is due again after this (twice
+#                       that for priority 2, four times for priority 3).
 # canary_dest           the daily canary: HOME_AIRPORT → here, one way, 30
 #                       days out. A busy nonstop route that always has results.
 # ---------------------------------------------------------------------------
 collect:
-  daily_request_budget: 50
-  batch_size: 5
-  batch_gap_minutes: [25, 45]
-  sweep_at: "04:10"
-  trip_refresh_hours: 20
+  pace:
+    start_per_day: 50
+    max_per_day: 720         # the owner's ceiling (2026-11-15): one request every 2 min
+    step_up_pct: 50
+  batch_size: 3
+  min_gap_seconds: 60
+  shares: {detail: 60, calendar: 25, explore: 15}
+  trip_refresh_hours: 4
+  pair_refresh_hours: 12
   top_dates_per_search: 3
   canary_dest: LAX
 
 # ---------------------------------------------------------------------------
-# Calendar sweep (EXPERIMENTAL). One RPC prices ~2 months of departure dates
-# for a route/pattern, so the whole grid is refreshed daily and the most
-# promising dates are confirmed with a real fetch. Verify on your host first:
-#   flighttrack doctor --calendar
-# and enable only if the printed prices match the price graph in a browser.
+# Calendar calls. One call prices ~2 months of departure dates for a route
+# and trip length. The worker prices each window again when it is
+# refresh_hours old and sends each window's flags_per_window most promising
+# dates on to a detail fetch, so nothing alerts on a calendar number alone.
+# max_calls_per_run and confirm_budget apply only to the one-off
+# `flighttrack sweep` and `flighttrack run`.
 # Checked from the home address on 2026-11-15: 31 dated prices for SEA→LAX. They
 # include basic economy (SEA→LAX Jan 14–18: $287 against $307 on the results
 # page), so they are compared only with each other and shown as estimates.
+# Google sometimes answers without prices (reported by others since 2026-08);
+# the worker then pauses this lane (30 min, 2 h, 6 h, 24 h) and detail goes on.
 # ---------------------------------------------------------------------------
 calendar:
   enabled: true
+  refresh_hours: 6
+  flags_per_window: 2
   max_calls_per_run: 12
   confirm_budget: 6
   priority_boost_pct: 10

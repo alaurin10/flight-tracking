@@ -155,16 +155,20 @@ def test_a_trip_over_the_limit_is_refused_with_the_count(tmp_path: Path) -> None
 
     for i in range(watches.MAX_ACTIVE_TRIPS):
         watches.create_trip(conn, cfg, trip(i), today=TODAY, expand=False)
-    with pytest.raises(watches.LimitError, match="21 active trips; the limit is 20"):
+    n = watches.MAX_ACTIVE_TRIPS
+    with pytest.raises(watches.LimitError, match=f"{n + 1} active trips; the limit is {n}"):
         watches.create_trip(conn, cfg, trip(99), today=TODAY)
-    assert len(watches.list_trips(conn)) == 20  # nothing half-saved
+    assert len(watches.list_trips(conn)) == n  # nothing half-saved
     # A paused one does not count, and it may not be resumed past the limit.
     paused = watches.create_trip(conn, cfg, {**trip(98), "status": "paused"}, today=TODAY)
-    with pytest.raises(watches.LimitError, match="21 active trips"):
+    with pytest.raises(watches.LimitError, match=f"{n + 1} active trips"):
         watches.set_trip_status(conn, cfg, paused.id, "active", today=TODAY)
 
 
-def test_a_search_over_the_pair_limit_is_refused_with_the_count(tmp_path: Path) -> None:
+def test_a_search_over_the_pair_limit_is_refused_with_the_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watches, "MAX_ACTIVE_PAIRS", 400)
     conn, cfg = make_db(tmp_path, make_config(patterns=[], max_days_ahead=240), today=TODAY)
     big = {
         "name": "Everywhere, every day",

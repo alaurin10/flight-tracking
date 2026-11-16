@@ -314,6 +314,33 @@ class CanaryOut(BaseModel):
     detail: str | None
 
 
+class PaceOut(BaseModel):
+    """How many requests to Google a day, as the worker has learned it (pace.py)."""
+
+    per_day: int = Field(description="Google requests allowed in any rolling 24 hours, now")
+    ceiling: int = Field(description="the most it may rise to (collect.pace.max_per_day)")
+    fixed: bool = Field(description="pinned by collect.daily_request_budget; nothing learned")
+    reason: str = Field(description="why it is at this number, in a few words")
+    changed_at: str | None
+    hold_until: str | None = Field(description="held after a block until then")
+    last_block_at: str | None
+    next_review_at: str | None = Field(description="the earliest it can rise again")
+    gap_seconds: int = Field(description="the average gap between slots at this pace")
+
+
+class LaneOut(BaseModel):
+    """One kind of Google request and its share of the pace."""
+
+    name: Literal["detail", "calendar", "explore"]
+    enabled: bool = Field(description="this lane can run with this setup")
+    share: float = Field(description="its fraction of the pace while every enabled lane has work")
+    used: int = Field(description="its requests in the last 24 hours")
+    paused_until: str | None = Field(description="Google declined its calls; paused until then")
+    pause_reason: str | None
+    last_outcome: str | None
+    last_at: str | None
+
+
 class StatusOut(BaseModel):
     generated_at: str
     version: str
@@ -329,6 +356,10 @@ class StatusOut(BaseModel):
     next_batch_at: str | None
     last_sweep_at: str | None
     budget: BudgetOut
+    pace: PaceOut
+    lanes: list[LaneOut]
+    calendar_windows: int = Field(description="calendar windows the flexible searches need")
+    calendar_windows_due: int = Field(description="of those, not priced within the refresh time")
     requests_by_day: list[RequestDay]
     recent_runs: list[RunOut]
     feeds: list[FeedOut]

@@ -22,9 +22,10 @@ cd "$here/../../backend"
 export DATA_DIR="$data" STATIC_DIR="$here/../build" OWNER_PASSWORD="e2e-owner-password" READS_PER_MINUTE=10000
 uv run --frozen flighttrack demo --db "$data/flights.db" >/dev/null
 if [ "${2:-}" = "--worker" ]; then
-	# The shipped tunables with room in the request budget, so reruns never run it dry.
+	# The shipped tunables with the allowance pinned high, so reruns never run it dry.
 	mkdir -p "$data/config"
-	sed 's/^  daily_request_budget: .*/  daily_request_budget: 1000/' ../config/flighttrack.yaml >"$data/config/flighttrack.yaml"
+	sed 's/^collect:$/collect:\n  daily_request_budget: 1000/' ../config/flighttrack.yaml >"$data/config/flighttrack.yaml"
+	grep -q '^  daily_request_budget: 1000$' "$data/config/flighttrack.yaml"
 	export CONFIG_DIR="$data/config" FLIGHTTRACK_SOURCE=fake
 	uv run --frozen flighttrack worker >"$data/worker.log" 2>&1 &
 	worker_pid=$!

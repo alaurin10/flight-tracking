@@ -12,7 +12,7 @@
 
 	interface Props {
 		days: RequestDay[];
-		/** The daily request budget, drawn as a line when it fits the scale. */
+		/** The day’s request allowance (the learned pace), drawn as a line when it fits. */
 		budget?: number | null;
 		width?: number;
 		height?: number;
@@ -161,7 +161,7 @@
 	<p class="legend">
 		{#each GROUPS as g (g.key)}<span class="li"><span class="k {g.key}"></span>{g.label}</span
 			>{/each}
-		{#if budget}<span class="li"><span class="k budget"></span>daily budget</span>{/if}
+		{#if budget}<span class="li"><span class="k budget"></span>today’s pace</span>{/if}
 	</p>
 	<details class="twin">
 		<summary>As a table</summary>

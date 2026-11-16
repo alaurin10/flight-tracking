@@ -16,6 +16,7 @@ blocked, both wait.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import sqlite3
@@ -36,12 +37,13 @@ from .gflights.calendar import (
     RPC_URL,
     DatePrice,
     build_body,
+    looks_gated,
     parse_calendar,
     windows,
 )
 from .gflights.transport import Response, Transport, TransportError, default_transport
 from .source import FailureStore, Offer, Source, tidy_error
-from .store.db import get_state, set_state, utcnow
+from .store.db import get_state, iso, set_state, utcnow
 from .store.db import now as clock_now
 from .watches import target_for
 
@@ -60,6 +62,7 @@ class SweepJob:
     pattern: Pattern
     start: str
     end: str
+    n: int = 0  # which window of its search and destination, counting from the first
 
     def describe(self) -> str:
         return f"{self.route.dest} {self.pattern.name} {self.start}..{self.end}"
@@ -68,6 +71,23 @@ class SweepJob:
         """Names this window across processes (the worker keeps a day's plan in `state`)."""
         origin = self.route.origin or ""
         return f"{origin}|{self.route.dest}|{self.pattern.name}|{self.start}|{self.end}"
+
+    def scan_key(self) -> str:
+        """Names this window across days (`scans.key`): a rolling search's dates move
+        every day, its windows' places in the row do not."""
+        origin = self.route.origin or ""
+        return f"{origin}|{self.route.dest}|{self.pattern.name}|{self.n}"
+
+    def spec(self) -> dict[str, object]:
+        return {
+            "origin": self.route.origin,
+            "dest": self.route.dest,
+            "search": self.pattern.name,
+            "nights": self.pattern.nights,
+            "window": self.n,
+            "start": self.start,
+            "end": self.end,
+        }
 
 
 @dataclass
@@ -79,10 +99,12 @@ class SweepStats:
     failed: int = 0
     skipped: bool = False
     blocked: bool = False
+    gated: bool = False  # Google answered without data (see calendar.looks_gated)
     dates_priced: int = 0
     matched: int = 0
     written: int = 0
     confirm_ids: list[int] = field(default_factory=list)
+    flags: list[int] = field(default_factory=list)  # each window's best few, for detail fetches
     # (price ÷ target, cents, query_id, why) for every promising date, cheapest first
     candidates: list[tuple[float, int, int, str]] = field(default_factory=list)
     confirm_stats: fetch_mod.FetchStats | None = None
@@ -98,6 +120,8 @@ class SweepStats:
         )
         if self.blocked:
             s += " ABORTED=blocked"
+        if self.gated:
+            s += " STOPPED=gated"
         return s
 
 
@@ -126,10 +150,65 @@ def plan(conn: sqlite3.Connection, cfg: Config, today: date | None = None) -> li
             route = routes.get((row["origin"], dest))
             if route is None:
                 continue  # not expanded yet
-            for start, end in windows(dates[0], dates[-1]):
-                jobs.append(SweepJob(route, pattern, start, end))
+            for n, (start, end) in enumerate(windows(dates[0], dates[-1])):
+                jobs.append(SweepJob(route, pattern, start, end, n))
     jobs.sort(key=lambda j: j.route.priority)  # stable: search order within a priority
     return jobs
+
+
+def due_windows(
+    conn: sqlite3.Connection, cfg: Config, now: datetime | None = None
+) -> list[SweepJob]:
+    """The windows the worker should price next: those never run, then those whose last
+    answer is older than `calendar.refresh_hours`, oldest first, the highest-priority
+    routes first among equals. Marks which scans are still wanted (`scans.active`)."""
+    now = now or clock_now()
+    jobs = plan(conn, cfg, now.date())
+    last = {
+        r["key"]: r["last_run_at"]
+        for r in conn.execute("SELECT key, last_run_at FROM scans WHERE kind = 'calendar'")
+    }
+    keys = [j.scan_key() for j in jobs]
+    conn.execute(
+        f"UPDATE scans SET active = (key IN ({','.join('?' * len(keys))})) WHERE kind = 'calendar'",
+        keys,
+    )
+    conn.commit()
+    cut = iso(now - timedelta(hours=cfg.calendar.refresh_hours))
+    due = [j for j in jobs if (last.get(j.scan_key()) or "") < cut]
+    due.sort(key=lambda j: (last.get(j.scan_key()) or "", j.route.priority))
+    return due
+
+
+def record_scan(conn: sqlite3.Connection, job: SweepJob, outcome: str, now: datetime) -> None:
+    """Remember how a window's call went. Only an answer (ok, or a page we could not read)
+    counts as run; a block, a gated reply or a network error leaves it due."""
+    stamp = iso(now)
+    answered = outcome in ("ok", "layout")
+    conn.execute(
+        """
+        INSERT INTO scans (kind, key, spec, active, last_run_at, last_ok_at, last_outcome,
+                           fail_streak, created_at)
+        VALUES ('calendar', ?, ?, 1, ?, ?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            spec = excluded.spec,
+            active = 1,
+            last_run_at = COALESCE(excluded.last_run_at, scans.last_run_at),
+            last_ok_at = COALESCE(excluded.last_ok_at, scans.last_ok_at),
+            last_outcome = excluded.last_outcome,
+            fail_streak = CASE WHEN excluded.last_outcome = 'ok' THEN 0
+                               ELSE scans.fail_streak + 1 END
+        """,
+        (
+            job.scan_key(),
+            json.dumps(job.spec()),
+            stamp if answered else None,
+            stamp if outcome == "ok" else None,
+            outcome,
+            0 if outcome == "ok" else 1,
+            stamp,
+        ),
+    )
 
 
 def _rotate(jobs: list[SweepJob], conn: sqlite3.Connection, cap: int) -> list[SweepJob]:
@@ -229,6 +308,29 @@ def promising(
     return False, "not notable"
 
 
+def _window_flags(
+    conn: sqlite3.Connection,
+    cfg: Config,
+    window_candidates: list[tuple[float, int, int, str]],
+    now: datetime,
+) -> list[int]:
+    """A window's best `calendar.flags_per_window` dates, for detail fetches. A date
+    fetched in the last `calendar.refresh_hours` is skipped unless it is under target."""
+    recent = iso(now - timedelta(hours=cfg.calendar.refresh_hours))
+    out: list[int] = []
+    for _ratio, _cents, qid, why in sorted(window_candidates):
+        if len(out) >= cfg.calendar.flags_per_window:
+            break
+        if qid in out:
+            continue
+        row = conn.execute("SELECT last_fetch_at FROM queries WHERE id = ?", (qid,)).fetchone()
+        fresh = row is not None and (row[0] or "") >= recent
+        if fresh and why != "under target":
+            continue
+        out.append(qid)
+    return out
+
+
 def run(
     conn: sqlite3.Connection,
     cfg: Config,
@@ -297,6 +399,7 @@ def run(
                 int((time.monotonic() - t0) * 1000),
                 tidy_error(str(exc)),
             )
+            record_scan(conn, job, "network", now)
             conn.commit()
             if verbose:
                 log.warning(f"[FAIL:network] {job.describe()}: {exc}")
@@ -311,10 +414,26 @@ def run(
             fetch_mod.log_attempt(
                 conn, stats.run_id, None, SOURCE_NAME, "blocked", latency, page.detail
             )
+            record_scan(conn, job, "blocked", now)
             until = fetch_mod.enter_cooldown(conn, cfg, now)
             notes.append(f"aborted: blocked on calendar RPC; cooldown until {until}")
             if verbose:
                 log.warning(f"[ABORT] blocked — cooldown until {until}")
+            break
+        if not prices and resp.status < 400 and looks_gated(resp.text):
+            # Google declined without data. Not a layout change and not a block: stop
+            # this run; the worker pauses the calendar lane and detail goes on.
+            stats.failed += 1
+            stats.gated = True
+            failures.save("calendar-gated", resp, job.route.dest)
+            msg = f"HTTP {resp.status}, {resp.size} bytes, no prices (Google declined)"
+            stats.errors.append(f"{job.describe()}: gated: {msg}")
+            fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "gated", latency, msg)
+            record_scan(conn, job, "gated", now)
+            notes.append(f"stopped: {msg}")
+            conn.commit()
+            if verbose:
+                log.warning(f"[gated] {job.describe()}: {msg}")
             break
         if not prices:
             stats.failed += 1
@@ -322,6 +441,7 @@ def run(
             msg = f"HTTP {resp.status}, {resp.size} bytes, no (date, price) tuples found"
             stats.errors.append(f"{job.describe()}: layout: {msg}")
             fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "layout", latency, msg)
+            record_scan(conn, job, "layout", now)
             conn.commit()
             if verbose:
                 log.warning(
@@ -332,6 +452,7 @@ def run(
         stats.ok += 1
         stats.dates_priced += len(prices)
         fetch_mod.log_attempt(conn, stats.run_id, None, SOURCE_NAME, "ok", latency)
+        record_scan(conn, job, "ok", now)
         lookup = _query_lookup(conn, cfg, job.route)
         nights = job.pattern.nights
         matched: list[tuple[int, int, DatePrice]] = []
@@ -347,6 +468,7 @@ def run(
         hit = len(matched)
         cheapest = {qid for qid, _, _ in sorted(matched, key=lambda m: m[1])[:CHEAPEST_PER_WINDOW]}
         filters = calendar_filters(cfg)
+        window_candidates: list[tuple[float, int, int, str]] = []
         for qid, cents, dp in matched:
             target = target_for(conn, qid)
             ok, why = promising(
@@ -366,7 +488,9 @@ def run(
             w, _ = fetch_mod.store(conn, qid, [offer], is_best_series=False)
             stats.written += w
             if ok:
-                candidates.append((cents / (target or cents), cents, qid, why))
+                window_candidates.append((cents / (target or cents), cents, qid, why))
+        candidates += window_candidates
+        stats.flags += _window_flags(conn, cfg, window_candidates, now)
         stats.matched += hit
         conn.commit()
         if verbose:
@@ -384,6 +508,7 @@ def run(
         and confirm_source is not None
         and cfg.calendar.confirm_budget > 0
         and not stats.blocked
+        and not stats.gated
     ):
         seen: set[int] = set()
         for _, _, qid, _why in candidates:

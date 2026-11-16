@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import pace
 from .config import Config
 from .fetch import PRIORITY_INTERVAL_DAYS, STATE_BLOCKED_STREAK, STATE_LAST_SUCCESS, cooldown_active
 from .notifier import Notifier
@@ -36,6 +37,7 @@ STATE_LAYOUT_DRIFT = "layout_drift"
 TITLE_DOWN = "⚠ Flight Watch has stopped collecting prices"
 TITLE_UP = "Flight Watch is collecting prices again"
 FEED_EMPTY_DAYS = 7
+LANE_PAUSE_WARN_HOURS = 24
 PARSER_MISMATCH_WARN = 3
 # The worker touches its heartbeat file every 30 s; older than this, it has stopped.
 HEARTBEAT_MAX_AGE_S = 180
@@ -210,6 +212,27 @@ def check(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) ->
                     "crit" if good == 0 else "warn",
                 )
             )
+
+    # --- the pace and the lanes ------------------------------------------------
+    p = pace.load(conn, cfg)
+    rep.info.append(
+        f"pace {p.per_day} requests a day"
+        + (" (fixed)" if p.fixed else f" of at most {p.ceiling}: {p.reason}")
+    )
+    if cfg.calendar.enabled:
+        rec = pace.lane_pause(conn, "calendar")
+        paused_since = parse_ts(rec.get("since")) if rec else None
+        if rec and pace.lane_paused(conn, "calendar", now) and paused_since is not None:
+            hours = (now - paused_since).total_seconds() / 3600
+            if hours >= LANE_PAUSE_WARN_HOURS:
+                rep.problems.append(
+                    Problem(
+                        "calendar_gated",
+                        f"Google has answered calendar calls without prices for {hours:.0f}h; "
+                        "flexible searches are priced by detail fetches only until it answers",
+                        "warn",
+                    )
+                )
 
     # --- coverage: how much of the grid is stale? ---------------------------
     if n_active:

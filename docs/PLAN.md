@@ -23,6 +23,9 @@ Update this table in the same pull request that finishes a milestone.
 | B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
 | M6 | Frontend: read-only app | done | [#18](https://github.com/alaurin10/flight-tracking/pull/18) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
 | M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
+| D1 | Deal finder track: a learned pace, lanes, failures named | done | [#24](https://github.com/alaurin10/flight-tracking/pull/24) | 417 backend tests, 69 unit, 51 e2e; 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
+| D2 | Deal finder track: price regions with Explore | not started | | |
+| D3 | Deal finder track: find and confirm deals | not started | | |
 | M8 | Push alerts and installable app | not started | | |
 | C | Owner: turn on alerts | not started | | |
 | M9 | Hardening and 1.0 | not started | | |
@@ -305,6 +308,39 @@ Decisions log (add a line when a milestone departs from this document, with the 
   records its posts as already alerted, because they carry no dates. `export-config` writes
   pages under `deals.pages` and watch `months`; `import-config` reads both.
 
+- 2026-11-16 (owner's request, D1): the owner wants many options polled all day and deals found
+  by the app itself, so a deal finder track (D1 to D3, below) goes in before M8. It overrides
+  checkpoint B's "budget 50 for a week, then 80": the 50 was never measured (20 requests in
+  2 minutes drew no block from home). The allowance is now learned (`pace.py`), from 50 up to
+  the owner's ceiling of **720 a day**, and `collect.daily_request_budget` only pins it. Not
+  done, by design: proxy or IP rotation, captcha solving, a headless browser to mint Google's
+  bot tokens, a paid source by default. When Google refuses, the worker slows down.
+- 2026-11-16 (D1): the calendar sweep is no longer once a day. A migration (`006_scans`) adds a
+  `scans` table, one row per calendar window keyed by its place in the search's row of windows
+  (`origin|dest|search|n`), so its freshness survives the dates moving. The worker prices the
+  stalest windows when the calendar lane's turn comes and flags each window's best two dates
+  for detail fetches as it lands; `sweep_flagged` became a list of `{id, at}`, each valid a day.
+  `collect.batch_gap_minutes`, `collect.sweep_at` and the worker's `sweep_plan` state are gone
+  (the first two are ignored with a warning); `calendar.max_calls_per_run` and
+  `confirm_budget` now apply only to the one-off `flighttrack sweep` and `run`. Plan rows that
+  `expand` was to write are written by the calendar run itself (`sweep.record_scan`), which
+  needed no change to `expand.py`.
+- 2026-11-16 (D1): plan problem 13 is fixed. `ds:1` = `[13, null, [[".../ErrorResponse", …]]]`
+  is `PageKind.SERVER_ERROR` and `source.TransientError` (`google_error`): retried once after 2
+  to 5 s, never marked fetched, no cooldown, three in a row end a batch, and the pair waits an
+  hour before the rotation tries it again. Other `errorHasStatus` pages stay "no flights".
+- 2026-11-16 (D1): a calendar reply with no prices that is an error envelope, a payload-less
+  entry or under 1,000 bytes is `gated`, not `layout`; it pauses only the calendar lane (30 min,
+  2 h, 6 h, 24 h; `state.lane_pause`) and `health` warns after a day. The cloud sandbox got such
+  a reply on 2026-11-16 (`tests/fixtures/live-20261116/`); the results page read normally.
+- 2026-11-16 (D1): refresh rules: active trips every 4 h (was 20), every other pair after
+  `collect.pair_refresh_hours` (12; twice that for priority 2, four times for priority 3)
+  instead of 1/3/7 days. Limits: 30 trips, 25 searches, 1,200 date pairs (were 20, 10, 400).
+  `fetch.detail_fetches_per_day` takes the connection (the pace is in the database).
+- 2026-11-16 (D1): Google's price insights ("prices are low", a typical range) are not in the
+  server-rendered results page (checked live: its five data blocks are the request, the
+  itineraries and three reference lists). D3 works out usual prices itself.
+
 ## How to work from this document
 
 To start a milestone, give a fresh session this prompt:
@@ -388,7 +424,7 @@ The captured responses are in `tests/fixtures/live-20261114/` with their expecte
 | 10 | The web server cannot face the internet: stdlib `http.server`, no sign-in, and `POST /run` open to anyone | `serve.py` | M5 |
 | 11 | Real trip dates are committed to a public repository in `config.yaml` | Repository visibility | M3 |
 | 12 | Two processes cannot share the database safely (no `busy_timeout`), and there are no backups | `db.connect` | M2, M4 (nightly backups, 14 kept) |
-| 13 | **A Google-side error is recorded as "no itineraries".** On 2026-11-15 the results page for SEA→SLC Jan 13–16 came back with `ds:1` = `[13, null, [ErrorResponse …]]` and `errorHasStatus`. `classify()` calls any `errorHasStatus` page `no_results`, so `fetch.run` marks the query fetched and resets the failure counter. It was neither empty nor a block: the calendar priced that date at $277 and the next request succeeded | `tests/fixtures/live-20261115/` | not assigned; M4 (with the canary) is the natural place. Needs a real "no flights" page to tell the two apart |
+| 13 | **A Google-side error is recorded as "no itineraries".** On 2026-11-15 the results page for SEA→SLC Jan 13–16 came back with `ds:1` = `[13, null, [ErrorResponse …]]` and `errorHasStatus`. `classify()` calls any `errorHasStatus` page `no_results`, so `fetch.run` marks the query fetched and resets the failure counter. It was neither empty nor a block: the calendar priced that date at $277 and the next request succeeded | `tests/fixtures/live-20261115/` | D1 (an `ErrorResponse` in `ds:1` is a server error, retried; other `errorHasStatus` pages stay "no flights") |
 
 ## Target
 
@@ -515,7 +551,9 @@ After a block, a restart or a week of downtime, the worker looks at the same tab
 on. There is no "today's run" to miss.
 
 - Every Google request counts against one rolling 24-hour budget
-  (`collect.daily_request_budget`, default 50), counted from `fetch_attempts`.
+  (`collect.daily_request_budget`, default 50), counted from `fetch_attempts`. (D1 replaces
+  the fixed budget with a learned pace and the batch gaps with even slots; see the
+  [deal finder track](#deal-finder-track-d1-to-d3).)
 - Detail fetches go out in small batches (`collect.batch_size`, default 5) with a random gap
   between batches (`collect.batch_gap_minutes: [25, 45]`) and the existing 4–8 s between
   requests.
@@ -1093,6 +1131,83 @@ first price within about a minute.
 
 **Acceptance.** The frontend and backend check commands pass; the e2e flow above passes in
 CI; on a phone-sized viewport every form is usable without zooming.
+
+### Deal finder track (D1 to D3)
+
+**Why.** The owner wants many options polled all day and deals found by the app itself.
+In M4 to M7 the worker sent 50 requests a day in bursts and swept the calendar once a day,
+and a region was only matched against deal-blog headlines. The fixed 50 was a guess.
+
+**The funnel.** An Explore call prices a whole region for one date (D2); a calendar call
+prices about 61 departure dates of one route (D1); a results page gives the real price with
+the bag and fare filters (as before). The deal finder (D3) compares each with the route's own
+usual price, confirms down the funnel, and records a find. One pacer feeds every lane. At 720 a
+day with shares 60/25/15 that is about 430 detail prices, 180 calendar windows and 108 Explore
+calls a day.
+
+#### D1. A learned pace, lanes, failures named
+
+**Tasks.**
+
+1. `pace.py`: the allowance per rolling 24 hours, in `state.pace`. Starts at
+   `collect.pace.start_per_day` (50); hourly `review()` raises it by `step_up_pct` (50) after 24
+   clean hours in which at least 80% was used, never above `max_per_day` (720); `on_block()`
+   (from `fetch.enter_cooldown`) cuts it to 60% of the requests of the 24 hours before the block
+   (at least 24), holds 3 days, then +10% a day, never past 85% of the lowest volume blocked in
+   30 days. `collect.daily_request_budget` pins it. `fetch.budget_*` read it.
+2. Even slots: `batch_size` (3) requests, then a gap of requests × 24 h ÷ allowance, ±40%, at
+   least `min_gap_seconds` (60). The tick runs every 20 s; `pace` review hourly.
+3. Lanes: each slot to the lane furthest under its share (`collect.shares`, detail 60,
+   calendar 25, explore 15) of the last 24 hours, by `fetch_attempts.source`; a lane with
+   nothing due or paused leaves its share; dates a person asked for go first.
+4. `006_scans`: calendar windows by freshness (`calendar.refresh_hours`, 6), each window's
+   `calendar.flags_per_window` (2) best dates flagged for detail fetches as it lands.
+5. Refresh rules and limits as in the decisions log.
+6. Error 13 on the results page is a server error; a calendar reply without data is `gated`
+   and pauses its lane; a block stays a block.
+7. `/api/status` gains `pace`, `lanes`, `calendar_windows`, `calendar_windows_due`; the Status
+   page shows the pace, why, when it can rise, and each lane.
+
+**Acceptance.** Backend and frontend check commands pass; tests with an injected clock show
+the pace climbing 50 → 75 → … → 720 over clean busy days and holding on a quiet one, a block
+cutting it to 60% and capping it at 85% for 30 days, 14 simulated days with two blocks never
+exceeding the allowance in force, lanes converging on 25/85 for the calendar, a gated reply
+pausing only its lane, error 13 retried and never stored as "no flights", an upgraded database
+getting `scans` with its history and triggers intact. Live: at most four requests via `doctor`.
+
+#### D2. Explore: price regions and "anywhere"
+
+1. `gflights/explore.py`: request and parser for `GetExploreDestinations`, laid out from the
+   HAR-confirmed notes in `punitarani/fli` PR 226 (MIT): origin, a place token (Anywhere,
+   Europe, Asia, Africa, North and South America, Oceania), one departure date, a trip-length
+   window `[4, 23, min, max]`, stops, cabin, bags `[carry_on, checked]`. The reply is several
+   `wrb.fr` chunks joined by place id; decode them by JSON grammar, not byte counts.
+2. **Start with a live check** (`doctor --explore`, two or three requests, fixture saved). The
+   format is someone else's capture and the call is reported as intermittently refused (error
+   13). If it will not answer plain HTTP, fall back to calendar scans of each region's main
+   airports (slower; same storage and screens).
+3. Region watches gain an origin and a trip length (migration 007, adds columns; the form gets
+   Weekend, A week, Two weeks, Custom). `explore` scans: one per watch × weekly departure in its
+   months, plus a built-in "Anywhere from HOME_AIRPORT". Japan, Hawaii, Mexico and the
+   Caribbean are read out of their continent's reply.
+4. `explore_prices`, append-only, a row only when a price changes or the last is a day old.
+   `gated` pauses the explore lane only; `pace.BUILT_LANES` gains `explore`.
+5. `GET /api/explore` and an Explore tab on Deals: per region, destinations by price with
+   dates, stops, airline, age and a Google Flights link.
+
+#### D3. The deal finder
+
+1. A route's usual price: the median of its daily lows over 45 days, per destination, trip
+   length and travel month, from `explore_prices` and calendar prices; seven days of samples
+   before any "below usual" claim (until then: under the watch's maximum, or a board's cheapest).
+2. A candidate (25% under usual, under the maximum, or a new low by 10%) is confirmed down the
+   funnel ahead of the rotation: a calendar call for the best nearby dates, then a results page
+   with the owner's filters. Nothing is a deal on an estimate alone.
+3. `finds` table: place, dates, confirmed price, usual price, percent below, why, airline, stops,
+   link, status (candidate, confirmed, gone), rechecked every 12 hours until gone.
+4. Deals opens on Found: price, usual, percent below, dates, when checked, Open in Google
+   Flights, Track this (pre-fills a trip). Overview shows the top finds. One `deal`
+   notification per find, again only on a further 10% drop; push arrives with M8.
 
 ### M8. Push alerts and the installable app
 
