@@ -235,7 +235,19 @@ describe('a region', () => {
 			keywords: [],
 			months: [6, 7, 8],
 			max_price: 60000,
-			status: 'active'
+			status: 'active',
+			nights: 7,
+			origin: null
+		});
+	});
+
+	it('prices a trip length from an airport, and checks the airport', () => {
+		const d = region({ nights: 14, origin: ' pdx ' });
+		expect(toDealWatchIn(d)).toMatchObject({ nights: 14, origin: 'PDX' });
+		expect(regionErrors(region({ origin: 'Portland' })).origin).toMatch(/three-letter/);
+		expect(regionDraft({ name: 'x', nights: 0, origin: 'PDX' })).toMatchObject({
+			nights: 0,
+			origin: 'PDX'
 		});
 	});
 

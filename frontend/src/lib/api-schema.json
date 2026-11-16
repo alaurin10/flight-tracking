@@ -678,6 +678,32 @@
           "minLength": 1,
           "type": "string"
         },
+        "nights": {
+          "anyOf": [
+            {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "trip length a region is priced for on Google's Explore map; null = a week, 0 = one way"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "airport a region is priced from; null = the home airport"
+        },
         "origins": {
           "items": {
             "type": "string"
@@ -749,6 +775,32 @@
           "minLength": 1,
           "type": "string"
         },
+        "nights": {
+          "anyOf": [
+            {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "trip length a region is priced for on Google's Explore map; null = a week, 0 = one way"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "airport a region is priced from; null = the home airport"
+        },
         "origins": {
           "items": {
             "type": "string"
@@ -793,6 +845,223 @@
         "pairs"
       ],
       "title": "DestinationOut",
+      "type": "object"
+    },
+    "ExploreBoardOut": {
+      "description": "A region priced from an airport for a trip length, every week ahead.",
+      "properties": {
+        "departures": {
+          "description": "departure dates the board prices",
+          "type": "integer"
+        },
+        "key": {
+          "description": "'anywhere-7' for a built-in board, 'watch-<id>' for a watch",
+          "type": "string"
+        },
+        "max_price": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "months": {
+          "description": "travel months priced; [] = every month",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "nights": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "trip length; null for one way"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/ExplorePlaceOut"
+          },
+          "type": "array"
+        },
+        "priced_departures": {
+          "description": "of those, with a current fare for some place",
+          "type": "integer"
+        },
+        "region": {
+          "description": "the Explore place asked: anywhere, europe, asia, \u2026",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watch_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "title",
+        "origin",
+        "region",
+        "nights",
+        "months",
+        "watch_id",
+        "max_price",
+        "departures",
+        "priced_departures",
+        "updated_at",
+        "places"
+      ],
+      "title": "ExploreBoardOut",
+      "type": "object"
+    },
+    "ExplorePlaceOut": {
+      "description": "A place on an Explore board: its cheapest current fare over the board's weeks.",
+      "properties": {
+        "airline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "airport": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "where the cheapest itinerary lands"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "depart_date": {
+          "type": "string"
+        },
+        "duration_min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Google Flights for these dates"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string"
+        },
+        "place_id": {
+          "description": "Google's id for the place; stable across replies",
+          "type": "string"
+        },
+        "price": {
+          "description": "cents; an estimate (basic economy included)",
+          "type": "integer"
+        },
+        "return_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for one way"
+        },
+        "stops": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "under_max": {
+          "description": "at or under the region watch's price",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "place_id",
+        "name",
+        "country",
+        "airport",
+        "price",
+        "currency",
+        "depart_date",
+        "return_date",
+        "airline",
+        "stops",
+        "duration_min",
+        "observed_at",
+        "link",
+        "under_max"
+      ],
+      "title": "ExplorePlaceOut",
       "type": "object"
     },
     "FeedOut": {
@@ -2424,6 +2693,14 @@
         "database_bytes": {
           "type": "integer"
         },
+        "explore_departures": {
+          "description": "Explore calls the region boards need",
+          "type": "integer"
+        },
+        "explore_departures_due": {
+          "description": "of those, not priced within explore.refresh_hours",
+          "type": "integer"
+        },
         "feeds": {
           "items": {
             "$ref": "#/$defs/FeedOut"
@@ -2548,6 +2825,8 @@
         "lanes",
         "calendar_windows",
         "calendar_windows_due",
+        "explore_departures",
+        "explore_departures_due",
         "requests_by_day",
         "recent_runs",
         "feeds",
@@ -3308,6 +3587,12 @@
       },
       "type": "array"
     },
+    "explore": {
+      "items": {
+        "$ref": "#/$defs/ExploreBoardOut"
+      },
+      "type": "array"
+    },
     "health": {
       "$ref": "#/$defs/HealthOut"
     },
@@ -3375,6 +3660,7 @@
     "search",
     "history",
     "deals",
+    "explore",
     "status",
     "airports",
     "me",

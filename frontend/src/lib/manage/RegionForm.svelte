@@ -1,11 +1,14 @@
 <!-- A region: anywhere in Europe in the summer (say). Flight Watch reads your deal pages
      and feeds and alerts on posts from home to the region, in those months, under the
-     price. "Try a headline" (under More options) shows what a post would match. -->
+     price, and prices the region on Google's Explore map for every week in those months
+     at the chosen trip length (the board on Deals). "Try a headline" (under More options)
+     shows what a post would match. -->
 <script lang="ts">
 	import { focusFirstError, Touched } from './touched.svelte';
 	import {
 		MONTHS,
 		SEASONS,
+		TRIP_LENGTHS,
 		monthsPhrase,
 		regionDraft,
 		regionErrors,
@@ -37,7 +40,7 @@
 	let form = $state<HTMLFormElement | null>(null);
 	let more = $state(false);
 	$effect(() => {
-		if (t.tried && errors.origins) more = true;
+		if (t.tried && (errors.origins || errors.origin)) more = true;
 	});
 	// Home's words arrive after the form opens (they need the airport's city).
 	$effect(() => {
@@ -47,6 +50,18 @@
 	const title = (r: string) => r.replace(/\b\w/g, (c) => c.toUpperCase());
 	const toggleMonth = (m: number) =>
 		(d.months = d.months.includes(m) ? d.months.filter((x) => x !== m) : [...d.months, m]);
+	const tripPhrase = (n: number) =>
+		n === 0
+			? 'one-way trips'
+			: n === 2
+				? 'weekends'
+				: n === 3
+					? 'long weekends'
+					: n === 7
+						? 'week-long trips'
+						: n === 14
+							? 'two-week trips'
+							: `${n}-night trips`;
 	const isSeason = (ms: number[]) =>
 		d.months.length === ms.length && ms.every((m) => d.months.includes(m));
 
@@ -136,6 +151,24 @@
 		</p>
 	</fieldset>
 
+	<fieldset class="field">
+		<legend>Trip length</legend>
+		<div class="seasons" role="group" aria-label="Trip length">
+			{#each TRIP_LENGTHS as tl (tl.nights)}
+				<button
+					type="button"
+					aria-pressed={d.nights === tl.nights}
+					onclick={() => (d.nights = tl.nights)}>{tl.label}</button
+				>
+			{/each}
+		</div>
+		<p class="hint">
+			{d.region
+				? `Flight Watch also prices ${title(d.region)} for ${tripPhrase(d.nights)} from ${d.origin.trim().toUpperCase() || 'home'} on Google’s Explore map, every week${d.months.length ? ` in ${monthsPhrase(d.months)}` : ''} (Deals → Explore).`
+				: 'Named places are matched against deal posts only; choose a region to price it on Google’s Explore map too.'}
+		</p>
+	</fieldset>
+
 	<div class="field">
 		<label for="region-max">Alert me when it’s under</label>
 		<div class="money">
@@ -174,6 +207,21 @@
 				/>
 				{#if show('origins')}<p class="err">{show('origins')}</p>
 				{:else}<p class="hint">Empty matches deals from anywhere.</p>{/if}
+			</div>
+			<div class="field">
+				<label for="region-origin">Price it from (airport)</label>
+				<input
+					id="region-origin"
+					type="text"
+					bind:value={d.origin}
+					onblur={() => t.touch('origin')}
+					maxlength="3"
+					autocapitalize="characters"
+					placeholder="home"
+					aria-invalid={show('origin') ? 'true' : undefined}
+				/>
+				{#if show('origin')}<p class="err">{show('origin')}</p>
+				{:else}<p class="hint">The airport the Explore board is priced from. Empty is home.</p>{/if}
 			</div>
 			<div class="field">
 				<label for="region-name">Name</label>
