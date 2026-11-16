@@ -23,7 +23,7 @@ Update this table in the same pull request that finishes a milestone.
 | B | Owner: go live at flights.andrewlaurin.com | done | [#15](https://github.com/alaurin10/flight-tracking/pull/15), [#16](https://github.com/alaurin10/flight-tracking/pull/16) | live 2026-11-15 through the tunnel; deploy timer deployed #16 within 3 minutes of the merge; calendar on, budget 50; trips not loaded yet |
 | M6 | Frontend: read-only app | done | [#18](https://github.com/alaurin10/flight-tracking/pull/18) | 365 backend tests, 32 unit, 34 e2e (17 × phone and desktop); screenshots in `docs/screenshots/m6/`; More has no sign-in link until M7; `READS_PER_MINUTE` setting for e2e |
 | M7 | Manage | done | [#22](https://github.com/alaurin10/flight-tracking/pull/22) | 379 backend tests, 64 unit, 45 e2e (+1 desktop-only skip); the e2e Manage flow has its own server with a fake-source worker; feed check on save, search preview and `/api/admin/collecting` added to the API; screenshots in `docs/screenshots/m7/` |
-| D1 | Deal finder track: a learned pace, lanes, failures named | in progress | | 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
+| D1 | Deal finder track: a learned pace, lanes, failures named | done | [#24](https://github.com/alaurin10/flight-tracking/pull/24) | 417 backend tests, 69 unit, 51 e2e; 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
 | D2 | Deal finder track: price regions with Explore | not started | | |
 | D3 | Deal finder track: find and confirm deals | not started | | |
 | M8 | Push alerts and installable app | not started | | |
