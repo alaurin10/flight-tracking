@@ -165,7 +165,7 @@ jobs:
           curl -s -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'Origin: https://evil.example' \
             -H "$json" -d "$trip" localhost:8000/api/admin/trips | grep -q 403
           curl -sf -b /tmp/jar localhost:8000/api/admin/trips | grep -q '"slug":"ci-trip"'
-          curl -sf -b /tmp/jar localhost:8000/api/admin/collecting | grep -q '"max_pairs":400'
+          curl -sf -b /tmp/jar localhost:8000/api/admin/collecting | grep -q '"max_pairs":1200'
           search='{"name":"CI search","origin":"SEA","destinations":["SLC"],"depart_dows":["FRI"],"nights":2}'
           curl -sf -b /tmp/jar -H "$origin" -H "$json" -d "$search" \
             localhost:8000/api/admin/searches/preview | grep -q '"refresh_days":'
