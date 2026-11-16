@@ -152,6 +152,29 @@ explore:
   fresh_hours: 72
 
 # ---------------------------------------------------------------------------
+# The deal finder (D3). An Explore fare becomes a candidate when it is
+# under_usual_pct under the place's usual fare (the median daily low for that
+# trip length and travel month over usual_days, once min_history_days days are
+# in), at or under a region watch's price, or new_low_pct under the lowest seen
+# before. Until a place has that history, each board's cheapest_per_board
+# places are candidates instead. A candidate is searched once on the results
+# page with your bag and fare filters: confirmed when the real fare is within
+# confirm_slack_pct of the estimate (or under the watch's price), else gone.
+# Confirmed finds are searched again every recheck_hours; one alert per find,
+# and another only when it drops renotify_drop_pct further.
+# ---------------------------------------------------------------------------
+finds:
+  enabled: true
+  under_usual_pct: 25
+  new_low_pct: 10
+  usual_days: 45
+  min_history_days: 7
+  cheapest_per_board: 3
+  confirm_slack_pct: 30
+  recheck_hours: 12
+  renotify_drop_pct: 10
+
+# ---------------------------------------------------------------------------
 # Alerting. Expect phase 1 to be QUIET for the first few weeks — that is the
 # system accumulating, not failing.
 # ---------------------------------------------------------------------------

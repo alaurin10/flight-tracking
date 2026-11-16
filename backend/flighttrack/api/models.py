@@ -60,6 +60,36 @@ class DealOut(BaseModel):
     seen_at: str
 
 
+class FindOut(BaseModel):
+    """A deal the app found on an Explore board and checked on the results page."""
+
+    id: int
+    status: Literal["candidate", "confirmed"] = Field(
+        description="candidate = waiting for its check; confirmed = the real fare holds"
+    )
+    name: str
+    country: str | None
+    origin: str
+    airport: str
+    depart_date: str
+    return_date: str | None = Field(description="null for one way")
+    nights: int | None
+    price: int | None = Field(description="cents: the real fare with your filters, once checked")
+    estimate: int = Field(description="cents: the Explore fare that raised it")
+    usual: int | None = Field(
+        description="cents: the place's usual fare; null = too little history"
+    )
+    why: str = Field(description="why it was raised, in words")
+    airline: str | None
+    stops: int | None
+    duration_min: int | None
+    board_key: str | None
+    found_at: str
+    checked_at: str | None
+    confirmed_at: str | None
+    link: str = Field(description="Google Flights for these dates")
+
+
 class ExplorePlaceOut(BaseModel):
     """A place on an Explore board: its cheapest current fare over the board's weeks."""
 
@@ -297,6 +327,7 @@ class OverviewOut(BaseModel):
     searches: list[SearchSummary]
     notifications: list[NotificationOut]
     deals: list[DealOut]
+    finds: list[FindOut] = Field(description="the best confirmed finds, at most three")
     health: HealthSummary
 
 
@@ -504,6 +535,7 @@ class ApiTypes(BaseModel):
     search: SearchOut
     history: HistoryOut
     deals: list[DealOut]
+    finds: list[FindOut]
     explore: list[ExploreBoardOut]
     status: StatusOut
     airports: list[AirportOut]

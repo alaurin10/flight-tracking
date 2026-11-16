@@ -54,6 +54,7 @@ from . import canary as canary_mod
 from . import deals as deals_mod
 from . import explore as explore_mod
 from . import fetch as fetch_mod
+from . import finds as finds_mod
 from . import health as health_mod
 from . import jobs, pace, watches
 from . import sweep as sweep_mod
@@ -222,7 +223,9 @@ class Worker:
     # -- lanes ------------------------------------------------------------------
 
     def _detail_due(self, conn: sqlite3.Connection, now: datetime) -> bool:
-        return bool(fetch_mod.select_due(conn, self.cfg, now=now, limit=1))
+        if fetch_mod.select_due(conn, self.cfg, now=now, limit=1):
+            return True
+        return bool(finds_mod.due(conn, self.cfg, now))
 
     def _calendar_due(self, conn: sqlite3.Connection, now: datetime) -> bool:
         if not self.cfg.calendar.enabled or self.fake:
@@ -287,20 +290,44 @@ class Worker:
     def _batch(
         self, conn: sqlite3.Connection, now: datetime, remaining: int
     ) -> fetch_mod.FetchStats:
-        """One detail batch, then alerts, then the next slot."""
-        stats = fetch_mod.run(
-            conn,
-            self.cfg,
-            self.source(),
-            now=now,
-            sleeper=self.sleeper,
-            limit=min(self.cfg.collect.batch_size, remaining),
-            max_requests=remaining,
-        )
-        log.info("batch: %s", stats.summary())
+        """One detail batch, then alerts, then the next slot. Finds waiting for a check
+        go first, unless a person asked for dates (those go first of all)."""
+        size = min(self.cfg.collect.batch_size, remaining)
+        sent = 0
+        checked: finds_mod.CheckStats | None = None
+        if not fetch_mod.prune_requested(conn, now, save=False):
+            rows = finds_mod.due(conn, self.cfg, now)[:size]
+            if rows:
+                checked = finds_mod.check(
+                    conn,
+                    self.cfg,
+                    self.source(),
+                    rows,
+                    self.notifier,
+                    now=now,
+                    sleeper=self.sleeper,
+                )
+                log.info("finds: %s", checked.summary())
+                sent = checked.requests
+        if checked is not None and checked.blocked:
+            stats = fetch_mod.FetchStats(blocked=True, abort_reason="blocked")
+            stats.errors += checked.errors
+        elif size - sent > 0:
+            stats = fetch_mod.run(
+                conn,
+                self.cfg,
+                self.source(),
+                now=now,
+                sleeper=self.sleeper,
+                limit=size - sent,
+                max_requests=remaining - sent,
+            )
+            log.info("batch: %s", stats.summary())
+        else:
+            stats = fetch_mod.FetchStats()
         fetch_mod.prune_requested(conn)
         self._alerts(conn)
-        at = self._schedule_next(conn, stats.attempted + stats.retries)
+        at = self._schedule_next(conn, sent + stats.attempted + stats.retries)
         log.info("next slot at %s", iso(at))
         return stats
 
@@ -353,6 +380,8 @@ class Worker:
             conn, self.cfg, group, transport=self.transport, now=now, sleeper=self.sleeper
         )
         log.info("explore: %s", stats.summary())
+        if stats.ok:
+            finds_mod.find_candidates(conn, self.cfg, now)
         if stats.gated:
             until = pace.pause_lane(conn, "explore", "Google answered without places", now)
             log.warning("explore lane paused until %s (Google declined without data)", until)
