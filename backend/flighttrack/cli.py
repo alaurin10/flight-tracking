@@ -359,6 +359,18 @@ def cmd_owner(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_push(args: argparse.Namespace) -> int:
+    """`keys` prints a new VAPID key pair for browser push, as two .env lines."""
+    from .push import generate_keys
+
+    public, private = generate_keys()
+    print("# Web Push keys for alerts on your devices. Add both lines to .env, then restart.")
+    print("# Never change them afterwards: every device would have to turn alerts on again.")
+    print(f"VAPID_PUBLIC_KEY={public}")
+    print(f"VAPID_PRIVATE_KEY={private}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # worker — the long-running collector
 # ---------------------------------------------------------------------------
@@ -573,18 +585,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(f"[FAIL] config          : {exc}")
         return 1
 
-    channel = (cfg.notify or {}).get("channel", "none")
+    from . import push as push_mod
+
     if not cfg.alerts.enabled:
         print("[warn] notifications   : alerts are disabled in config")
-    elif channel == "smtp" and not (
-        (cfg.notify.get("smtp") or {}).get("host") and (cfg.notify.get("smtp") or {}).get("to")
-    ):
-        print(
-            "[warn] notifications   : smtp selected but host or recipient unset — set $SMTP_HOST "
-            "and $SMTP_TO"
-        )
+    elif push_mod.enabled(args.settings):
+        print("[ok]   notifications   : browser push (VAPID keys set)")
     else:
-        print(f"[ok]   notifications   : {channel}")
+        print(
+            "[info] notifications   : recorded in the app only; set VAPID keys "
+            "(`flighttrack push keys`) for push"
+        )
 
     # transports and optional sources
     from .gflights.transport import default_transport
@@ -1068,6 +1079,10 @@ def build_parser() -> argparse.ArgumentParser:
     ow = sub.add_parser("owner", help="owner sign-in: `owner logout-all` ends every session")
     ow.add_argument("action", choices=["logout-all"])
     ow.set_defaults(func=cmd_owner)
+
+    ps = sub.add_parser("push", help="browser push alerts: `push keys` prints a new VAPID key pair")
+    ps.add_argument("action", choices=["keys"])
+    ps.set_defaults(func=cmd_push)
 
     wk = sub.add_parser(
         "worker", help="collect on a schedule (batches, sweep, deals, alerts, health, backups)"

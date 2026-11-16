@@ -140,6 +140,15 @@ def test_an_upgraded_database_gets_the_finds_table(tmp_path: Path) -> None:
     assert {"observations_no_update", "observations_no_delete"} <= db.trigger_names(conn)
 
 
+def test_an_upgraded_database_gets_the_push_table(tmp_path: Path) -> None:
+    """M8 adds one table and changes nothing else."""
+    _m1_database(tmp_path / "old.db")
+    conn = db.open_db(tmp_path / "old.db")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(push_subscriptions)")]
+    assert cols[:3] == ["endpoint", "keys_json", "kinds"]
+    assert {"observations_no_update", "observations_no_delete"} <= db.trigger_names(conn)
+
+
 def test_new_database_matches_an_adopted_one(tmp_path: Path) -> None:
     """001_init and the M1 schema plus its ALTERs give the same columns."""
     fresh = db.open_db(tmp_path / "fresh.db")

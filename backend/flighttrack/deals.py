@@ -800,7 +800,7 @@ def alert(
         stats.alerted = len(rows)
         return stats
 
-    notifier = notifier or Notifier.from_config(cfg)
+    notifier = notifier or Notifier.from_settings()
     stamp = _iso(now)
     errors: list[str] = []
     if len(rows) <= cfg.deals.max_alerts_per_run:
@@ -810,7 +810,7 @@ def alert(
                 "deal",
                 f"✈ deal: {r['title'][:90]}",
                 _line(r) + (f"\n{r['link']}" if r["link"] else ""),
-                r["link"],
+                "/deals",
                 record=partial(_mark_alerted, ids=[r["id"]], stamp=stamp),
             )
             errors += d.errors
@@ -821,7 +821,7 @@ def alert(
             "deal",
             f"✈ {len(rows)} announced deals match your watches",
             "\n\n".join(_line(r) + (f"\n{r['link']}" if r["link"] else "") for r in rows),
-            rows[0]["link"],
+            "/deals",
             record=partial(_mark_alerted, ids=[r["id"] for r in rows], stamp=stamp),
         )
         errors += d.errors

@@ -59,7 +59,6 @@ def make_config(**over) -> WatchedConfig:
         search=Search(),
         fetch=Fetch(max_queries_per_run=5, min_sleep_seconds=0, max_sleep_seconds=0),
         alerts=Alerts(),
-        notify={"channel": "none"},
         db_path=":memory:",
     )
     base.update(over)

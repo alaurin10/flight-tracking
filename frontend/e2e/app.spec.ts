@@ -147,6 +147,13 @@ test('the status page shows a healthy collector', async ({ page }) => {
 	await expect(page.getByText('Server version')).toBeVisible();
 });
 
+test('alerts say when push is not set up on the server', async ({ page }) => {
+	await page.goto('/more');
+	await expect(page.getByTestId('alerts')).toContainText(
+		'Push alerts are not set up on the server'
+	);
+});
+
 test('a 380 px wide phone never scrolls sideways', async ({ page }) => {
 	await page.setViewportSize({ width: 380, height: 800 });
 	for (const path of PAGES) {

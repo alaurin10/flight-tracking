@@ -10,7 +10,8 @@ export default defineConfig({
 	timeout: 30_000,
 	retries: process.env.CI ? 1 : 0,
 	reporter: process.env.CI ? [['github'], ['list']] : 'list',
-	use: { baseURL: 'http://localhost:8019', trace: 'off' },
+	// The service worker would answer API requests itself, out of reach of page.route().
+	use: { baseURL: 'http://localhost:8019', trace: 'off', serviceWorkers: 'block' },
 	projects: [
 		{ name: 'phone', use: { ...devices['Pixel 7'] } },
 		{ name: 'desktop', use: { viewport: { width: 1280, height: 860 } } }

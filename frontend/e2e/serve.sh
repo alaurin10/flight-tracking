@@ -27,6 +27,8 @@ if [ "${2:-}" = "--worker" ]; then
 	sed 's/^collect:$/collect:\n  daily_request_budget: 1000/' ../config/flighttrack.yaml >"$data/config/flighttrack.yaml"
 	grep -q '^  daily_request_budget: 1000$' "$data/config/flighttrack.yaml"
 	export CONFIG_DIR="$data/config" FLIGHTTRACK_SOURCE=fake
+	# Push set up (dummy keys: nothing is ever sent from here), so More → Alerts shows its switches.
+	export VAPID_PUBLIC_KEY="BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U" VAPID_PRIVATE_KEY="e2e-dummy-private-key"
 	uv run --frozen flighttrack worker >"$data/worker.log" 2>&1 &
 	worker_pid=$!
 fi

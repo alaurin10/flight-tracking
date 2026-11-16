@@ -15,7 +15,6 @@ def _demo(tmp_path):
     cfg = make_config(
         trips=[Trip("japan", "HND", "2027-04-10", "2027-04-24", target_price=80000)],
         max_days_ahead=90,
-        notify={"channel": "none"},
     )
     conn = open_db(tmp_path / "demo.db")
     demo.seed(conn, cfg, days=20, today=TODAY)  # pinned: the 2027 trip must still be ahead

@@ -61,7 +61,7 @@ from . import sweep as sweep_mod
 from .config import Config
 from .expand import expand
 from .gflights.transport import Transport
-from .notifier import Notifier, NotifyError
+from .notifier import Notifier
 from .settings import Settings
 from .source import Source, make_source
 from .store import retention
@@ -112,13 +112,7 @@ class Worker:
         self.transport = transport  # calendar, canary and feeds; None = the default
         self._source_factory = source_factory or (lambda c: make_source(c, fake=self.fake))
         self._source: Source | None = None
-        if notifier is None:
-            try:
-                notifier = Notifier.from_config(cfg)
-            except NotifyError as exc:
-                log.error("notifications are recorded but not delivered: %s", exc)
-                notifier = Notifier()
-        self.notifier = notifier
+        self.notifier = notifier or Notifier.from_settings(settings)
 
     # -- plumbing -------------------------------------------------------------
 

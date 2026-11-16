@@ -286,14 +286,16 @@ price alerts per run before a digest; only observations from the last 48h are co
 
 ### Notifications
 
-Every alert (price, deal, health) is a record first: it is written to the `notifications`
-table, which the app will show, and only then handed to a delivery channel. The shipped config
-also appends each one to `data/out/digest.md` (`notify.channel: file`). `smtp` sends email
-instead (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TO`), and `none` records only. The web
-app replaces the channels with browser push (`docs/PLAN.md`, M8).
+Every alert (price, deal, found deal, health) is a record first: it is written to the
+`notifications` table, which the overview shows, and only then pushed to the owner's devices
+(browser push, set up with `flighttrack push keys`; each device chooses price, deal and health
+alerts under More → Alerts). A tap opens the trip, search, Deals or Status page. Without VAPID
+keys alerts are recorded and shown only. The app installs to a phone's Home Screen and keeps the
+last answers for offline use.
 
-A channel that fails is reported in the log and never raised into the run; the alert stays
-recorded, so the dedup window still holds and it is not sent twice.
+A push that fails is reported in the log and never raised into the run; the alert stays
+recorded, so the dedup window still holds and it is not sent twice. A device whose push
+service says it is gone (404 or 410) is dropped, and so is one that fails five times in a row.
 
 ---
 

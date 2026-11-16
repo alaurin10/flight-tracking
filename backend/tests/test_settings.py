@@ -85,13 +85,12 @@ def test_paths_come_from_settings_and_output_is_ignored(
     assert "output: section is ignored" in caplog.text
 
 
-def test_file_channel_writes_under_data_dir(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, "notify:\n  channel: file\n  file:\n    path: out/digest.md\n")
-    cfg = load(settings=settings)
-    assert cfg.notify["file"]["path"] == str(tmp_path / "data" / "out" / "digest.md")
-    absolute = tmp_path / "abs.md"
-    settings = _settings(tmp_path, f"notify:\n  channel: file\n  file:\n    path: {absolute}\n")
-    assert load(settings=settings).notify["file"]["path"] == str(absolute)
+def test_a_notify_section_is_ignored_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = _settings(tmp_path, "notify:\n  channel: file\n")
+    assert not hasattr(load(settings=settings), "notify")
+    assert "notify: section is ignored" in caplog.text
 
 
 def test_serpapi_key_falls_back_to_settings(

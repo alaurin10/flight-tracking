@@ -42,7 +42,7 @@ def _cfg(tmp_path, **over):
         ),
         DealWatch("Japan any price", origins=("Seattle", "US cities"), destinations=("japan",)),
     )
-    cfg = make_config(notify={"channel": "file", "file": {"path": str(tmp_path / "digest.md")}})
+    cfg = make_config()
     return replace(
         cfg,
         deals=Deals(enabled=True, feeds=("https://rss/feed", "https://atom/feed"), **over),
@@ -124,8 +124,11 @@ def test_alert_sends_once_and_digests_over_cap(tmp_path):
     )
     stats = deals.alert(conn, cfg, verbose=False, now=NOW)
     assert stats.alerted == 3
-    text = (tmp_path / "digest.md").read_text()
-    assert "3 announced deals" in text and "Paris" in text and "Rome" in text
+    title, body, url = conn.execute(
+        "SELECT title, body, url FROM notifications WHERE kind = 'deal'"
+    ).fetchone()
+    assert "3 announced deals" in title and "Paris" in body and "Rome" in body
+    assert url == "/deals"  # a tap on the push opens Deals
     assert deals.alert(conn, cfg, verbose=False, now=NOW).alerted == 0  # all marked alerted_at
     assert (
         conn.execute(

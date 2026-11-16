@@ -8,7 +8,7 @@ from flighttrack import alert
 
 
 def _cfg(**over):
-    cfg = make_config(notify={"channel": "none"})
+    cfg = make_config()
     if over:
         cfg = replace(cfg, alerts=replace(cfg.alerts, **over))
     return cfg
@@ -107,12 +107,19 @@ def test_delivery_failure_still_records_the_alert(tmp_path):
     """M4: an alert is a record first. A broken channel is reported, and the alert is
     kept in `notifications` and `alerts_sent` (the app shows it; no repeat inside the
     dedup window)."""
-    cfg = replace(_cfg(), notify={"channel": "smtp", "smtp": {"host": None}})
-    conn, cfg = make_db(tmp_path, cfg)
+    from flighttrack.notifier import Notifier, NotifyError
+
+    class Down:
+        name = "push"
+
+        def send(self, conn, kind, title, body, url):
+            raise NotifyError("push failed for 1 device(s)")
+
+    conn, cfg = make_db(tmp_path, _cfg())
     add_obs(conn, first_query_id(conn, "SLC"), 13000)
 
-    stats = alert.run(conn, cfg, verbose=False)
-    assert "host and to" in stats.delivery_error
+    stats = alert.run(conn, cfg, verbose=False, notifier=Notifier([Down()]))
+    assert "push failed" in stats.delivery_error
     assert stats.sent == 1
     assert conn.execute("SELECT COUNT(*) FROM alerts_sent").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] == 1

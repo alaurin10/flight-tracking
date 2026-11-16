@@ -371,7 +371,7 @@ def run(
                 print(f"  [dry-run] would notify: {TITLE_UP}")
             return rep, True
         down_since = get_state(conn, STATE_HEALTH_DOWN)
-        (notifier or Notifier.from_config(cfg)).send(
+        (notifier or Notifier.from_settings()).send(
             conn,
             "health",
             TITLE_UP,
@@ -410,5 +410,5 @@ def run(
             "INSERT OR IGNORE INTO state (key, value) VALUES (?, ?)", (STATE_HEALTH_DOWN, stamp)
         )
 
-    (notifier or Notifier.from_config(cfg)).send(conn, "health", TITLE_DOWN, body, record=remember)
+    (notifier or Notifier.from_settings()).send(conn, "health", TITLE_DOWN, body, record=remember)
     return rep, True

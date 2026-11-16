@@ -1,9 +1,11 @@
-<!-- Theme, what Flight Watch is, and the way to the owner's Manage page. -->
+<!-- Theme, what Flight Watch is, the way to the owner's Manage page, and alerts on this
+     device. -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { app } from '../../lib/app.svelte';
 	import { prefs, type Theme } from '../../lib/prefs.svelte';
 	import { owner } from '../../lib/session.svelte';
+	import AlertsCard from '../../lib/AlertsCard.svelte';
 
 	const THEMES: { id: Theme; label: string }[] = [
 		{ id: 'auto', label: 'Auto' },
@@ -74,6 +76,8 @@
 			</p>
 		{/if}
 	</section>
+
+	<AlertsCard />
 
 	<section class="card" aria-labelledby="ver-h">
 		<h2 id="ver-h">Version</h2>

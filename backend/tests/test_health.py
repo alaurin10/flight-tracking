@@ -11,7 +11,7 @@ from flighttrack.store.db import set_state, utcnow
 
 
 def _file_cfg(tmp_path, **health_over):
-    cfg = make_config(notify={"channel": "file", "file": {"path": str(tmp_path / "digest.md")}})
+    cfg = make_config()
     if health_over:
         cfg = replace(cfg, health=replace(cfg.health, **health_over))
     return cfg
@@ -84,10 +84,9 @@ def test_notification_is_deduped_and_resent_on_change(tmp_path):
     for _ in range(3):
         fetch.log_attempt(conn, None, None, "google_html", "layout", 100, "no blob")
     conn.commit()
-    digest = tmp_path / "digest.md"
-
     rep, sent = health.run(conn, cfg, verbose=False)
-    assert sent and not rep.ok and "stopped collecting" in digest.read_text()
+    title = conn.execute("SELECT title FROM notifications").fetchone()[0]
+    assert sent and not rep.ok and "stopped collecting" in title
     rep, sent = health.run(conn, cfg, verbose=False)
     assert not sent  # same problems, inside renotify window
 
