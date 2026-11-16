@@ -191,7 +191,7 @@
 				<div class="field">
 					<label for="search-month-from">From</label>
 					<select id="search-month-from" bind:value={d.month_from}>
-						{#each fromChoices as m (m)}<option value={m}>{monthLabel(m)}</option>{/each}
+						{#each fromChoices as m (m)}<option value={m}>{monthLabel(m, true)}</option>{/each}
 					</select>
 				</div>
 				<div class="field">
@@ -202,7 +202,7 @@
 						aria-invalid={show('month_to') ? 'true' : undefined}
 					>
 						{#each fromChoices.filter((m) => m >= d.month_from) as m (m)}
-							<option value={m}>{monthLabel(m)}</option>
+							<option value={m}>{monthLabel(m, true)}</option>
 						{/each}
 					</select>
 					{#if show('month_to')}<p class="err">{show('month_to')}</p>{/if}

@@ -310,14 +310,19 @@
 		cents == null ? '' : ` · under ${money(cents, cur)}`;
 	const title = (r: string) => r.replace(/\b\w/g, (c) => c.toUpperCase());
 
+	const LENGTH_WORDS: Record<string, string> = {
+		weekend: 'weekends',
+		long: 'long weekends',
+		week: 'week-long trips'
+	};
 	function searchLength(s: Search): string {
-		for (const v of Object.values(LENGTHS))
+		for (const [k, v] of Object.entries(LENGTHS))
 			if (
 				v.nights === s.nights &&
 				v.dows.length === s.depart_dows.length &&
 				v.dows.every((x) => s.depart_dows.includes(x))
 			)
-				return v.label.toLowerCase() + 's';
+				return LENGTH_WORDS[k];
 		return `${weekdays(s.depart_dows)}, ${nights(s.nights)}`;
 	}
 	function searchWhen(s: Search): string {

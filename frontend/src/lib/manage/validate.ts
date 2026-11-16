@@ -100,10 +100,10 @@ function money(errors: Errors, field: string, text: string): number | null {
 
 // -- months --------------------------------------------------------------------------
 
-/** "2027-05" → "May 2027". */
-export function monthLabel(ym: string): string {
+/** "2027-05" → "May 2027" (short: "Dec 2026", so the menus fit a phone). */
+export function monthLabel(ym: string, short = false): string {
 	const [y, m] = ym.split('-').map(Number);
-	return `${MONTH_NAMES[m - 1]} ${y}`;
+	return `${(short ? MONTHS : MONTH_NAMES)[m - 1]} ${y}`;
 }
 
 /** The next `count` months from today's, as YYYY-MM, for the month menus. */
@@ -333,7 +333,7 @@ export function searchName(d: SearchDraft, place: (code: string) => string = (c)
 			: d.length === 'long'
 				? 'long weekends'
 				: d.length === 'week'
-					? 'weeks'
+					? 'week-long trips'
 					: 'trips';
 	let when = '';
 	if (d.when === 'months' && YM.test(d.month_from) && YM.test(d.month_to)) {
