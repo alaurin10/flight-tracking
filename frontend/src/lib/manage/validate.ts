@@ -1,7 +1,13 @@
-// What the Manage forms check before anything is sent, and how a form's fields become
-// the API's shapes. The server checks everything again (airport codes against its list,
-// the limits); these checks only catch what can be told in the browser, so a mistake
-// is shown beside its field at once.
+// What the Manage forms check before anything is sent, and how a form's fields become the
+// API's shapes. The forms follow the four ways of watching:
+//
+//   a trip           a destination on set dates: the cheapest flight       → trip
+//   flexible dates   a destination, any weekend in May (say)               → flexible search
+//   a region         anywhere in Europe in the summer, from deal pages     → deal watch
+//   a deal page      a site's page or feed, read for posts                 → deal source
+//
+// Only what matters is required; a name is made up when none is given. The server checks
+// everything again (airport codes against its list, the limits).
 //
 // Money is typed in dollars ("612", "$1,250", "612.50") and sent in cents.
 import type { AlertSettings, DealFeedIn, DealWatchIn, SearchIn, TripIn } from '../types.gen';
@@ -10,9 +16,38 @@ export type Errors = Record<string, string>;
 
 export const DOWS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 export type Dow = (typeof DOWS)[number];
+export const MONTHS = [
+	'Jan',
+	'Feb',
+	'Mar',
+	'Apr',
+	'May',
+	'Jun',
+	'Jul',
+	'Aug',
+	'Sep',
+	'Oct',
+	'Nov',
+	'Dec'
+] as const;
+const MONTH_NAMES = [
+	'January',
+	'February',
+	'March',
+	'April',
+	'May',
+	'June',
+	'July',
+	'August',
+	'September',
+	'October',
+	'November',
+	'December'
+];
 
 const CODE = /^[A-Z]{3}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const YM = /^\d{4}-\d{2}$/;
 
 /** Dollars as typed → cents. Empty is `null` (no amount); anything unreadable is an error. */
 export function parseDollars(text: string): { cents: number | null; error?: string } {
@@ -48,9 +83,8 @@ function stopsValue(s: string): number | null {
 	return s === '' ? null : Number(s);
 }
 
-function name(errors: Errors, value: string): void {
-	if (!value.trim()) errors.name = 'Give it a name';
-	else if (value.trim().length > 80) errors.name = 'Keep the name under 80 characters';
+function checkName(errors: Errors, value: string): void {
+	if (value.trim().length > 80) errors.name = 'Keep the name under 80 characters';
 }
 
 function code(errors: Errors, field: string, value: string, what: string): void {
@@ -64,7 +98,61 @@ function money(errors: Errors, field: string, text: string): number | null {
 	return cents;
 }
 
-// -- trips -------------------------------------------------------------------------------
+// -- months --------------------------------------------------------------------------
+
+/** "2027-05" → "May 2027" (short: "Dec 2026", so the menus fit a phone). */
+export function monthLabel(ym: string, short = false): string {
+	const [y, m] = ym.split('-').map(Number);
+	return `${(short ? MONTHS : MONTH_NAMES)[m - 1]} ${y}`;
+}
+
+/** The next `count` months from today's, as YYYY-MM, for the month menus. */
+export function monthOptions(today: string = todayIso(), count = 18): string[] {
+	let [y, m] = today.split('-').map(Number);
+	const out: string[] = [];
+	for (let i = 0; i < count; i++) {
+		out.push(`${y}-${String(m).padStart(2, '0')}`);
+		[y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
+	}
+	return out;
+}
+
+/** The last day of a YYYY-MM month, as YYYY-MM-DD. */
+export function monthEnd(ym: string): string {
+	const [y, m] = ym.split('-').map(Number);
+	const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+	return `${ym}-${String(last).padStart(2, '0')}`;
+}
+
+/** Month numbers (1-12) as a short phrase: "Jun–Aug", "Dec–Feb", "Mar, May". */
+export function monthsPhrase(months: number[]): string {
+	const set = [...new Set(months)].filter((m) => m >= 1 && m <= 12).sort((a, b) => a - b);
+	if (!set.length || set.length === 12) return 'any time';
+	// Runs, allowing one to wrap over the new year (Dec–Feb).
+	const runs: number[][] = [];
+	for (const m of set) {
+		const last = runs.at(-1);
+		if (last && m === last.at(-1)! + 1) last.push(m);
+		else runs.push([m]);
+	}
+	if (runs.length > 1 && runs[0][0] === 1 && runs.at(-1)!.at(-1) === 12) {
+		runs[0] = [...runs.pop()!, ...runs[0]];
+	}
+	return runs
+		.map((r) =>
+			r.length === 1 ? MONTHS[r[0] - 1] : `${MONTHS[r[0] - 1]}–${MONTHS[r.at(-1)! - 1]}`
+		)
+		.join(', ');
+}
+
+export const SEASONS: { label: string; months: number[] }[] = [
+	{ label: 'Spring', months: [3, 4, 5] },
+	{ label: 'Summer', months: [6, 7, 8] },
+	{ label: 'Fall', months: [9, 10, 11] },
+	{ label: 'Winter', months: [12, 1, 2] }
+];
+
+// -- trips ---------------------------------------------------------------------------
 
 export interface TripDraft {
 	name: string;
@@ -80,28 +168,42 @@ export interface TripDraft {
 
 export function tripErrors(d: TripDraft, today: string = todayIso()): Errors {
 	const e: Errors = {};
-	name(e, d.name);
+	checkName(e, d.name);
+	code(e, 'destination', d.destination, 'where you want to go');
 	code(e, 'origin', d.origin, 'where you fly from');
-	code(e, 'destination', d.destination, 'where you fly to');
 	if (!e.origin && !e.destination && d.origin === d.destination)
-		e.destination = 'The destination is the same as the origin';
-	if (!d.depart_date) e.depart_date = 'Choose the departure date';
+		e.destination = 'That is where you fly from';
+	if (!d.depart_date) e.depart_date = 'Choose the day you leave';
 	else if (!realDate(d.depart_date)) e.depart_date = 'That is not a date';
 	else if (d.depart_date < today) e.depart_date = 'That date has passed';
 	if (!d.oneWay) {
-		if (!d.return_date) e.return_date = 'Choose the return date, or make it one way';
+		if (!d.return_date) e.return_date = 'Choose the day you come back, or make it one way';
 		else if (!realDate(d.return_date)) e.return_date = 'That is not a date';
 		else if (!e.depart_date && d.return_date <= d.depart_date)
-			e.return_date = 'The return must be after the departure';
+			e.return_date = 'Coming back must be after leaving';
 	}
 	money(e, 'target', d.target);
 	if (d.notes.length > 2000) e.notes = 'Keep the notes under 2,000 characters';
 	return e;
 }
 
-export function toTripIn(d: TripDraft, status: TripIn['status'] = 'active'): TripIn {
+/** "Tokyo · Apr 10" when no name is given. */
+export function tripName(d: TripDraft, place: (code: string) => string = (c) => c): string {
+	if (d.name.trim()) return d.name.trim();
+	if (!d.destination) return '';
+	const day = d.depart_date && realDate(d.depart_date) ? d.depart_date : '';
+	if (!day) return place(d.destination);
+	const [, m, dd] = day.split('-').map(Number);
+	return `${place(d.destination)} · ${MONTHS[m - 1]} ${dd}`;
+}
+
+export function toTripIn(
+	d: TripDraft,
+	status: TripIn['status'] = 'active',
+	place?: (code: string) => string
+): TripIn {
 	return {
-		name: d.name.trim(),
+		name: tripName(d, place),
 		origin: d.origin,
 		destination: d.destination,
 		depart_date: d.depart_date,
@@ -127,85 +229,186 @@ export function tripDraft(t?: Partial<TripIn>, home = ''): TripDraft {
 	};
 }
 
-// -- flexible searches -------------------------------------------------------------------
+// -- flexible dates ------------------------------------------------------------------
+
+/** How long a trip is: the presets cover most, Custom covers the rest. */
+export const LENGTHS = {
+	weekend: { label: 'Weekend', hint: 'Fri – Sun', dows: ['FRI'] as Dow[], nights: 2 },
+	long: {
+		label: 'Long weekend',
+		hint: 'Thu or Fri, 3 nights',
+		dows: ['THU', 'FRI'] as Dow[],
+		nights: 3
+	},
+	week: { label: 'A week', hint: 'Sat – Sat', dows: ['SAT'] as Dow[], nights: 7 }
+} as const;
+export type Length = keyof typeof LENGTHS | 'custom';
+
+export type When = 'any' | 'months' | 'dates';
 
 export interface SearchDraft {
 	name: string;
 	origin: string;
 	destinations: string[];
-	dows: Dow[];
-	nights: string;
-	rolling: boolean;
-	window_start: string;
+	length: Length;
+	dows: Dow[]; // custom
+	nights: string; // custom
+	when: When;
+	month_from: string; // YYYY-MM
+	month_to: string;
+	window_start: string; // dates
 	window_end: string;
 	target: string;
 	max_stops: string;
 }
 
+function lengthOf(dows: string[], nights: number): Length {
+	const same = (a: readonly string[]) =>
+		a.length === dows.length && a.every((x) => dows.includes(x));
+	for (const [k, v] of Object.entries(LENGTHS))
+		if (same(v.dows) && v.nights === nights) return k as Length;
+	return 'custom';
+}
+
+/** The weekdays and nights a draft stands for. */
+export function shapeOf(d: SearchDraft): { dows: Dow[]; nights: number } {
+	if (d.length === 'custom')
+		return { dows: DOWS.filter((x) => d.dows.includes(x)), nights: Number(d.nights) };
+	const p = LENGTHS[d.length];
+	return { dows: [...p.dows], nights: p.nights };
+}
+
+/** The departure window a draft stands for (both null = any time). */
+export function windowOf(d: SearchDraft): { start: string | null; end: string | null } {
+	if (d.when === 'months') return { start: `${d.month_from}-01`, end: monthEnd(d.month_to) };
+	if (d.when === 'dates') return { start: d.window_start, end: d.window_end };
+	return { start: null, end: null };
+}
+
 export function searchErrors(d: SearchDraft, today: string = todayIso()): Errors {
 	const e: Errors = {};
-	name(e, d.name);
+	checkName(e, d.name);
 	code(e, 'origin', d.origin, 'where you fly from');
-	if (!d.destinations.length) e.destinations = 'Add at least one destination';
+	if (!d.destinations.length) e.destinations = 'Add where you want to go';
 	else if (d.destinations.length > 10) e.destinations = 'At most 10 destinations';
 	else if (d.destinations.some((c) => !CODE.test(c)))
 		e.destinations = 'Use three-letter airport codes';
 	else if (d.origin && d.destinations.includes(d.origin))
-		e.destinations = `${d.origin} is both the origin and a destination`;
-	if (!d.dows.length) e.dows = 'Choose at least one weekday';
-	const n = d.nights.trim();
-	if (!/^\d+$/.test(n) || Number(n) > 60) e.nights = 'Nights: a whole number from 0 to 60';
-	if (!d.rolling) {
-		if (!d.window_start) e.window_start = 'Choose the first departure date';
+		e.destinations = `${d.origin} is where you fly from`;
+	if (d.length === 'custom') {
+		if (!d.dows.length) e.dows = 'Choose at least one day to leave on';
+		const n = d.nights.trim();
+		if (!/^\d+$/.test(n) || Number(n) > 60) e.nights = 'Nights: a whole number from 0 to 60';
+	}
+	if (d.when === 'months') {
+		if (!YM.test(d.month_from)) e.month_from = 'Choose a month';
+		if (!YM.test(d.month_to)) e.month_to = 'Choose a month';
+		else if (!e.month_from && d.month_to < d.month_from)
+			e.month_to = 'This is before the first month';
+		else if (monthEnd(d.month_to) < today) e.month_to = 'That month has passed';
+	} else if (d.when === 'dates') {
+		if (!d.window_start) e.window_start = 'Choose the first day you could leave';
 		else if (!realDate(d.window_start)) e.window_start = 'That is not a date';
-		if (!d.window_end) e.window_end = 'Choose the last departure date';
+		if (!d.window_end) e.window_end = 'Choose the last day you could leave';
 		else if (!realDate(d.window_end)) e.window_end = 'That is not a date';
 		else if (d.window_end < today) e.window_end = 'That date has passed';
 		else if (!e.window_start && d.window_end < d.window_start)
-			e.window_end = 'The window ends before it starts';
+			e.window_end = 'This is before the first day';
 	}
 	money(e, 'target', d.target);
 	return e;
 }
 
-export function toSearchIn(d: SearchDraft, status: SearchIn['status'] = 'active'): SearchIn {
+/** "Salt Lake City weekends · May 2027" when no name is given. */
+export function searchName(d: SearchDraft, place: (code: string) => string = (c) => c): string {
+	if (d.name.trim()) return d.name.trim();
+	if (!d.destinations.length) return '';
+	const where =
+		d.destinations.length <= 2
+			? d.destinations.map(place).join(' & ')
+			: `${place(d.destinations[0])} & ${d.destinations.length - 1} more`;
+	const how =
+		d.length === 'weekend'
+			? 'weekends'
+			: d.length === 'long'
+				? 'long weekends'
+				: d.length === 'week'
+					? 'week-long trips'
+					: 'trips';
+	let when = '';
+	if (d.when === 'months' && YM.test(d.month_from) && YM.test(d.month_to)) {
+		const [y1, m1] = d.month_from.split('-').map(Number);
+		const [y2, m2] = d.month_to.split('-').map(Number);
+		when =
+			d.month_from === d.month_to
+				? `${MONTHS[m1 - 1]} ${y1}`
+				: y1 === y2
+					? `${MONTHS[m1 - 1]}–${MONTHS[m2 - 1]} ${y2}`
+					: `${MONTHS[m1 - 1]} ${y1} – ${MONTHS[m2 - 1]} ${y2}`;
+	}
+	return `${where} ${how}${when ? ` · ${when}` : ''}`.slice(0, 80);
+}
+
+export function toSearchIn(
+	d: SearchDraft,
+	status: SearchIn['status'] = 'active',
+	place?: (code: string) => string
+): SearchIn {
+	const { dows, nights } = shapeOf(d);
+	const w = windowOf(d);
 	return {
-		name: d.name.trim(),
+		name: searchName(d, place),
 		origin: d.origin,
 		destinations: d.destinations as SearchIn['destinations'],
-		depart_dows: DOWS.filter((x) => d.dows.includes(x)) as unknown as SearchIn['depart_dows'],
-		nights: Number(d.nights),
-		window_start: d.rolling ? null : d.window_start,
-		window_end: d.rolling ? null : d.window_end,
+		depart_dows: dows as unknown as SearchIn['depart_dows'],
+		nights,
+		window_start: w.start,
+		window_end: w.end,
 		target_price: parseDollars(d.target).cents,
 		max_stops: stopsValue(d.max_stops),
 		status
 	};
 }
 
-export function searchDraft(s?: Partial<SearchIn>, home = ''): SearchDraft {
+export function searchDraft(
+	s?: Partial<SearchIn>,
+	home = '',
+	today: string = todayIso()
+): SearchDraft {
+	const next = monthOptions(today, 2)[1];
+	const dows = [...((s?.depart_dows ?? []) as Dow[])];
+	const nights = s?.nights ?? 2;
+	const start = s?.window_start ?? '';
+	const end = s?.window_end ?? '';
+	// A window from a month's first day to a month's last is shown as months.
+	const monthly = !!start && !!end && start.endsWith('-01') && monthEnd(end.slice(0, 7)) === end;
 	return {
 		name: s?.name ?? '',
 		origin: s?.origin ?? home,
 		destinations: [...(s?.destinations ?? [])],
-		dows: [...((s?.depart_dows ?? []) as Dow[])],
-		nights: s?.nights === undefined ? '2' : String(s.nights),
-		rolling: s ? !s.window_start && !s.window_end : true,
-		window_start: s?.window_start ?? '',
-		window_end: s?.window_end ?? '',
+		length: s ? lengthOf(dows, nights) : 'weekend',
+		dows: dows.length ? dows : ['FRI'],
+		nights: String(nights),
+		when: !s ? 'months' : !start && !end ? 'any' : monthly ? 'months' : 'dates',
+		month_from: monthly ? start.slice(0, 7) : next,
+		month_to: monthly ? end.slice(0, 7) : next,
+		window_start: start,
+		window_end: end,
 		target: centsToDollars(s?.target_price),
 		max_stops: s?.max_stops === null || s?.max_stops === undefined ? '' : String(s.max_stops)
 	};
 }
 
-// -- deal watches ------------------------------------------------------------------------
+// -- regions (deal watches) ----------------------------------------------------------
 
-export interface DealWatchDraft {
+export interface RegionDraft {
 	name: string;
-	origins: string; // comma-separated words
-	destinations: string;
 	region: string; // '' = none
+	places: string; // comma-separated words
+	months: number[]; // [] = any time
 	max: string; // dollars
+	origins: string; // comma-separated words
+	keywords: string[]; // kept from an imported watch; not edited here
 }
 
 /** "Seattle, SEA,  west coast" → ["Seattle", "SEA", "west coast"]. */
@@ -220,67 +423,96 @@ export function words(text: string): string[] {
 	];
 }
 
-export function dealWatchErrors(d: DealWatchDraft): Errors {
+const title = (r: string) => r.replace(/\b\w/g, (c) => c.toUpperCase());
+
+export function regionErrors(d: RegionDraft): Errors {
 	const e: Errors = {};
-	name(e, d.name);
+	checkName(e, d.name);
+	if (!d.region && !words(d.places).length) e.region = 'Choose a region, or name some places';
+	if (words(d.places).length + (d.region ? 1 : 0) > 20) e.places = 'At most 20 places';
 	if (words(d.origins).length > 20) e.origins = 'At most 20 words';
-	if (words(d.destinations).length + (d.region ? 1 : 0) > 20) e.destinations = 'At most 20 words';
-	if (!words(d.origins).length && !words(d.destinations).length && !d.region)
-		e.origins = 'Give origin words, destination words or a region, or it matches every deal';
 	money(e, 'max', d.max);
 	return e;
 }
 
+/** "Europe · Jun–Aug" when no name is given. */
+export function regionName(d: RegionDraft): string {
+	if (d.name.trim()) return d.name.trim();
+	const p = words(d.places);
+	const where = d.region
+		? title(d.region)
+		: p.length > 2
+			? `${p[0]} & ${p.length - 1} more`
+			: p.join(' & ');
+	if (!where) return '';
+	return d.months.length ? `${where} · ${monthsPhrase(d.months)}` : where;
+}
+
 export function toDealWatchIn(
-	d: DealWatchDraft,
+	d: RegionDraft,
 	status: DealWatchIn['status'] = 'active'
 ): DealWatchIn {
-	const dests = words(d.destinations).filter((w) => w.toLowerCase() !== d.region);
+	const places = words(d.places).filter((w) => w.toLowerCase() !== d.region);
 	return {
-		name: d.name.trim(),
+		name: regionName(d),
 		origins: words(d.origins) as DealWatchIn['origins'],
-		destinations: (d.region ? [d.region, ...dests] : dests) as DealWatchIn['destinations'],
+		destinations: (d.region ? [d.region, ...places] : places) as DealWatchIn['destinations'],
+		keywords: d.keywords as DealWatchIn['keywords'],
+		months: [...d.months].sort((a, b) => a - b) as DealWatchIn['months'],
 		max_price: parseDollars(d.max).cents,
 		status
 	};
 }
 
 /** A stored watch back into the form: a region name in its destinations fills the menu. */
-export function dealWatchDraft(w?: Partial<DealWatchIn>, regions: string[] = []): DealWatchDraft {
+export function regionDraft(
+	w?: Partial<DealWatchIn>,
+	regions: string[] = [],
+	homeWords = ''
+): RegionDraft {
 	const dests = [...(w?.destinations ?? [])];
 	const region = dests.find((x) => regions.includes(x.toLowerCase()))?.toLowerCase() ?? '';
 	return {
 		name: w?.name ?? '',
-		origins: (w?.origins ?? []).join(', '),
-		destinations: dests.filter((x) => x.toLowerCase() !== region).join(', '),
 		region,
-		max: centsToDollars(w?.max_price)
+		places: dests.filter((x) => x.toLowerCase() !== region).join(', '),
+		months: [...(w?.months ?? [])],
+		max: centsToDollars(w?.max_price),
+		origins: w ? (w.origins ?? []).join(', ') : homeWords,
+		keywords: [...(w?.keywords ?? [])]
 	};
 }
 
-// -- deal feeds --------------------------------------------------------------------------
+// -- deal pages ----------------------------------------------------------------------
 
 export interface FeedDraft {
 	url: string;
 	name: string;
 }
 
+/** What was typed, as an address: "escape.flights/x" → "https://escape.flights/x". */
+export function asUrl(text: string): string {
+	const t = text.trim();
+	if (!t) return '';
+	return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+}
+
 export function feedErrors(d: FeedDraft): Errors {
 	const e: Errors = {};
-	const url = d.url.trim();
-	if (!url) e.url = 'Paste the feed’s address';
+	const url = asUrl(d.url);
+	if (!url) e.url = 'Paste the page’s address';
 	else if (!/^https?:\/\/[^\s/]+\.[^\s]+$/.test(url) || url.length < 10)
-		e.url = 'That is not a web address (it starts with https://)';
+		e.url = 'That is not a web address';
 	else if (url.length > 500) e.url = 'That address is too long';
 	if (d.name.length > 80) e.name = 'Keep the name under 80 characters';
 	return e;
 }
 
 export function toFeedIn(d: FeedDraft, status: DealFeedIn['status'] = 'active'): DealFeedIn {
-	return { url: d.url.trim(), name: d.name.trim() || null, status };
+	return { url: asUrl(d.url), name: d.name.trim() || null, status };
 }
 
-// -- alert settings ----------------------------------------------------------------------
+// -- alert settings ------------------------------------------------------------------
 
 export interface SettingsDraft {
 	dedup_days: string;

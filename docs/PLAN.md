@@ -279,6 +279,31 @@ Decisions log (add a line when a milestone departs from this document, with the 
 - 2026-11-15 (M7): "Manage" is the fifth tab on phones and in the rail for everyone. Form
   inputs are 16 px (phones zoom into smaller ones) and controls at least 40 px tall; an e2e
   test checks every form at 380 px for both and for sideways scrolling. The frontend is 0.7.0.
+- 2026-11-16 (after M7, owner's request): the Manage page was too complicated, so it is
+  rebuilt around four ways to watch, in the owner's words: a trip (set dates), flexible
+  dates (any weekend in May), a region (anywhere in Europe in the summer) and a deal page
+  (a site followed, e.g. escape.flights). Forms ask only what matters; origin, stops, names
+  and notes are under More options, and names are made up. Flexible dates offer Weekend
+  (FRI, 2 nights), Long weekend (THU/FRI, 3), A week (SAT, 7) or Custom, and months, any
+  time or dates. Rows open their form; a ⋯ menu holds check now, pause, resume, booked and
+  delete. Archive is no longer offered in the app (the API keeps it).
+- 2026-11-16 (owner's choice): a region is matched against deal pages and feeds, not priced
+  on Google (a region has dozens of airports; the budget is about 50 requests a day). Deal
+  watches gain `months` (migration 005); a post that names months must name one of them,
+  and one that names none matches. Months are read from capitalised month names, ranges
+  ("Nov-May" wraps) and seasons.
+- 2026-11-16 (owner's choice): every new post from a deal page shows on Deals (`/api/deals`
+  now lists all posts; `?matched=true` and the overview keep matched ones); alerts go only
+  for matches. Active trips and flexible searches are matched too
+  (`watches.deal_matchers`): origin city or code, destination label, city or code, under
+  the target, in the trip's months or the search's window.
+- 2026-11-16: escape.flights has no feed (its `/feed/` answers with a web page), so a deal
+  source can be a page (`deal_feeds.kind`, migration 005). Saving an address fetches it
+  once: a feed is kept as a feed; a page that advertises a feed (`<link rel=alternate>`,
+  comment feeds skipped) is saved as that feed; otherwise headings linking to same-site
+  posts are read as posts, and a page with none is refused. A page's first good read
+  records its posts as already alerted, because they carry no dates. `export-config` writes
+  pages under `deals.pages` and watch `months`; `import-config` reads both.
 
 ## How to work from this document
 

@@ -51,12 +51,26 @@ The chips at the top filter everything below to one destination.
 
 ## Changing what is tracked
 
-Trips, flexible searches, deal watches and feeds live in the database. Change them
-on the app's **Manage** page: sign in with the owner password, then add, edit, pause,
-resume, archive or delete. Every save re-expands the date grid at once, and saving an
-active trip or search queues a fetch, so its first price arrives within a minute or so.
-A search's form says how many date pairs it tracks before you save it; a deal watch's
-form can try a headline. Deleting keeps the prices already collected.
+What is watched lives in the database. Change it on the app's **Manage** page: sign
+in with the owner password and pick one of four ways to watch.
+
+| Way | You give | What happens |
+|---|---|---|
+| **A trip** | where to, the day you leave and come back (or one way), optionally an alert price | its price is checked a few times a day until it departs; the verdict says book or wait |
+| **Flexible dates** | where to (one or more), how long (weekend, long weekend, a week, or custom days and nights), when (months, any time, or a date range), optionally an alert price | every matching date is priced and the cheapest is shown; the form says how many dates that is before you save |
+| **A region** | a region (Europe, Japan, Hawaii…) or places you name, optionally months or a season, optionally a maximum price | posts on your deal pages from home to the region, in those months, under the price, alert you. Fares come from deal pages, not Google |
+| **A deal page** | a deal site's page you follow, or its feed | it is read every few hours; every new post shows on **Deals**, and posts that match a region, trip or flexible search alert you |
+
+Anything else (where you fly from, stops, a name, notes, the words a deal must use for
+home) is under **More options**; names are made up when you leave them empty. Tap
+something in the list to change it; its **⋯** menu checks it now, pauses, resumes,
+marks a trip booked or deletes it (prices already collected are kept).
+
+A deal page with no feed (escape.flights' category pages, for example) is read from the
+page itself: each heading that links to a post is a post. The first read only records
+what is there, so old posts don't alert; new ones do. A post that names travel months
+("[Nov-May, Aug]", "summer") only matches a region or trip for those months; one that
+names none matches any.
 
 The same can be done from a terminal with a YAML file (see
 `config/seed.example.yaml`), handy for loading many at once or keeping a copy:

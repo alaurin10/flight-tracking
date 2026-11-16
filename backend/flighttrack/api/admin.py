@@ -90,18 +90,20 @@ def _cooldown_check(conn: sqlite3.Connection) -> None:
 
 
 def _feed_check(request: Request) -> watches.FeedCheck | None:
-    """Fetch a new feed's address once and refuse it unless it is a feed. Skipped with
-    FLIGHTTRACK_SOURCE=fake, which makes no outside requests."""
+    """Fetch a new deal source's address once: a feed, a page advertising a feed (its feed
+    is kept), or a page listing posts; anything else is refused. Skipped with
+    FLIGHTTRACK_SOURCE=fake, which makes no outside requests (the kind sent is kept)."""
     settings: Settings = request.app.state.settings
     if settings.fake_source:
         return None
     transport: Transport | None = getattr(request.app.state, "feed_transport", None)
 
-    def check(url: str) -> None:
+    def check(url: str) -> tuple[str, watches.FeedKind]:
         try:
-            deals.check_feed(url, transport or default_transport("urllib"))
+            found = deals.inspect_source(url, transport or default_transport("urllib"))
         except deals.FeedError as exc:
             raise watches.WatchError(f"url: {url} can't be added: {exc}") from None
+        return found.url, "page" if found.kind == "page" else "feed"
 
     return check
 
@@ -211,16 +213,19 @@ def make_admin_router() -> APIRouter:
 
     @r.post("/deal-watches/test", response_model=DealTestOut)
     def test_deal_watch(body: DealTestIn, _: Owner, conn: RW) -> DealTestOut:
-        """Which active watch a headline would match, and the price read from it."""
+        """Which deal watch, trip or flexible search a headline would alert for, and the
+        price and travel months read from it."""
         item = deals.FeedItem(
             guid="test", title=body.headline, link=None, published=None, summary="", feed="test"
         )
-        active = watches.active_deal_watches(conn)
+        active = watches.deal_matchers(conn)
         hit = deals.first_match(item, active)
+        named = deals.months_in(body.headline)
         return DealTestOut(
             price=deals.price_from_text(body.headline),
+            months=sorted(named) if named else [],
             matched=hit.name if hit else None,
-            matches=[w.name for w in active if deals.matches(item, w)],
+            matches=list(dict.fromkeys(w.name for w in active if deals.matches(item, w))),
         )
 
     @r.put("/deal-watches/{watch_id}", response_model=watches.DealWatch)

@@ -378,7 +378,19 @@ def test_export_then_import_round_trips(tmp_path: Path) -> None:
     conn, cfg = _imported(tmp_path)
     tokyo_10 = watches.get_search(conn, "tokyo_10").id
     watches.set_search_status(conn, cfg, tokyo_10, "paused", today=TODAY)
+    watches.create_deal_watch(
+        conn,
+        {
+            "name": "Summer in Europe",
+            "origins": ["Seattle"],
+            "destinations": ["europe"],
+            "months": [6, 7, 8],
+        },
+    )
+    watches.create_deal_feed(conn, {"url": "https://deals.example/feed/"})
+    watches.create_deal_feed(conn, {"url": "https://deals.example/seattle/", "kind": "page"})
     exported = watches.export_watch_file(conn, cfg)
+    assert exported["deals"]["pages"] == ["https://deals.example/seattle/"]
     text = yaml.safe_dump(exported, sort_keys=False)
     assert "2027-04-10" in text
 
@@ -391,7 +403,7 @@ def test_export_then_import_round_trips(tmp_path: Path) -> None:
             [t.model_dump(exclude=drop) for t in watches.list_trips(c)],
             [s.model_dump(exclude=drop) for s in watches.list_searches(c)],
             [w.model_dump(exclude=drop) for w in watches.list_deal_watches(c)],
-            [f.url for f in watches.list_deal_feeds(c)],
+            sorted((f.url, f.kind) for f in watches.list_deal_feeds(c)),
             _active(c),
         )
 
@@ -410,7 +422,10 @@ def test_deal_feeds_fall_back_to_the_tunables_until_the_table_has_one(tmp_path: 
     assert watches.active_feed_urls(conn, cfg) == ["https://mine.example/feed"]
     watches.set_deal_feed_status(conn, f.id, "paused")
     assert watches.active_feed_urls(conn, cfg) == []
-    with pytest.raises(watches.WatchError, match="already a feed"):
+    assert watches.active_sources(conn, cfg) == []
+    watches.create_deal_feed(conn, {"url": "https://page.example/deals/", "kind": "page"})
+    assert watches.active_sources(conn, cfg) == [("https://page.example/deals/", "page")]
+    with pytest.raises(watches.WatchError, match="already a deal source"):
         watches.create_deal_feed(conn, {"url": "https://mine.example/feed"})
     with pytest.raises(watches.WatchError, match="http"):
         watches.create_deal_feed(conn, {"url": "ftp://nope.example/feed"})

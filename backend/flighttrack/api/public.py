@@ -299,10 +299,11 @@ def _problems(rep: health_mod.HealthReport) -> list[ProblemOut]:
     return [ProblemOut(code=p.code, severity=p.severity, message=p.message) for p in rep.problems]
 
 
-def _deals(conn: sqlite3.Connection, limit: int) -> list[DealOut]:
+def _deals(conn: sqlite3.Connection, limit: int, *, matched_only: bool) -> list[DealOut]:
+    where = "WHERE watch IS NOT NULL " if matched_only else ""
     rows = conn.execute(
         "SELECT id, title, link, price_cents, watch, feed, published_at, seen_at FROM deal_posts "
-        "WHERE watch IS NOT NULL ORDER BY id DESC LIMIT ?",
+        f"{where}ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     return [
@@ -471,7 +472,7 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
             notifications=[
                 NotificationOut.model_validate(dict(n)) for n in recent_notifications(conn, 10)
             ],
-            deals=_deals(conn, 10),
+            deals=_deals(conn, 10, matched_only=True),
             health=HealthSummary(
                 ok=rep.ok,
                 problems=_problems(rep),
@@ -571,11 +572,15 @@ def make_router(reads: RateLimiter, airport_search: RateLimiter) -> APIRouter:
 
     @r.get("/deals", response_model=list[DealOut], dependencies=limited)
     def deals(
-        conn: Conn, response: Response, limit: int = Query(50, ge=1, le=200)
+        conn: Conn,
+        response: Response,
+        limit: int = Query(50, ge=1, le=200),
+        matched: bool = Query(False, description="only posts that matched something"),
     ) -> list[DealOut]:
-        """Deal posts from the feeds that matched a watch, newest first."""
+        """Posts from the deal pages and feeds, newest first. `watch` names the deal
+        watch, trip or flexible search a post matched (and alerted for), else null."""
         response.headers["Cache-Control"] = CACHE
-        return _deals(conn, limit)
+        return _deals(conn, limit, matched_only=matched)
 
     @r.get("/status", response_model=StatusOut, dependencies=limited)
     def status(request: Request, conn: Conn, response: Response) -> StatusOut:
