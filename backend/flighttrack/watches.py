@@ -33,9 +33,9 @@ from .config import DOW, Config
 from .store.db import now as clock_now
 from .store.db import utcnow
 
-MAX_ACTIVE_TRIPS = 20
-MAX_ACTIVE_SEARCHES = 10
-MAX_ACTIVE_PAIRS = 400
+MAX_ACTIVE_TRIPS = 30
+MAX_ACTIVE_SEARCHES = 25
+MAX_ACTIVE_PAIRS = 1200
 
 TripStatus = Literal["active", "paused", "booked", "archived"]
 SearchStatus = Literal["active", "paused", "archived"]

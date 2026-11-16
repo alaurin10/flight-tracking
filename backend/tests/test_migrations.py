@@ -106,6 +106,19 @@ def test_new_database_gets_every_migration(tmp_path: Path) -> None:
     assert db.migrate(conn) == []
 
 
+def test_an_upgraded_database_gets_scans_with_history_and_triggers_intact(tmp_path: Path) -> None:
+    """D1 adds one table and changes nothing else."""
+    _m1_database(tmp_path / "old.db")
+    conn = db.open_db(tmp_path / "old.db")
+    assert "scans" in db.table_names(conn)
+    assert "006_scans" in {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+    assert {"observations_no_update", "observations_no_delete"} <= db.trigger_names(conn)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(scans)")]
+    assert cols[:4] == ["id", "kind", "key", "spec"] and "last_run_at" in cols
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        conn.execute("DELETE FROM observations")
+
+
 def test_new_database_matches_an_adopted_one(tmp_path: Path) -> None:
     """001_init and the M1 schema plus its ALTERs give the same columns."""
     fresh = db.open_db(tmp_path / "fresh.db")

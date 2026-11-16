@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from helpers import FakeTransport
 
-from flighttrack import alert, app_settings, demo, fetch, jobs, watches
+from flighttrack import alert, app_settings, demo, fetch, jobs, pace, watches
 from flighttrack import config as config_mod
 from flighttrack.api import ratelimit
 from flighttrack.api.app import create_app, inline_script_hashes
@@ -387,6 +387,14 @@ def test_status(client: TestClient, settings: Settings) -> None:
     assert body["database_bytes"] > 0 and body["observations"] > 0 and body["active_pairs"] > 0
     assert body["newest_price_at"] == f"{TODAY.isoformat()}T10:00:00Z"
     assert body["cooldown_until"] is None and body["worker_heartbeat_age_s"] is None
+    p = body["pace"]
+    assert (p["per_day"], p["fixed"], p["ceiling"]) == (50, False, 720)
+    assert p["gap_seconds"] == round(3 * 86400 / 50)
+    lanes = {lane["name"]: lane for lane in body["lanes"]}
+    assert set(lanes) == {"detail", "calendar", "explore"}
+    assert lanes["explore"]["enabled"] is False and lanes["explore"]["share"] == 0
+    assert lanes["detail"]["used"] > 0 and lanes["detail"]["paused_until"] is None
+    assert body["calendar_windows"] >= body["calendar_windows_due"] >= 0
 
 
 def test_airport_search(client: TestClient) -> None:
@@ -868,7 +876,9 @@ def test_search_preview_counts_without_saving(owner: TestClient, settings: Setti
     assert p["total_pairs"] == before + p["pairs"]
     assert p["max_pairs"] == watches.MAX_ACTIVE_PAIRS
     cfg = owner.app.state.cfg  # type: ignore[attr-defined]
-    assert p["detail_per_day"] == fetch.detail_fetches_per_day(cfg)
+    conn = open_db(settings.database)
+    assert p["detail_per_day"] == fetch.detail_fetches_per_day(conn, cfg)
+    conn.close()
     assert p["refresh_days"] == -(-p["total_pairs"] // p["detail_per_day"])
     assert len(owner.get("/api/admin/searches").json()) == 2  # nothing saved
     assert owner.get("/api/admin/collecting").json()["active_pairs"] == before
@@ -897,17 +907,18 @@ def test_search_preview_counts_without_saving(owner: TestClient, settings: Setti
     assert r.status_code == 404
 
 
-def test_detail_fetches_per_day_leaves_room_for_the_sweep_and_the_canary() -> None:
+def test_detail_fetches_per_day_is_the_detail_share_of_the_pace(tmp_path) -> None:
     cfg = config_mod.load(strict_secrets=False, settings=Settings())
+    conn = open_db(tmp_path / "t.db")
     off = dataclasses.replace(cfg, calendar=dataclasses.replace(cfg.calendar, enabled=False))
-    on = dataclasses.replace(
-        cfg, calendar=dataclasses.replace(cfg.calendar, enabled=True, max_calls_per_run=12)
-    )
-    budget = cfg.collect.daily_request_budget
-    assert fetch.detail_fetches_per_day(off) == budget - 1
-    assert fetch.detail_fetches_per_day(on) == budget - 12 - 1
-    tiny = dataclasses.replace(on, collect=dataclasses.replace(cfg.collect, daily_request_budget=5))
-    assert fetch.detail_fetches_per_day(tiny) == 1
+    on = dataclasses.replace(cfg, calendar=dataclasses.replace(cfg.calendar, enabled=True))
+    allow = pace.allowance(conn, on)
+    assert allow == cfg.collect.pace_start_per_day  # nothing learned yet
+    detail, calendar, _explore = cfg.collect.shares
+    assert fetch.detail_fetches_per_day(conn, off) == allow - 1  # less the canary
+    assert fetch.detail_fetches_per_day(conn, on) == int(allow * detail / (detail + calendar)) - 1
+    tiny = dataclasses.replace(on, collect=dataclasses.replace(cfg.collect, daily_request_budget=2))
+    assert fetch.detail_fetches_per_day(conn, tiny) == 1
 
 
 def test_collecting_reports_limits_budget_and_cooldown(

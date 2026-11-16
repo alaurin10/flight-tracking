@@ -1,7 +1,7 @@
 """Calendar sweep: planning, storage as context rows, confirmation, blocking."""
 
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from helpers import FakeTransport, make_config, make_db
 
@@ -84,12 +84,28 @@ def test_sweep_blocked_enters_shared_cooldown(tmp_path):
 
 def test_sweep_layout_failure_is_logged_not_fatal(tmp_path):
     conn, cfg = make_db(tmp_path, _cfg())
-    t = FakeTransport([(200, None, "<html>nothing</html>")])
+    # A full-size page with no prices in it: a changed layout, not Google declining.
+    t = FakeTransport([(200, None, "<html>" + "nothing " * 500 + "</html>")])
     stats = sweep.run(
         conn, cfg, transport=t, confirm_source=FakeSource(), sleeper=lambda s: None, verbose=False
     )
     assert stats.failed == 1 and not stats.blocked
     assert conn.execute("SELECT outcome FROM fetch_attempts").fetchone()[0] == "layout"
+
+
+def test_a_windows_scan_key_holds_while_its_dates_move(tmp_path):
+    """A rolling search's windows start a day later each day; `scans.key` names the
+    window by its place in the row, so its freshness carries over."""
+    cfg = replace(
+        make_config(patterns=[Pattern("a", "FRI", 3)], max_days_ahead=150),
+        calendar=Calendar(enabled=True),
+    )
+    conn, cfg = make_db(tmp_path, cfg, today=TODAY)
+    today = sweep.plan(conn, cfg, TODAY)
+    tomorrow = sweep.plan(conn, cfg, TODAY + timedelta(days=7))
+    assert [j.scan_key() for j in today] == [j.scan_key() for j in tomorrow]
+    assert today[0].start != tomorrow[0].start
+    assert len({j.scan_key() for j in today}) == len(today)
 
 
 def test_rotation_across_runs(tmp_path):

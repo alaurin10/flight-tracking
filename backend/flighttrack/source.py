@@ -80,6 +80,13 @@ class LayoutError(SourceError):
     kind = "layout"
 
 
+class TransientError(SourceError):
+    """Google answered with its own error page (error 13) instead of results. Not a
+    block and not a layout change: the same request usually works seconds later."""
+
+    kind = "google_error"
+
+
 class NoResults(Exception):
     """The query succeeded but Google had no itineraries.
 
@@ -88,7 +95,7 @@ class NoResults(Exception):
     """
 
 
-SEVERITY = {"blocked": 3, "network": 2, "layout": 1, "unknown": 0}
+SEVERITY = {"blocked": 3, "network": 2, "google_error": 1, "layout": 1, "unknown": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +273,9 @@ class GoogleHtmlSource:
 
         if page.kind is PageKind.NO_RESULTS:
             raise NoResults(page.detail)
+        if page.kind is PageKind.SERVER_ERROR:
+            self.failures.save("google-error", resp, label)
+            raise TransientError(page.detail)
         if page.kind is PageKind.BLOCKED:
             self.failures.save("blocked", resp, label)
             raise BlockedError(page.detail)
@@ -627,7 +637,9 @@ class ChainSource:
             except NoResults:
                 self.last_used = src.name
                 raise
-            except BlockedError as exc:
+            except (BlockedError, TransientError) as exc:
+                # A block: every source hits the same IP. Google's own error: the next
+                # parser would only fetch the same page again; fetch.run retries instead.
                 self.last_errors.append((src.name, exc))
                 raise
             except SourceError as exc:
@@ -689,6 +701,7 @@ _SYNTHETIC = {
     "blocked": BlockedError,
     "network": NetworkError,
     "layout": LayoutError,
+    "google_error": TransientError,
 }
 
 
@@ -697,7 +710,7 @@ class FakeSource:
 
     `prices_by_key[(dest, depart, ret)]` may be a list of cents, an empty list
     (NoResults), or one of the strings 'error' | 'blocked' | 'network' |
-    'layout' to raise that failure.
+    'layout' | 'google_error' to raise that failure.
     """
 
     name = "fake"

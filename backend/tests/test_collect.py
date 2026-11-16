@@ -22,7 +22,9 @@ TODAY = NOW.date()
 def db(tmp_path):
     set_clock(FakeClock(NOW))
     trip = Trip("japan", "HND", (TODAY + timedelta(days=40)).isoformat(), None)
-    cfg = make_config(trips=[trip], collect=Collect(top_dates_per_search=1))
+    # Slow refresh rules, so "due" and "not due" are easy to tell apart by hand.
+    collect = Collect(top_dates_per_search=1, trip_refresh_hours=20, pair_refresh_hours=48)
+    cfg = make_config(trips=[trip], collect=collect)
     return make_db(tmp_path, cfg, today=TODAY)
 
 
@@ -142,26 +144,31 @@ def test_collect_tunables_load_and_are_checked(tmp_path):
         yaml.safe_dump(
             {
                 "collect": {
-                    "daily_request_budget": 80,
+                    "pace": {"start_per_day": 40, "max_per_day": 300, "step_up_pct": 25},
                     "batch_size": 4,
-                    "batch_gap_minutes": [20, 30],
-                    "sweep_at": "05:30",
+                    "shares": {"detail": 70, "calendar": 30, "explore": 0},
                     "canary_dest": "sfo",
+                    "batch_gap_minutes": [20, 30],  # gone: ignored with a warning
                 }
             }
         )
     )
     c = load(path, settings=Settings()).collect
-    assert (c.daily_request_budget, c.batch_size, c.batch_gap_minutes) == (80, 4, (20.0, 30.0))
-    assert (c.sweep_at, c.canary_dest, c.trip_refresh_hours) == ("05:30", "SFO", 20)
+    assert (c.pace_start_per_day, c.pace_max_per_day, c.pace_step_up_pct) == (40, 300, 25.0)
+    assert (c.daily_request_budget, c.batch_size, c.shares) == (None, 4, (70, 30, 0))
+    assert (c.canary_dest, c.trip_refresh_hours, c.pair_refresh_hours) == ("SFO", 4, 12)
     for bad in (
-        {"batch_gap_minutes": [30, 20]},
-        {"sweep_at": "25:00"},
+        {"pace": {"start_per_day": 900, "max_per_day": 720}},
+        {"pace": {"step_up_pct": 0}},
+        {"shares": {"detail": 0}},
+        {"shares": {"lounge": 5}},
         {"daily_request_budget": 0},
     ):
         path.write_text(yaml.safe_dump({"collect": bad}))
         with pytest.raises(ConfigError, match="collect"):
             load(path, settings=Settings())
+    path.write_text(yaml.safe_dump({"collect": {"daily_request_budget": 1000}}))
+    assert load(path, settings=Settings()).collect.daily_request_budget == 1000
 
 
 def test_shipped_tunables_have_the_collect_section():
@@ -169,14 +176,16 @@ def test_shipped_tunables_have_the_collect_section():
 
     raw = yaml.safe_load((REPO_ROOT / "config" / "flighttrack.yaml").read_text())
     assert raw["collect"] == {
-        "daily_request_budget": 50,
-        "batch_size": 5,
-        "batch_gap_minutes": [25, 45],
-        "sweep_at": "04:10",
-        "trip_refresh_hours": 20,
+        "pace": {"start_per_day": 50, "max_per_day": 720, "step_up_pct": 50},
+        "batch_size": 3,
+        "min_gap_seconds": 60,
+        "shares": {"detail": 60, "calendar": 25, "explore": 15},
+        "trip_refresh_hours": 4,
+        "pair_refresh_hours": 12,
         "top_dates_per_search": 3,
         "canary_dest": "LAX",
     }
+    assert "daily_request_budget" not in raw["collect"]  # the pace is learned
 
 
 def test_backup_copies_the_database_and_the_watches_and_keeps_14(db, tmp_path):

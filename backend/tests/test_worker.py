@@ -13,13 +13,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from helpers import FakeClock, FakeTransport, make_config, make_db
 
-from flighttrack import fetch, jobs
+from flighttrack import fetch, jobs, pace
 from flighttrack.config import Calendar, Collect, Deals, Fetch, Trip
 from flighttrack.notifier import Notifier
 from flighttrack.scheduler import (
     STATE_LAST_SWEEP,
     STATE_NEXT_BATCH,
-    STATE_SWEEP_PLAN,
     Worker,
     build_scheduler,
 )
@@ -73,6 +72,11 @@ def next_batch(conn):
 
 def go_to_next_batch(conn, clock):
     clock.set(max(clock.t, next_batch(conn)))
+
+
+def slot_now(conn, clock):
+    """Make the next slot due now, without moving the clock."""
+    set_state(conn, STATE_NEXT_BATCH, iso(clock.t))
 
 
 def attempts(conn):
@@ -132,16 +136,29 @@ def test_a_worker_killed_mid_run_marks_the_run_failed_at_the_next_start(tmp_path
 # ---------------------------------------------------------------------------
 
 
-def test_a_batch_fetches_batch_size_pairs_then_waits_a_gap(tmp_path, clock):
-    w, conn, src = build(tmp_path, collect=Collect(batch_size=3, batch_gap_minutes=(25, 45)))
+def test_a_slot_sends_batch_size_requests_then_waits_the_even_gap(tmp_path, clock):
+    """At 720 a day a slot of three is followed by 3 × 120 s = 6 minutes, ±40%."""
+    w, conn, src = build(tmp_path, collect=Collect(daily_request_budget=720, batch_size=3))
     w.start()
     go_to_next_batch(conn, clock)
     ran_at = clock.t
     assert w.tick() == "batch"
     assert len(src.calls) == 3
-    assert ran_at + timedelta(minutes=25) <= next_batch(conn) <= ran_at + timedelta(minutes=45)
-    clock.advance(minutes=20)
+    gap = (next_batch(conn) - ran_at).total_seconds()
+    assert 0.6 * 360 <= gap <= 1.4 * 360
+    clock.advance(minutes=3)
     assert w.tick() == "waiting" and len(src.calls) == 3
+
+
+def test_the_gap_follows_the_pace_and_never_goes_under_the_floor(tmp_path, clock):
+    w, conn, _ = build(tmp_path, collect=Collect(daily_request_budget=50, batch_size=5))
+    assert pace.gap_seconds(conn, w.cfg) == 5 * 86400 / 50
+    fast = Collect(daily_request_budget=100_000, batch_size=1, min_gap_seconds=60)
+    w2, conn2, _ = build(tmp_path / "b", collect=fast)
+    w2.start()
+    go_to_next_batch(conn2, clock)
+    w2.tick()
+    assert next_batch(conn2) - clock.t >= timedelta(seconds=60)
 
 
 def test_a_block_mid_batch_sets_the_cooldown_and_the_next_batch_comes_after_it(tmp_path, clock):
@@ -192,10 +209,12 @@ def test_the_budget_stops_a_batch_and_waits(tmp_path, clock):
     w.start()
     go_to_next_batch(conn, clock)
     w.tick()
-    go_to_next_batch(conn, clock)
+    clock.advance(minutes=30)
+    slot_now(conn, clock)
     w.tick()
     assert len(src.calls) == 7  # 5, then the 2 the budget had left
-    go_to_next_batch(conn, clock)
+    clock.advance(minutes=30)
+    slot_now(conn, clock)
     assert w.tick() == "budget"
     assert fetch.budget_frees_at(conn, w.cfg, clock.t) == attempts(conn)[0] + timedelta(hours=24)
 
@@ -204,7 +223,7 @@ def test_seven_days_of_downtime_trips_first_and_the_budget_is_never_exceeded(tmp
     """Acceptance: after seven simulated days of downtime trips are fetched first, and
     no 24-hour window ever holds more requests than the budget."""
     budget = 20
-    collect = Collect(daily_request_budget=budget, batch_size=5, batch_gap_minutes=(25, 45))
+    collect = Collect(daily_request_budget=budget, batch_size=5)
     trip = Trip("japan", "HND", TRIP_DEPART, TRIP_RETURN, target_price=80000)
     w, conn, src = build(tmp_path, trips=[trip], collect=collect)
 
@@ -231,8 +250,9 @@ def test_seven_days_of_downtime_trips_first_and_the_budget_is_never_exceeded(tmp
     for i, t in enumerate(times):
         window = [u for u in times[: i + 1] if u > t - timedelta(hours=24)]
         assert len(window) <= budget, f"{len(window)} requests in the 24 h before {t}"
-    # The budget is what limited it, not a lack of due pairs.
-    assert len([t for t in times if t > clock.t - timedelta(hours=24)]) == budget
+    # The allowance is spread over the day, and nearly all of it is used.
+    last_day = len([t for t in times if t > clock.t - timedelta(hours=24)])
+    assert budget - collect.batch_size <= last_day <= budget
 
 
 # ---------------------------------------------------------------------------
@@ -320,68 +340,177 @@ def test_jobs_queue_basics(tmp_path, clock):
 
 
 # ---------------------------------------------------------------------------
-# The calendar sweep in groups
+# Lanes: detail pages and calendar windows share the pace
 # ---------------------------------------------------------------------------
 
 
 def _calendar(rows):
     inner = json.dumps([None, [[d, r, [[None, p]], 1] for d, r, p in rows]])
-    return ")]}'\n\n1\n" + json.dumps([["wrb.fr", None, inner, None, None, None, "generic"]]) + "\n"
+    body = ")]}'\n\n1\n" + json.dumps([["wrb.fr", None, inner, None, None, None, "generic"]])
+    return body + "\n" + " " * 1200  # a real reply is kilobytes; see calendar.looks_gated
 
 
-def test_the_sweep_runs_in_groups_of_four_then_flags_dates_for_the_next_batch(tmp_path, clock):
-    def cal_cfg():
-        return {"calendar": Calendar(enabled=True, max_calls_per_run=12, confirm_budget=2)}
-
-    w, conn, src = build(tmp_path, cfg_over=cal_cfg())
-    pairs = conn.execute("SELECT id, depart_date, return_date FROM queries WHERE active = 1")
-    rows = [(p["depart_date"], p["return_date"], 500 + i) for i, p in enumerate(pairs)]
-    # Every window is answered with all the pairs; each prices what it matches.
-    w.transport = FakeTransport([(200, None, _calendar(rows))] * 20)
-    w.start()  # no sweep has ever finished: one is planned at start
-    plan = json.loads(get_state(conn, STATE_SWEEP_PLAN))
-    n = len(plan["keys"])
-    assert 4 < n <= 12
-
-    groups = 0
-    while get_state(conn, STATE_SWEEP_PLAN):
-        go_to_next_batch(conn, clock)
-        before = len(w.transport.calls)
-        assert w.tick() == "sweep"
-        assert len(w.transport.calls) - before <= 4
-        groups += 1
-    assert groups == -(-n // 4) and len(w.transport.calls) == n
-    assert src.calls == []  # no detail fetch while sweeping
-    assert get_state(conn, STATE_LAST_SWEEP) == iso(clock.t)
-
-    flagged = json.loads(get_state(conn, fetch.STATE_SWEEP_FLAGGED))["ids"]
-    assert len(flagged) == 2
-    go_to_next_batch(conn, clock)
-    assert w.tick() == "batch"
-    first_two = {
-        conn.execute("SELECT depart_date FROM queries WHERE id = ?", (q,)).fetchone()[0]
-        for q in flagged
-    }
-    assert {c[1] for c in src.calls[:2]} == first_two
+GATED = ')]}\'\n\n[["wrb.fr","GetCalendarGraph",null,null,null,[13],"generic"]]'
 
 
-def test_a_blocked_sweep_group_retries_that_window_after_the_cooldown(tmp_path, clock):
-    cfg_over = {"calendar": Calendar(enabled=True, max_calls_per_run=6)}
-    w, conn, _ = build(tmp_path, cfg_over=cfg_over)
-    w.transport = FakeTransport([(200, None, _calendar([])), (429, None, "slow down")])
+class Always:
+    """A calendar transport that answers every call the same way."""
+
+    name = "fake"
+
+    def __init__(self, status, text):
+        self.status, self.text, self.calls = status, text, []
+
+    def post(self, url, data, params=None, headers=None, timeout=30.0):
+        from flighttrack.gflights.transport import Response
+
+        self.calls.append(data)
+        return Response(self.status, url, self.text, 0.01, "fake", {})
+
+    get = post
+
+
+def _all_pairs(conn):
+    rows = conn.execute("SELECT depart_date, return_date FROM queries WHERE active = 1")
+    return [(r["depart_date"], r["return_date"], 500 + i) for i, r in enumerate(rows)]
+
+
+def calendar_under_its_share(conn, clock):
+    """Recent use that leaves the calendar lane furthest under its share."""
+    conn.execute("DELETE FROM fetch_attempts")
+    conn.executemany(
+        "INSERT INTO fetch_attempts (at, source, outcome) VALUES (?, 'google_html', 'ok')",
+        [(iso(clock.t),)] * 10,
+    )
+    conn.commit()
+
+
+def run_for(worker, clock, hours, step_minutes=1):
+    end = clock.t + timedelta(hours=hours)
+    while clock.t < end:
+        worker.tick()
+        clock.advance(minutes=step_minutes)
+
+
+def test_lanes_converge_on_their_shares_when_both_have_work(tmp_path, clock):
+    """Detail 60 and calendar 25 (explore has nothing to do yet, so its 15 is shared):
+    calendar should get 25/85 of the requests over a day."""
+    collect = Collect(daily_request_budget=720, batch_size=3, pair_refresh_hours=1)
+    cal = Calendar(enabled=True, refresh_hours=0.25, flags_per_window=0)
+    w, conn, src = build(tmp_path, collect=collect, cfg_over={"calendar": cal})
+    w.transport = Always(200, _calendar(_all_pairs(conn)))
     w.start()
-    go_to_next_batch(conn, clock)
-    assert w.tick() == "sweep"
-    plan = json.loads(get_state(conn, STATE_SWEEP_PLAN))
-    assert plan["next"] == 1  # the first window done; the blocked one is tried again
+    run_for(w, clock, 24)
+    used = pace.lane_used(conn, clock.t)
+    total = used["detail"] + used["calendar"]
+    assert total >= 600  # the day's allowance, nearly all of it
+    assert 0.24 <= used["calendar"] / total <= 0.35
+    assert used["detail"] == len(src.calls)
+
+
+def test_a_lane_with_nothing_due_leaves_its_share_to_the_other(tmp_path, clock):
+    cal = Calendar(enabled=True, refresh_hours=1000)  # each window once, then never due
+    collect = Collect(daily_request_budget=720, batch_size=3, pair_refresh_hours=1)
+    w, conn, src = build(tmp_path, collect=collect, cfg_over={"calendar": cal})
+    w.transport = Always(200, _calendar(_all_pairs(conn)))
+    w.start()
+    run_for(w, clock, 12)
+    windows = conn.execute("SELECT COUNT(*) FROM scans WHERE kind = 'calendar'").fetchone()[0]
+    assert len(w.transport.calls) == windows  # every window once
+    assert len(src.calls) >= 330  # detail took the rest of half a day's 720
+
+
+def test_calendar_windows_flag_their_best_dates_for_the_next_detail_batch(tmp_path, clock):
+    cal = Calendar(enabled=True, flags_per_window=2)
+    w, conn, _src = build(tmp_path, cfg_over={"calendar": cal})
+    w.transport = Always(200, _calendar(_all_pairs(conn)))
+    w.start()
+    # Every pair fetched just now, so only flags can make one due before the rotation.
+    conn.execute("UPDATE queries SET last_fetch_at = ?", (iso(clock.t - timedelta(hours=7)),))
+    conn.execute(
+        "INSERT INTO fetch_attempts (at, source, outcome) VALUES (?, 'google_html', 'ok')",
+        (iso(clock.t),),
+    )
+    conn.commit()
+    slot_now(conn, clock)
+    assert w.tick() == "calendar"
+    flagged = [q for q, _ in fetch.flagged(conn, clock.t)]
+    assert flagged and len(flagged) <= 2 * len(w.transport.calls)
+    assert get_state(conn, STATE_LAST_SWEEP) == iso(clock.t)
+    conn.execute("UPDATE queries SET last_fetch_at = ?", (iso(clock.t),))
+    conn.commit()
+    clock.advance(minutes=1)
+    due = fetch.select_due(conn, w.cfg, now=clock.t, limit=99)
+    assert [d.query_id for d in due] == []  # fetched after the flag: satisfied
+    conn.execute("UPDATE queries SET last_fetch_at = ?", (iso(clock.t - timedelta(hours=2)),))
+    conn.commit()
+    due = fetch.select_due(conn, w.cfg, now=clock.t, limit=99)
+    assert [d.query_id for d in due][: len(flagged)] == flagged
+
+
+def test_a_gated_calendar_reply_pauses_only_its_lane(tmp_path, clock):
+    cal = Calendar(enabled=True)
+    w, conn, _src = build(tmp_path, cfg_over={"calendar": cal})
+    w.transport = Always(200, GATED)
+    w.start()
+    conn.execute(
+        "INSERT INTO fetch_attempts (at, source, outcome) VALUES (?, 'google_html', 'ok')",
+        (iso(clock.t),),
+    )
+    conn.commit()
+    slot_now(conn, clock)
+    assert w.tick() == "calendar"
+    assert len(w.transport.calls) == 1  # stopped at the first declined window
+    outcome = conn.execute("SELECT outcome FROM fetch_attempts ORDER BY id DESC").fetchone()[0]
+    assert outcome == "gated"
+    assert fetch.cooldown_active(conn, clock.t) is None  # not a block
+    assert pace.lane_paused(conn, "calendar", clock.t) == iso(clock.t + timedelta(minutes=30))
+    # The window was not priced, so it stays due.
+    assert conn.execute("SELECT last_run_at FROM scans").fetchone()[0] is None
+    # Detail goes on meanwhile.
+    for _ in range(3):
+        slot_now(conn, clock)
+        assert w.tick() == "batch"
+    assert len(w.transport.calls) == 1
+    # It escalates on the next declined reply, and an answer clears it.
+    clock.advance(minutes=31)
+    slot_now(conn, clock)
+    calendar_under_its_share(conn, clock)
+    assert w.tick() == "calendar"
+    assert pace.lane_paused(conn, "calendar", clock.t) == iso(clock.t + timedelta(hours=2))
+    clock.advance(hours=3)
+    w.transport = Always(200, _calendar(_all_pairs(conn)))
+    calendar_under_its_share(conn, clock)
+    slot_now(conn, clock)
+    assert w.tick() == "calendar"
+    assert pace.lane_pause(conn, "calendar") is None
+
+
+def test_a_blocked_calendar_window_stays_due_after_the_cooldown(tmp_path, clock):
+    w, conn, _ = build(tmp_path, cfg_over={"calendar": Calendar(enabled=True)})
+    w.transport = Always(429, "slow down")
+    w.start()
+    conn.execute(
+        "INSERT INTO fetch_attempts (at, source, outcome) VALUES (?, 'google_html', 'ok')",
+        (iso(clock.t),),
+    )
+    conn.commit()
+    slot_now(conn, clock)
+    assert w.tick() == "calendar"
     until = parse_ts(fetch.cooldown_active(conn, clock.t))
     assert until is not None and next_batch(conn) >= until + timedelta(minutes=5)
+    row = conn.execute("SELECT last_run_at, last_outcome FROM scans").fetchone()
+    assert row["last_run_at"] is None and row["last_outcome"] == "blocked"
 
 
-def test_no_sweep_when_the_calendar_is_off(tmp_path, clock):
+def test_no_calendar_slot_when_the_calendar_is_off(tmp_path, clock):
     w, conn, _ = build(tmp_path)
+    w.transport = FakeTransport([])
     w.start()
-    assert w.sweep() == "disabled" and get_state(conn, STATE_SWEEP_PLAN) is None
+    for _ in range(5):
+        slot_now(conn, clock)
+        assert w.tick() == "batch"
+    assert w.transport.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +543,7 @@ def test_heartbeat_and_scheduler_jobs(tmp_path, clock):
         "heartbeat",
         "tick",
         "jobs",
-        "sweep",
+        "pace",
         "deals",
         "health",
         "canary",
@@ -451,7 +580,6 @@ def test_fake_source_mode_collects_at_once_and_makes_no_outside_requests(tmp_pat
     w.transport = FakeTransport([])  # any outside request would fail the test
     w.start()
     assert next_batch(conn) <= START + timedelta(seconds=5)
-    assert get_state(conn, STATE_SWEEP_PLAN) is None
     clock.advance(seconds=5)
     assert w.tick() == "batch"
     assert conn.execute("SELECT COUNT(*) FROM observations WHERE source = 'fake'").fetchone()[0]

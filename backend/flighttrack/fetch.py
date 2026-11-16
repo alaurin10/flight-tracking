@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from . import pace
 from .config import Config, Route
 from .source import (
     BlockedError,
@@ -40,6 +41,7 @@ from .source import (
     Offer,
     Source,
     SourceError,
+    TransientError,
     price_is_plausible,
 )
 from .store.db import get_state, iso, parse_ts, set_state, utcnow
@@ -47,8 +49,14 @@ from .store.db import now as clock_now
 
 log = logging.getLogger(__name__)
 
-# How stale a query may get before it is due again, by route priority.
+# The loosest a pair's refresh may get, by route priority (the health check's yardstick).
 PRIORITY_INTERVAL_DAYS = {1: 1, 2: 3, 3: 7}
+# The rotation: a pair is due again after `collect.pair_refresh_hours` times this.
+PRIORITY_REFRESH_FACTOR = {1: 1, 2: 2, 3: 4}
+# A pair Google answered with its own error (error 13) waits this long before the
+# rotation tries it again, so one bad date cannot take every slot.
+GOOGLE_ERROR_WAIT = timedelta(hours=1)
+GOOGLE_ERRORS_TO_END_BATCH = 3
 
 STATE_COOLDOWN_UNTIL = "cooldown_until"
 STATE_BLOCKED_STREAK = "blocked_streak"
@@ -129,9 +137,16 @@ def cooldown_active(conn: sqlite3.Connection, now: datetime | None = None) -> st
     return until.strftime("%Y-%m-%dT%H:%M:%SZ") if until and until > now else None
 
 
-def enter_cooldown(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> str:
-    """Escalate: 1st blocked run → cooldown_hours[0], 2nd → [1], … capped at the last."""
+def enter_cooldown(
+    conn: sqlite3.Connection, cfg: Config, now: datetime | None = None, blocked: bool = True
+) -> str:
+    """Escalate: 1st blocked run → cooldown_hours[0], 2nd → [1], … capped at the last.
+
+    `blocked` (Google refused a request, not a network fault) also cuts the learned pace
+    (`pace.on_block`)."""
     now = now or clock_now()
+    if blocked:
+        pace.on_block(conn, cfg, now)
     streak = int(get_state(conn, STATE_BLOCKED_STREAK, "0") or 0) + 1
     hours = cfg.fetch.cooldown_hours[min(streak, len(cfg.fetch.cooldown_hours)) - 1]
     until = (now + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -150,17 +165,20 @@ def clear_cooldown(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _due_cutoffs(now: datetime) -> dict[int, str]:
-    return {prio: iso(now - timedelta(days=days)) for prio, days in PRIORITY_INTERVAL_DAYS.items()}
+def _due_cutoffs(now: datetime, cfg: Config) -> dict[int, str]:
+    hours = cfg.collect.pair_refresh_hours
+    return {
+        prio: iso(now - timedelta(hours=hours * factor))
+        for prio, factor in PRIORITY_REFRESH_FACTOR.items()
+    }
 
 
 # ---------------------------------------------------------------------------
 # The request budget
 # ---------------------------------------------------------------------------
 
-# Requests to these sources do not go to Google, so they do not spend the budget.
-NOT_GOOGLE = ("serpapi",)
-BUDGET_WINDOW = timedelta(hours=24)
+NOT_GOOGLE = pace.NOT_GOOGLE
+BUDGET_WINDOW = pace.WINDOW
 
 
 def _budget_sql() -> str:
@@ -171,23 +189,19 @@ def _budget_sql() -> str:
 def budget_used(conn: sqlite3.Connection, now: datetime | None = None) -> int:
     """Google requests in the rolling 24 hours before `now` (every source but SerpApi:
     results pages, the fast-flights fallback, calendar calls and the canary)."""
-    now = now or clock_now()
-    row = conn.execute(
-        f"SELECT COUNT(*) {_budget_sql()}", (iso(now - BUDGET_WINDOW), *NOT_GOOGLE)
-    ).fetchone()
-    return int(row[0])
+    return pace.requests_sent(conn, now)
 
 
 def budget_remaining(conn: sqlite3.Connection, cfg: Config, now: datetime | None = None) -> int:
-    """How many more Google requests the rolling 24-hour budget allows right now."""
-    return max(0, cfg.collect.daily_request_budget - budget_used(conn, now))
+    """How many more Google requests the rolling 24-hour allowance permits right now."""
+    return max(0, pace.allowance(conn, cfg) - budget_used(conn, now))
 
 
-def detail_fetches_per_day(cfg: Config) -> int:
-    """Detail fetches a day leaves room for: the daily budget less the calendar sweep's
-    calls (when it is on) and the canary's one request."""
-    calendar = cfg.calendar.max_calls_per_run if cfg.calendar.enabled else 0
-    return max(1, cfg.collect.daily_request_budget - calendar - 1)
+def detail_fetches_per_day(conn: sqlite3.Connection, cfg: Config) -> int:
+    """Detail fetches a day at the current pace: the detail lane's share of the
+    allowance (the calendar lane takes its share when it is on), less the canary."""
+    share = pace.lane_shares(cfg)["detail"]
+    return max(1, int(pace.allowance(conn, cfg) * share) - 1)
 
 
 def budget_frees_at(
@@ -196,7 +210,7 @@ def budget_frees_at(
     """When the next request becomes allowed, if the budget is spent; None if it is not."""
     now = now or clock_now()
     used = budget_used(conn, now)
-    over = used - cfg.collect.daily_request_budget
+    over = used - pace.allowance(conn, cfg)
     if over < 0:
         return None
     row = conn.execute(
@@ -214,7 +228,8 @@ def budget_frees_at(
 # Date pairs a person asked for (a fetch job): [{"id": query_id, "at": iso}, ...]. Each
 # stays first in line until it has been fetched after it was asked for.
 STATE_REQUESTED = "requested_queries"
-# The calendar sweep's picks: {"at": iso, "ids": [...]}, fetched in the next batches.
+# The calendar's picks: [{"id": query_id, "at": iso}, ...], each fetched in the next
+# batches unless it has been fetched since it was flagged, and dropped after a day.
 STATE_SWEEP_FLAGGED = "sweep_flagged"
 FLAG_HOURS = 24
 REQUEST_EXPIRY_DAYS = 7
@@ -267,20 +282,33 @@ def prune_requested(
     return keep
 
 
+def _flag_list(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    raw = _load_json(conn, STATE_SWEEP_FLAGGED, [])
+    if isinstance(raw, dict):  # the once-a-day form: {"at": iso, "ids": [...]}
+        at = raw.get("at")
+        return [{"id": int(i), "at": at} for i in raw.get("ids") or []] if at else []
+    return [f for f in raw if isinstance(f, dict) and "id" in f and f.get("at")]
+
+
 def flag_from_sweep(
     conn: sqlite3.Connection, query_ids: list[int], now: datetime | None = None
 ) -> None:
-    """Record the sweep's picks; the next batches confirm them with detail fetches."""
+    """Add the calendar's picks; the next batches confirm them with detail fetches. A pick
+    already flagged is flagged again from now."""
     now = now or clock_now()
-    set_state(conn, STATE_SWEEP_FLAGGED, json.dumps({"at": iso(now), "ids": list(query_ids)}))
+    stamp, oldest = iso(now), iso(now - timedelta(hours=FLAG_HOURS))
+    new = list(dict.fromkeys(int(q) for q in query_ids))
+    keep = [f for f in _flag_list(conn) if f["at"] >= oldest and int(f["id"]) not in set(new)]
+    flags = keep + [{"id": q, "at": stamp} for q in new]
+    set_state(conn, STATE_SWEEP_FLAGGED, json.dumps(flags) if flags else None)
 
 
-def _flagged(conn: sqlite3.Connection, now: datetime) -> tuple[list[int], str]:
-    flagged = _load_json(conn, STATE_SWEEP_FLAGGED, {})
-    at = flagged.get("at") if isinstance(flagged, dict) else None
-    if not at or at < iso(now - timedelta(hours=FLAG_HOURS)):
-        return [], ""
-    return [int(i) for i in flagged.get("ids") or []], str(at)
+def flagged(conn: sqlite3.Connection, now: datetime | None = None) -> list[tuple[int, str]]:
+    """The calendar's picks still waiting, (query_id, flagged at), oldest flag first."""
+    now = now or clock_now()
+    oldest = iso(now - timedelta(hours=FLAG_HOURS))
+    out = [(int(f["id"]), str(f["at"])) for f in _flag_list(conn) if f["at"] >= oldest]
+    return sorted(out, key=lambda f: f[1])
 
 
 def _top_search_dates(conn: sqlite3.Connection, today: str, per_search: int) -> list[int]:
@@ -344,11 +372,14 @@ def select_due(
 
       1. pairs a person asked for through a job (`request_queries`);
       2. active trips not fetched in `collect.trip_refresh_hours`;
-      3. pairs the calendar sweep flagged in the last day and not fetched since;
+      3. pairs the calendar flagged in the last day and not fetched since;
       4. the `collect.top_dates_per_search` cheapest pairs of each search, not fetched
          in `collect.trip_refresh_hours`;
-      5. everything else whose route-priority interval (`PRIORITY_INTERVAL_DAYS`, at
-         most a week) has passed, never-fetched first, then oldest first.
+      5. everything else not fetched in `collect.pair_refresh_hours` (twice that for a
+         priority-2 route, four times for priority 3), never-fetched first, then oldest.
+
+    A pair Google answered with its own error in the last hour (`google_error`) waits,
+    except when a person asked for it.
 
     It is worked out from the database alone, so a block, a restart or a week of
     downtime changes nothing: the next batch looks at the same tables and carries on.
@@ -379,8 +410,17 @@ def select_due(
         picked = sorted(rows, key=lambda r: (r["priority"], *_oldest_first(r)))
         return [_due_query(r) for r in picked[:limit]]
 
+    errored = {
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT query_id FROM fetch_attempts WHERE outcome = 'google_error' "
+            "AND at > ? AND query_id IS NOT NULL",
+            (iso(now - GOOGLE_ERROR_WAIT),),
+        )
+    }
+
     def stale_since(cutoff: str) -> Callable[[int], bool]:
-        return lambda qid: (by_id[qid]["last_fetch_at"] or "") < cutoff
+        return lambda qid: qid not in errored and (by_id[qid]["last_fetch_at"] or "") < cutoff
 
     refresh_cut = iso(now - timedelta(hours=cfg.collect.trip_refresh_hours))
     order: list[int] = []
@@ -406,18 +446,21 @@ def select_due(
         )
     ]
     take(trip_ids, stale_since(refresh_cut))
-    # 3. flagged by today's sweep
-    flagged, flagged_at = _flagged(conn, now)
-    take(flagged, stale_since(flagged_at) if flagged_at else lambda i: False, sort=False)
+    # 3. flagged by the calendar
+    flags = dict(flagged(conn, now))
+    take(list(flags), lambda i: stale_since(flags[i])(i), sort=False)
     # 4. the cheapest few dates of each search
     take(_top_search_dates(conn, today, cfg.collect.top_dates_per_search), stale_since(refresh_cut))
     # 5. the rotation
-    cutoffs = _due_cutoffs(now)
+    cutoffs = _due_cutoffs(now, cfg)
     take(
         list(by_id),
         lambda i: (
-            by_id[i]["last_fetch_at"] is None
-            or by_id[i]["last_fetch_at"] <= cutoffs.get(by_id[i]["priority"], cutoffs[2])
+            i not in errored
+            and (
+                by_id[i]["last_fetch_at"] is None
+                or by_id[i]["last_fetch_at"] <= cutoffs.get(by_id[i]["priority"], cutoffs[2])
+            )
         ),
     )
     return [_due_query(by_id[i]) for i in order[:limit]]
@@ -539,6 +582,7 @@ def run(
         )
 
     consecutive_failures = 0
+    google_errors = 0  # in a row: Google's own error page, not a block
     note_bits: list[str] = []
     threshold = cfg.fetch.abort_after_consecutive_failures
     requests = 0
@@ -561,7 +605,7 @@ def run(
         offers: list[Offer] | None = None
         failure: SourceError | None = None
         empty: NoResults | None = None
-        retried = False
+        retried = retried_google = False
         while True:
             requests += 1
             t0 = time.monotonic()
@@ -597,6 +641,14 @@ def run(
                     str(exc),
                 )
                 budget_left = max_requests is None or requests < max_requests
+                if isinstance(exc, TransientError) and not retried_google and budget_left:
+                    # Google's own error page (error 13): usually gone seconds later.
+                    retried_google = True
+                    stats.retries += 1
+                    if verbose:
+                        log.warning(f"[retry] {leg}: {exc} — retrying once")
+                    sleeper(random.uniform(2.0, 5.0))
+                    continue
                 if (
                     isinstance(exc, NetworkError)
                     and cfg.fetch.retry_network_once
@@ -619,7 +671,7 @@ def run(
         if empty is not None:
             # Google answered, there is just no inventory. Proof we are NOT
             # blocked, so the consecutive-failure counter resets.
-            consecutive_failures = 0
+            consecutive_failures = google_errors = 0
             stats.empty += 1
             conn.execute(
                 "UPDATE queries SET last_fetch_at = ? WHERE id = ?", (utcnow(), item.query_id)
@@ -627,6 +679,24 @@ def run(
             conn.commit()
             if verbose:
                 log.info(f"[empty] {leg}: {empty}")
+            continue
+
+        if isinstance(failure, TransientError):
+            # Not a block and not a fault of ours: the pair stays due (after an hour), no
+            # cooldown starts, and only a run of them ends the batch.
+            google_errors += 1
+            stats.failed += 1
+            stats.by_kind[failure.kind] += 1
+            stats.errors.append(f"{leg}: {failure.kind}: {failure}")
+            conn.commit()
+            if verbose:
+                log.warning(f"[FAIL:{failure.kind}] {leg}: {failure}")
+            if google_errors >= GOOGLE_ERRORS_TO_END_BATCH:
+                stats.abort_reason = failure.kind
+                note_bits.append(
+                    f"ended after {google_errors} Google errors in a row (no cooldown)"
+                )
+                break
             continue
 
         if failure is not None:
@@ -650,7 +720,9 @@ def run(
                 if not isinstance(failure, LayoutError):
                     # Rate limit or network: back off, escalating. A layout
                     # change is not helped by waiting, so no cooldown for it.
-                    stats.cooldown_until = enter_cooldown(conn, cfg, now)
+                    stats.cooldown_until = enter_cooldown(
+                        conn, cfg, now, blocked=isinstance(failure, BlockedError)
+                    )
                     note += f"; cooldown until {stats.cooldown_until}"
                 note_bits.append(note)
                 if verbose:
@@ -659,7 +731,7 @@ def run(
             continue
 
         assert offers is not None
-        consecutive_failures = 0
+        consecutive_failures = google_errors = 0
         written, implausible = store(conn, item.query_id, offers)
         stats.succeeded += 1
         stats.sources_used[_source_used(source)] += 1
