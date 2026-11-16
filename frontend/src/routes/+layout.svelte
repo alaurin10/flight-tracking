@@ -14,6 +14,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { prefs } from '../lib/prefs.svelte';
+	import { appUpdate } from '../lib/update.svelte';
 	import { app } from '../lib/app.svelte';
 	import { ApiError, getHealth, getOverview } from '../lib/api';
 	import { money } from '../lib/format';
@@ -115,6 +116,7 @@
 	const warn = $derived(notice === 'stale' || notice === 'stopped' || notice === 'unreachable');
 	const currency = $derived(app.currency);
 	$effect(() => app.load());
+	$effect(() => appUpdate.watch());
 </script>
 
 <svelte:head>
@@ -176,6 +178,12 @@
 	</aside>
 
 	<div class="col">
+		{#if appUpdate.waiting}
+			<div class="banner glass" role="status" data-testid="update">
+				<span class="btxt">A new version of Flight Watch is ready.</span>
+				<button class="btn small" onclick={() => appUpdate.apply()}>Reload</button>
+			</div>
+		{/if}
 		{#if notice && closed !== notice}
 			<div class="banner" class:glass={!warn} class:warn role="status">
 				<span class="btxt">

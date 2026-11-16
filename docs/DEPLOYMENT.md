@@ -121,9 +121,25 @@ There is no outside monitor, by choice. Three signals:
   `health.max_hours_without_success` (36 h) or the worker's heartbeat has stopped.
   Point an uptime checker at it if you want one.
 - **Health notifications.** The worker records a notification when collecting
-  stops, and another when it recovers; they are shown on the site and delivered by
-  the `notify:` channel in `config/flighttrack.yaml` (browser push from
-  milestone 8).
+  stops, and another when it recovers; they are shown on the site and pushed to
+  your devices once push is set up (below).
+
+### Push alerts on your phone and computer
+
+1. Make the keys once, and paste the two lines it prints into `.env` with your
+   `CONTACT_EMAIL` (push services use it to reach you; it is not shown anywhere):
+   ```bash
+   docker compose run --rm worker flighttrack push keys
+   ```
+   Then `docker compose up -d`. Never change the keys afterwards: every device would
+   have to turn alerts on again.
+2. On each device: open the site, sign in, More → Alerts, choose what to get (price
+   alerts, deals, collector trouble), Turn on alerts on this device, then Send a test.
+3. iPhone and iPad: add the site to the Home Screen first (Share → Add to Home Screen),
+   open it from there, and turn alerts on in that app. It needs iOS 16.4 or later.
+
+Without the keys nothing is pushed; alerts are still recorded and shown on the overview.
+At most 20 devices; a device the push service reports gone is removed by itself.
 
 `docker compose ps` shows both services' container health (the API's process, the
 worker's heartbeat).

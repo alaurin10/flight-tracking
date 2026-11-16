@@ -26,7 +26,7 @@ Update this table in the same pull request that finishes a milestone.
 | D1 | Deal finder track: a learned pace, lanes, failures named | done | [#24](https://github.com/alaurin10/flight-tracking/pull/24) | 417 backend tests, 69 unit, 51 e2e; 3 live requests: results page fine, calendar answered without prices (fixture saved); no price insights in the page |
 | D2 | Deal finder track: price regions with Explore | done | [#25](https://github.com/alaurin10/flight-tracking/pull/25) | 433 backend tests, 70 unit, 53 e2e; 4 live requests: Explore answers plain HTTP; 92 places, 6–8 with a fare per call (fixture saved) |
 | D3 | Deal finder track: find and confirm deals | done | [#26](https://github.com/alaurin10/flight-tracking/pull/26) | 446 backend tests, 70 unit, 57 e2e; no live requests needed (built on D2's Explore data and the results page) |
-| M8 | Push alerts and installable app | not started | | |
+| M8 | Push alerts and installable app | in progress | | the manual test push waits for checkpoint C (real keys, a real browser) |
 | C | Owner: turn on alerts | not started | | |
 | M9 | Hardening and 1.0 | not started | | |
 
@@ -377,6 +377,26 @@ Decisions log (add a line when a milestone departs from this document, with the 
   week. Three failed checks in a row close it. Deals opens on Found; "Track this" opens
   Manage's new-trip form filled in (`/manage?to=…&depart=…&return=…`); the overview lists
   the top three confirmed finds. Alerts are `deal` notifications (push arrives with M8).
+- 2026-11-16 (M8): push is owner-only, as the plan says, unlike Snow Watch where any visitor
+  may subscribe: `/api/push/*` needs the owner session and this site's Origin, and the
+  subscription cap is 20. A device chooses kinds (`price`, `deal`, `health`, all on by
+  default) in `push_subscriptions.kinds` (migration 009); there are no per-place choices or
+  digests (Flight Watch already sends one notification per alert or digest).
+- 2026-11-16 (M8): a price alert now opens its trip or search page in the app (the service
+  worker only opens this site's pages); its Google Flights link moved into the alert's body.
+  Deal-post alerts open `/deals`, as found deals already did. Health alerts keep `/status`.
+- 2026-11-16 (M8): the `file` and `smtp` channels, the `notify:` tunables section (ignored
+  with a warning if a local file still has it) and the `SMTP_*` settings are gone. Without
+  VAPID keys the notifier logs each alert (`LogChannel`); with them it pushes
+  (`PushChannel`). `Notifier.from_config` became `Notifier.from_settings`.
+- 2026-11-16 (M8): the service worker is copied from Snow Watch without its map tiles: app
+  shell cached, `/api/*` network-first with the last good answer for 2 days offline (owner
+  endpoints never cached), pages network-first, a new version waits for "Reload". The e2e
+  runs block service workers (`serviceWorkers: 'block'`), because a worker would answer API
+  calls out of reach of `page.route()`. Headless Chromium reports notifications as denied
+  whatever is granted, so the e2e test of the Alerts switches stubs that one property.
+- 2026-11-16 (M8): the manual acceptance step ("a test push received on a desktop browser")
+  needs real keys and a real browser, so it is done at checkpoint C, by the owner.
 
 ## How to work from this document
 

@@ -128,6 +128,27 @@ test('flexible dates: weekends in a month, and how many dates that is', async ({
 	await expect(row).toHaveCount(0);
 });
 
+test('with push set up, the owner chooses which alerts this device gets', async ({ page }) => {
+	// Headless Chromium's shell reports notifications as blocked whatever is granted; this
+	// test is about the card, so let it see an undecided permission, as a real browser does.
+	await page.addInitScript(() =>
+		Object.defineProperty(Notification, 'permission', { get: () => 'default' })
+	);
+	await page.goto('/more');
+	await expect(page.getByTestId('alerts')).toContainText('Alerts go to the owner’s devices');
+	await signIn(page);
+	await expect(page.getByRole('button', { name: /A trip/ })).toBeVisible();
+	await page.goto('/more');
+	const card = page.getByTestId('alerts');
+	for (const kind of ['Price alerts', 'Deals', 'Collector trouble'])
+		await expect(card.getByRole('checkbox', { name: new RegExp(kind) })).toBeChecked();
+	await expect(card.getByRole('button', { name: 'Turn on alerts on this device' })).toBeEnabled();
+	await card.getByRole('checkbox', { name: /Price alerts/ }).uncheck();
+	await card.getByRole('checkbox', { name: /Deals/ }).uncheck();
+	await card.getByRole('checkbox', { name: /Collector trouble/ }).uncheck();
+	await expect(card.getByRole('button', { name: 'Turn on alerts on this device' })).toBeDisabled();
+});
+
 test('Track this on a found deal opens a new trip with its dates', async ({ page }) => {
 	await signIn(page);
 	await expect(page.getByRole('button', { name: /A trip/ })).toBeVisible();
