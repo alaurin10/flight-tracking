@@ -207,7 +207,7 @@ test('alert settings are saved', async ({ page }, info) => {
 	test.skip(info.project.name !== 'desktop', 'shared server state');
 	await signIn(page);
 	await page.getByText('Alert settings', { exact: true }).click();
-	await expect(page.getByTestId('limits')).toContainText('of 20 trips');
+	await expect(page.getByTestId('limits')).toContainText('of 30 trips');
 	const days = page.getByLabel('Quiet days after an alert');
 	await expect(days).toHaveValue(/\d+/);
 	await days.fill('5');

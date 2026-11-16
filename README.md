@@ -231,17 +231,25 @@ The binding constraint is an undocumented per-IP limit at Google, and the worst 
 silence — the system stops working and you conclude there are no deals. So:
 
 - **Typed failures.** `NoResults` (move on), `BlockedError` (stop the run, cool off),
-  `NetworkError` (retry once, then stop), `LayoutError` (try the next parser, save the page).
+  `NetworkError` (retry once, then stop), `LayoutError` (try the next parser, save the page),
+  `TransientError` (Google's own error 13 page: retry once in a few seconds, never stored as
+  "no flights", no cooldown). A calendar call Google answers without data is `gated`: only the
+  calendar lane pauses (30 min, then 2, 6, 24 h).
 - **Source chain.** `google_html` (ours) → `fast_flights` (independent parser, optional) →
   `serpapi` (paid API on another IP, only with a key). A block stops the chain — every source
   shares your IP.
 - **Cooldown is state.** A block writes `cooldown_until`, escalating 1h → 4h → 12h → 24h;
   the worker's next batch is the end of the cooldown plus 5–20 minutes. A success clears it.
-- **A request budget.** Every Google request counts against one rolling 24-hour budget
-  (`collect.daily_request_budget`, 50 until the home limit is measured), counted from the
-  request log. The worker never goes over it in any 24-hour window.
+- **A learned pace.** Every Google request counts against one rolling 24-hour allowance,
+  counted from the request log, and the worker never goes over it in any 24-hour window. The
+  allowance is learned (`pace.py`): it starts at 50, rises 50% after each clean day in which it
+  was mostly used, up to `collect.pace.max_per_day` (720), and on a block falls to 60% of what
+  was sent, holds three days and creeps back by 10% a day, below 85% of the volume that drew the
+  block. Requests are spread evenly over the day, three at a time; each slot goes to the lane
+  (detail pages or calendar windows) furthest under its share (`collect.shares`).
 - **No run to miss.** What to fetch next is worked out from the database (trips first, then the
-  sweep's picks, each search's cheapest dates, then the rest at least weekly), so a block, a
+  calendar's picks, each search's cheapest dates, then the rest every 12 hours or so; calendar
+  windows when they are six hours old), so a block, a
   restart or a week of downtime changes nothing: the worker looks at the same tables and goes on.
   Runs and jobs a crash left open are marked failed at start-up.
 - **A daily canary.** One search on a busy nonstop route (`collect.canary_dest`) must come back
@@ -295,8 +303,8 @@ recorded, so the dedup window still holds and it is not sent twice.
 
 | Job | When | Does |
 |---|---|---|
-| batch | every 25–45 minutes | up to `collect.batch_size` (5) detail fetches, then alerts |
-| sweep | daily at `collect.sweep_at` (04:10 local), and at start if none in 26 h | calendar calls in groups of four, in the batch slots; flags dates for the next batches |
+| slot | evenly through the day (3 requests about every 6 min at 720 a day) | detail fetches, then alerts; or the stalest calendar windows, whose best dates are flagged for the next detail fetches |
+| pace | hourly | raise the learned pace after a clean, busy day |
 | deals | every 3 h | poll the feeds, record matches |
 | health | hourly | notify when collecting stops, and when it recovers |
 | canary | once a day | one known-busy search, checked for layout drift |

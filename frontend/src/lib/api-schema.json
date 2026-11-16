@@ -1155,6 +1155,84 @@
       "title": "JobOut",
       "type": "object"
     },
+    "LaneOut": {
+      "description": "One kind of Google request and its share of the pace.",
+      "properties": {
+        "enabled": {
+          "description": "this lane can run with this setup",
+          "type": "boolean"
+        },
+        "last_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "enum": [
+            "detail",
+            "calendar",
+            "explore"
+          ],
+          "type": "string"
+        },
+        "pause_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "paused_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Google declined its calls; paused until then"
+        },
+        "share": {
+          "description": "its fraction of the pace while every enabled lane has work",
+          "type": "number"
+        },
+        "used": {
+          "description": "its requests in the last 24 hours",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "enabled",
+        "share",
+        "used",
+        "paused_until",
+        "pause_reason",
+        "last_outcome",
+        "last_at"
+      ],
+      "title": "LaneOut",
+      "type": "object"
+    },
     "LayoverOut": {
       "properties": {
         "airport": {
@@ -1456,6 +1534,86 @@
         "health"
       ],
       "title": "OverviewOut",
+      "type": "object"
+    },
+    "PaceOut": {
+      "description": "How many requests to Google a day, as the worker has learned it (pace.py).",
+      "properties": {
+        "ceiling": {
+          "description": "the most it may rise to (collect.pace.max_per_day)",
+          "type": "integer"
+        },
+        "changed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fixed": {
+          "description": "pinned by collect.daily_request_budget; nothing learned",
+          "type": "boolean"
+        },
+        "gap_seconds": {
+          "description": "the average gap between slots at this pace",
+          "type": "integer"
+        },
+        "hold_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "held after a block until then"
+        },
+        "last_block_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_review_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the earliest it can rise again"
+        },
+        "per_day": {
+          "description": "Google requests allowed in any rolling 24 hours, now",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "why it is at this number, in a few words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "per_day",
+        "ceiling",
+        "fixed",
+        "reason",
+        "changed_at",
+        "hold_until",
+        "last_block_at",
+        "next_review_at",
+        "gap_seconds"
+      ],
+      "title": "PaceOut",
       "type": "object"
     },
     "PricePoint": {
@@ -2222,6 +2380,14 @@
         "budget": {
           "$ref": "#/$defs/BudgetOut"
         },
+        "calendar_windows": {
+          "description": "calendar windows the flexible searches need",
+          "type": "integer"
+        },
+        "calendar_windows_due": {
+          "description": "of those, not priced within the refresh time",
+          "type": "integer"
+        },
         "canary": {
           "anyOf": [
             {
@@ -2276,6 +2442,12 @@
         "jobs_queued": {
           "type": "integer"
         },
+        "lanes": {
+          "items": {
+            "$ref": "#/$defs/LaneOut"
+          },
+          "type": "array"
+        },
         "last_success_at": {
           "anyOf": [
             {
@@ -2321,6 +2493,9 @@
         },
         "ok": {
           "type": "boolean"
+        },
+        "pace": {
+          "$ref": "#/$defs/PaceOut"
         },
         "problems": {
           "items": {
@@ -2369,6 +2544,10 @@
         "next_batch_at",
         "last_sweep_at",
         "budget",
+        "pace",
+        "lanes",
+        "calendar_windows",
+        "calendar_windows_due",
         "requests_by_day",
         "recent_runs",
         "feeds",

@@ -1422,6 +1422,14 @@ export interface StatusOut {
 	backups: BackupOut[];
 	blocked_streak: number;
 	budget: BudgetOut;
+	/**
+	 * calendar windows the flexible searches need
+	 */
+	calendar_windows: number;
+	/**
+	 * of those, not priced within the refresh time
+	 */
+	calendar_windows_due: number;
 	canary: CanaryOut | null;
 	checked_at: string;
 	commit: string | null;
@@ -1431,12 +1439,14 @@ export interface StatusOut {
 	generated_at: string;
 	info: string[];
 	jobs_queued: number;
+	lanes: LaneOut[];
 	last_success_at: string | null;
 	last_sweep_at: string | null;
 	newest_price_at: string | null;
 	next_batch_at: string | null;
 	observations: number;
 	ok: boolean;
+	pace: PaceOut;
 	problems: ProblemOut[];
 	recent_runs: RunOut[];
 	requests_by_day: RequestDay[];
@@ -1472,6 +1482,72 @@ export interface FeedOut {
 	last_ok_at: string | null;
 	name: string | null;
 	url: string;
+}
+/**
+ * One kind of Google request and its share of the pace.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "LaneOut".
+ */
+export interface LaneOut {
+	/**
+	 * this lane can run with this setup
+	 */
+	enabled: boolean;
+	last_at: string | null;
+	last_outcome: string | null;
+	name: 'detail' | 'calendar' | 'explore';
+	pause_reason: string | null;
+	/**
+	 * Google declined its calls; paused until then
+	 */
+	paused_until: string | null;
+	/**
+	 * its fraction of the pace while every enabled lane has work
+	 */
+	share: number;
+	/**
+	 * its requests in the last 24 hours
+	 */
+	used: number;
+}
+/**
+ * How many requests to Google a day, as the worker has learned it (pace.py).
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "PaceOut".
+ */
+export interface PaceOut {
+	/**
+	 * the most it may rise to (collect.pace.max_per_day)
+	 */
+	ceiling: number;
+	changed_at: string | null;
+	/**
+	 * pinned by collect.daily_request_budget; nothing learned
+	 */
+	fixed: boolean;
+	/**
+	 * the average gap between slots at this pace
+	 */
+	gap_seconds: number;
+	/**
+	 * held after a block until then
+	 */
+	hold_until: string | null;
+	last_block_at: string | null;
+	/**
+	 * the earliest it can rise again
+	 */
+	next_review_at: string | null;
+	/**
+	 * Google requests allowed in any rolling 24 hours, now
+	 */
+	per_day: number;
+	/**
+	 * why it is at this number, in a few words
+	 */
+	reason: string;
 }
 /**
  * This interface was referenced by `ApiTypes`'s JSON-Schema

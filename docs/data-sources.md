@@ -10,7 +10,8 @@ system, what each one is good for, how it fails, and the layered design that cam
 |---|---|---|---|
 | 1 | **Our own Google Flights client** (`gflights/`) | primary, no third-party scraper, no key | built; **verified live on 2026-11-14**: every itinerary and price equal to the page rendered in Chromium |
 | 2 | `fast-flights` library | independent second parser of the same page | optional fallback, pinned |
-| 3 | **Calendar-graph RPC** (`sweep`) | one call prices ~2 months of dates; makes daily whole-grid coverage cheap | off by default; request and parser **verified live on 2026-11-14**; prices include basic economy, so they are estimates |
+| 3 | **Calendar-graph RPC** (`sweep`) | one call prices ~2 months of dates; makes whole-grid coverage cheap | on; each window priced again every 6 h; prices include basic economy, so they are estimates; **sometimes answers without data** (since 2026-08 for others; seen 2026-11-15 and 16), which pauses only its lane |
+| 3b | **Explore RPC** (D2, not built yet) | one call prices ~75–90 destinations of a region for one date | format from an outside capture; to be checked live at the start of D2 |
 | 4 | **SerpApi** `google_flights` | paid JSON API on someone else's IP | built; active only when a key is set |
 | 5 | **RSS deal feeds** (`deals`) | announced deals to a region | built; two feeds from The Flight Deal, checked 2026-11-14; the only fully sanctioned, stable input |
 | 6 | `ingest` | anything else (a browser session, the Expedia connector in Claude, a friend's screenshot) | built |
@@ -104,12 +105,42 @@ results price. The slot for "exclude basic economy" is not known, so calendar pr
 basic economy fares and are judged only against other calendar prices (`sweep.promising`),
 never against the tracked series. Each stored calendar price records its filters in
 `raw.filters`. So:
-- it is **off by default** (`calendar.enabled: false`);
+- it is **off in the code defaults** (`calendar.enabled: false`) and on in the shipped tunables since the home check of 2026-11-15;
 - `flighttrack doctor --calendar` makes one call and prints what came back;
 - the parser is shape-agnostic — it walks the response for `[date, …, price]` tuples rather than
   trusting indices — and `--dump` saves the raw response for a human;
 - its numbers are stored as *context* (`source='google_calendar'`, never `is_best`), so they can
   never become a "current price" or an alert without confirmation.
+
+**Since August 2026** other clients report that this RPC and `GetShoppingResults` often answer
+HTTP 200 with an empty error-13 envelope unless the page's own script adds a per-request token
+(`x-goog-batchexecute-bgr`, BotGuard), while the server-rendered results page keeps working
+([fli README](https://github.com/punitarani/fli),
+[worldmonitor PR 9204](https://github.com/koala73/worldmonitor/pull/9204)). We saw it too: on
+2026-11-15 from home one reply was 363 bytes with no prices and the next had 31; on 2026-11-16
+the cloud sandbox got the same 363-byte reply (`tests/fixtures/live-20261116/`) seconds after a
+normal results page. So since D1 such a reply is `gated`, not a layout failure: the worker pauses
+the calendar lane (30 min, 2 h, 6 h, 24 h) and goes on with results pages, which price every
+flexible search on their own, only more slowly. We do not mint the token: that would mean running
+Google's bot-detection script, which is exactly the line this project stays behind.
+
+### B2. Google Flights, the Explore RPC (deal finder track, D2)
+
+`GetExploreDestinations` feeds the Explore map: one POST prices every destination of a region
+(Anywhere, Europe, Asia, …) from one origin for one departure date and trip length, about 75 to
+90 places, roughly three quarters with a price. The request and reply layouts are documented,
+slot by slot with what was confirmed from a browser capture, in
+[fli PR 226](https://github.com/punitarani/fli/pull/226) (MIT). It needs the same-origin headers
+the calendar call already sends; the PR reports it working over plain HTTP on 2026-11-11 and
+also reports intermittent error-13 refusals since 2026-09. D2 starts with a live check and falls
+back to calendar scans of each region's main airports if it will not answer.
+
+### B3. What the results page does not have
+
+Google's "prices are low / typical / high" insight and typical price range are drawn by the
+page's script from another call. The server-rendered page (checked 2026-11-16) carries only the
+request echo (`ds:0`), the itineraries (`ds:1`) and lists of countries, currencies and languages
+(`ds:2`–`ds:4`). So the deal finder (D3) works out each route's usual price from our own history.
 
 ### C. Official flight-search APIs
 
@@ -167,7 +198,10 @@ Robustness here is not "retry harder". It is:
    every request is failing, when the page appears to have changed, or when a feed is dead —
    deduplicated so it nags once a day, not once a run. *The absence of alerts is never mistaken
    for the absence of deals.*
-7. **Offline-provable parts are proven offline.** 239 tests, none touch the network, and
+7. **A learned pace.** The day's allowance is not a guess written in a file: it starts at 50,
+   rises after clean busy days up to the owner's ceiling (720), and falls on a block
+   (`pace.py`). The requests are spread evenly over the day.
+8. **Offline-provable parts are proven offline.** 400-odd tests, none touch the network, and
    the suite passes with and without the optional dependencies and with the clock moved years
    ahead.
 
