@@ -17,6 +17,7 @@ export interface ApiTypes {
 	deal_watch_in: DealWatchIn;
 	deals: DealOut[];
 	explore: ExploreBoardOut[];
+	finds: FindOut[];
 	health: HealthOut;
 	history: HistoryOut;
 	job: JobOut;
@@ -1160,6 +1161,56 @@ export interface ExplorePlaceOut {
 	under_max: boolean;
 }
 /**
+ * A deal the app found on an Explore board and checked on the results page.
+ *
+ * This interface was referenced by `ApiTypes`'s JSON-Schema
+ * via the `definition` "FindOut".
+ */
+export interface FindOut {
+	airline: string | null;
+	airport: string;
+	board_key: string | null;
+	checked_at: string | null;
+	confirmed_at: string | null;
+	country: string | null;
+	depart_date: string;
+	duration_min: number | null;
+	/**
+	 * cents: the Explore fare that raised it
+	 */
+	estimate: number;
+	found_at: string;
+	id: number;
+	/**
+	 * Google Flights for these dates
+	 */
+	link: string;
+	name: string;
+	nights: number | null;
+	origin: string;
+	/**
+	 * cents: the real fare with your filters, once checked
+	 */
+	price: number | null;
+	/**
+	 * null for one way
+	 */
+	return_date: string | null;
+	/**
+	 * candidate = waiting for its check; confirmed = the real fare holds
+	 */
+	status: 'candidate' | 'confirmed';
+	stops: number | null;
+	/**
+	 * cents: the place's usual fare; null = too little history
+	 */
+	usual: number | null;
+	/**
+	 * why it was raised, in words
+	 */
+	why: string;
+}
+/**
  * `/api/health`: 200 when `status` is ok, 503 otherwise.
  *
  * This interface was referenced by `ApiTypes`'s JSON-Schema
@@ -1275,6 +1326,10 @@ export interface OkOut {
  */
 export interface OverviewOut {
 	deals: DealOut[];
+	/**
+	 * the best confirmed finds, at most three
+	 */
+	finds: FindOut[];
 	generated_at: string;
 	health: HealthSummary;
 	home_airport: string;

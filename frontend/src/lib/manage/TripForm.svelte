@@ -8,16 +8,18 @@
 
 	interface Props {
 		initial?: Trip;
+		/** A new trip's fields, e.g. from a found deal's "Track this". */
+		prefill?: Partial<TripIn>;
 		home?: string;
 		saving?: boolean;
 		onsave: (body: TripIn) => void;
 		oncancel: () => void;
 	}
-	let { initial, home = '', saving = false, onsave, oncancel }: Props = $props();
+	let { initial, prefill, home = '', saving = false, onsave, oncancel }: Props = $props();
 
 	// The page mounts a fresh form for each trip, so copying `initial` once is intended.
 	// svelte-ignore state_referenced_locally
-	const d = $state(tripDraft(initial, home));
+	const d = $state(tripDraft(initial ?? prefill, home));
 	const t = new Touched();
 	const errors = $derived(tripErrors(d));
 	const show = (f: string) => t.show(f, errors);

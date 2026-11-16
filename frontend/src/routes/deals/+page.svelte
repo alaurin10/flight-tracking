@@ -1,13 +1,16 @@
-<!-- Two views. Explore: whole regions priced on Google's Explore map, one board per region,
+<!-- Three views. Found: deals the app found on its Explore boards and checked on the
+     results page with the owner's filters (and "checking" ones waiting for that search),
+     with Open in Google Flights and Track this (a new trip with these dates). Explore: whole regions priced on Google's Explore map, one board per region,
      airport and trip length, each place at its cheapest current fare over the weeks ahead.
      Posts: new posts from the deal pages and feeds; "Matches only" keeps those that alerted
      for a region, trip or flexible search. -->
 <script lang="ts">
-	import { getDeals, getExplore } from '../../lib/api';
+	import { resolve } from '$app/paths';
+	import { getDeals, getExplore, getFinds } from '../../lib/api';
 	import { app } from '../../lib/app.svelte';
 	import { ago, duration, instant, money, stops, tripDates } from '../../lib/format';
 	import { Resource } from '../../lib/resource.svelte';
-	import type { DealOut, ExploreBoardOut } from '../../lib/types.gen';
+	import type { DealOut, ExploreBoardOut, FindOut } from '../../lib/types.gen';
 	import ErrorNote from '../../lib/components/ErrorNote.svelte';
 	import Loading from '../../lib/components/Loading.svelte';
 
@@ -15,7 +18,20 @@
 	$effect(() => deals.load(getDeals()));
 	const explore = new Resource<ExploreBoardOut[]>();
 	$effect(() => explore.load(getExplore()));
-	let tab = $state<'explore' | 'posts'>('explore');
+	const found = new Resource<FindOut[]>();
+	$effect(() => found.load(getFinds()));
+	let tab = $state<'found' | 'explore' | 'posts'>('found');
+	/** Manage's new-trip form, filled in with this find's airports and dates. */
+	const track = (f: FindOut) =>
+		resolve('/manage') +
+		'?' +
+		new URLSearchParams({
+			name: f.name,
+			from: f.origin,
+			to: f.airport,
+			depart: f.depart_date,
+			...(f.return_date ? { return: f.return_date } : {})
+		}).toString();
 	const SHOWN = 10;
 	let opened = $state<Record<string, boolean>>({});
 	const cur = $derived(app.currency);
@@ -35,11 +51,14 @@
 <header class="pagehead">
 	<h1>Deals</h1>
 	<p>
-		{tab === 'explore'
-			? 'Cheap places on Google’s Explore map, for every week ahead.'
-			: 'New posts from your deal pages. Those marked with a name matched something you watch.'}
+		{tab === 'found'
+			? 'Fares the app found itself, checked with your bag and fare filters.'
+			: tab === 'explore'
+				? 'Cheap places on Google’s Explore map, for every week ahead.'
+				: 'New posts from your deal pages. Those marked with a name matched something you watch.'}
 	</p>
 	<div class="seg filter" role="group" aria-label="Which deals">
+		<button aria-pressed={tab === 'found'} onclick={() => (tab = 'found')}>Found</button>
 		<button aria-pressed={tab === 'explore'} onclick={() => (tab = 'explore')}>Explore</button>
 		<button aria-pressed={tab === 'posts'} onclick={() => (tab = 'posts')}>Posts</button>
 	</div>
@@ -51,7 +70,70 @@
 	{/if}
 </header>
 
-{#if tab === 'explore'}
+{#if tab === 'found'}
+	{#if found.data}
+		{#if found.data.length}
+			<section class="card" aria-label="Found deals">
+				<ul class="rows finds">
+					{#each found.data as f (f.id)}
+						<li class="place" data-testid="find">
+							<span class="price num">{money(f.price ?? f.estimate, cur)}</span>
+							<div class="body">
+								<div class="pname">
+									<span>{f.name}</span>
+									<span class="faint"
+										>{[f.country, `${f.origin} → ${f.airport}`].filter(Boolean).join(' · ')}</span
+									>
+									{#if f.status === 'confirmed'}
+										<span class="pill good">confirmed</span>
+									{:else}
+										<span class="pill neutral">checking</span>
+									{/if}
+								</div>
+								<p class="why">
+									{f.why}{f.status === 'candidate'
+										? ` · an estimate of ${money(f.estimate, cur)} until it is checked`
+										: ''}
+								</p>
+								<p class="faint">
+									<span>{tripDates(f.depart_date, f.return_date)}</span>
+									{#if f.stops !== null}<span>· {stops(f.stops)}</span>{/if}
+									{#if f.duration_min}<span>· {duration(f.duration_min)}</span>{/if}
+									{#if f.airline}<span>· {f.airline}</span>{/if}
+									<span title={instant(f.checked_at ?? f.found_at)}
+										>· {f.checked_at
+											? `checked ${ago(f.checked_at)}`
+											: `found ${ago(f.found_at)}`}</span
+									>
+								</p>
+								<p class="acts">
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- an outside link -->
+									<a class="btn" href={f.link} target="_blank" rel="noopener noreferrer"
+										>Open in Google Flights</a
+									>
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved, with a query -->
+									<a class="btn" href={track(f)}>Track this</a>
+								</p>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{:else}
+			<div class="card">
+				<p class="muted">
+					Nothing found yet. After each round of Explore pricing the app looks for fares well under
+					a place’s usual price; it needs about a week of fares to know what is usual, and until
+					then it checks each board’s cheapest places.
+				</p>
+			</div>
+		{/if}
+	{:else if found.error}
+		<ErrorNote error={found.error} retry={() => found.load(getFinds())} />
+	{:else}
+		<Loading />
+	{/if}
+{:else if tab === 'explore'}
 	{#if explore.data}
 		{#if explore.data.length}
 			<p class="faint note">
@@ -203,6 +285,19 @@
 	}
 	.more {
 		margin-top: 10px;
+	}
+	.finds {
+		margin: 0;
+	}
+	.why {
+		margin: 4px 0 0;
+		font-weight: 500;
+	}
+	.acts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin: 8px 0 0;
 	}
 	.deals {
 		margin: 0;

@@ -128,6 +128,20 @@ test('flexible dates: weekends in a month, and how many dates that is', async ({
 	await expect(row).toHaveCount(0);
 });
 
+test('Track this on a found deal opens a new trip with its dates', async ({ page }) => {
+	await signIn(page);
+	await expect(page.getByRole('button', { name: /A trip/ })).toBeVisible();
+	const depart = ahead(50);
+	const back = ahead(57);
+	await page.goto(`/manage?name=Lisbon&from=SEA&to=LIS&depart=${depart}&return=${back}`);
+	await expect(page.getByRole('heading', { name: 'Watch a trip' })).toBeVisible();
+	await expect(page.getByLabel('Leave')).toHaveValue(depart);
+	await expect(page.getByLabel('Come back')).toHaveValue(back);
+	await expect(page.getByText('LIS', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Cancel' }).click();
+	await expect(page.getByRole('heading', { name: 'Watch a trip' })).toHaveCount(0);
+});
+
 test('a region in the summer, and a deal page', async ({ page }, info) => {
 	const name = `E2E ${info.project.name} Europe`;
 	await signIn(page);
