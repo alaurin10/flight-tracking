@@ -9,13 +9,14 @@ and carries on. There is no "today's run" to miss.
 One lock means a slot, a canary request, a queued job and the housekeeping never
 overlap. All Google traffic shares one pacing slot, `next_batch_at` in `state`. Each slot
 sends up to `collect.batch_size` requests and goes to the lane furthest under its share of
-the last 24 hours (`collect.shares`): detail pages for date pairs, or calendar windows of
-the flexible searches that are older than `calendar.refresh_hours`. The gap after a slot
+the last 24 hours (`collect.shares`): detail pages for date pairs, calendar windows of
+the flexible searches older than `calendar.refresh_hours`, or Explore departures of the
+region boards older than `explore.refresh_hours` (`explore.py`). The gap after a slot
 spreads the day's allowance evenly: requests sent × 24 h ÷ the allowance, jittered ±40%,
 never under `collect.min_gap_seconds`. The allowance is learned (`pace.py`): it rises after
 clean busy days and falls on a block. A block also starts the escalating cooldown, and the
-next slot is the end of the cooldown plus 5 to 20 minutes. Google declining a calendar call
-without data pauses only the calendar lane.
+next slot is the end of the cooldown plus 5 to 20 minutes. Google declining a calendar or
+Explore call without data pauses only that lane.
 
 | Job        | When                                   | Does                                       |
 |------------|----------------------------------------|--------------------------------------------|
@@ -51,6 +52,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from . import alert as alert_mod
 from . import canary as canary_mod
 from . import deals as deals_mod
+from . import explore as explore_mod
 from . import fetch as fetch_mod
 from . import health as health_mod
 from . import jobs, pace, watches
@@ -211,6 +213,9 @@ class Worker:
         if lane == "calendar":
             self._calendar_slot(conn, now, remaining)
             return "calendar"
+        if lane == "explore":
+            self._explore_slot(conn, now, remaining)
+            return "explore"
         self._batch(conn, now, remaining)
         return "batch"
 
@@ -226,6 +231,13 @@ class Worker:
             return False
         return bool(sweep_mod.due_windows(conn, self.cfg, now))
 
+    def _explore_due(self, conn: sqlite3.Connection, now: datetime) -> bool:
+        if not self.cfg.explore.enabled or self.fake:
+            return False
+        if pace.lane_paused(conn, "explore", now):
+            return False
+        return bool(explore_mod.due(conn, self.cfg, now))
+
     def choose_lane(self, conn: sqlite3.Connection, now: datetime) -> str | None:
         """The lane this slot goes to: dates a person asked for first; otherwise, among
         the lanes with work due, the one furthest under its share of the last 24 hours.
@@ -237,6 +249,7 @@ class Worker:
             for lane, due in (
                 ("detail", self._detail_due(conn, now)),
                 ("calendar", self._calendar_due(conn, now)),
+                ("explore", self._explore_due(conn, now)),
             )
             if due
         ]
@@ -326,6 +339,25 @@ class Worker:
             log.warning("calendar lane paused until %s (Google declined without data)", until)
         elif stats.ok:
             pace.clear_lane(conn, "calendar")
+        conn.commit()
+        self._schedule_next(conn, stats.calls)
+        return stats
+
+    def _explore_slot(
+        self, conn: sqlite3.Connection, now: datetime, remaining: int
+    ) -> explore_mod.ExploreStats:
+        """The stalest Explore departures, up to a slot's worth. A reply without data
+        pauses this lane; a block starts the shared cooldown."""
+        group = explore_mod.due(conn, self.cfg, now)[: min(self.cfg.collect.batch_size, remaining)]
+        stats = explore_mod.run(
+            conn, self.cfg, group, transport=self.transport, now=now, sleeper=self.sleeper
+        )
+        log.info("explore: %s", stats.summary())
+        if stats.gated:
+            until = pace.pause_lane(conn, "explore", "Google answered without places", now)
+            log.warning("explore lane paused until %s (Google declined without data)", until)
+        elif stats.ok:
+            pace.clear_lane(conn, "explore")
         conn.commit()
         self._schedule_next(conn, stats.calls)
         return stats

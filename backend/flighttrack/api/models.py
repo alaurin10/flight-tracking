@@ -60,6 +60,42 @@ class DealOut(BaseModel):
     seen_at: str
 
 
+class ExplorePlaceOut(BaseModel):
+    """A place on an Explore board: its cheapest current fare over the board's weeks."""
+
+    place_id: str = Field(description="Google's id for the place; stable across replies")
+    name: str
+    country: str | None
+    airport: str | None = Field(description="where the cheapest itinerary lands")
+    price: int = Field(description="cents; an estimate (basic economy included)")
+    currency: str
+    depart_date: str
+    return_date: str | None = Field(description="null for one way")
+    airline: str | None
+    stops: int | None
+    duration_min: int | None
+    observed_at: str
+    link: str | None = Field(description="Google Flights for these dates")
+    under_max: bool = Field(description="at or under the region watch's price")
+
+
+class ExploreBoardOut(BaseModel):
+    """A region priced from an airport for a trip length, every week ahead."""
+
+    key: str = Field(description="'anywhere-7' for a built-in board, 'watch-<id>' for a watch")
+    title: str
+    origin: str
+    region: str = Field(description="the Explore place asked: anywhere, europe, asia, …")
+    nights: int | None = Field(description="trip length; null for one way")
+    months: list[int] = Field(description="travel months priced; [] = every month")
+    watch_id: int | None
+    max_price: int | None
+    departures: int = Field(description="departure dates the board prices")
+    priced_departures: int = Field(description="of those, with a current fare for some place")
+    updated_at: str | None
+    places: list[ExplorePlaceOut]
+
+
 class AirportOut(BaseModel):
     iata: str
     name: str
@@ -360,6 +396,10 @@ class StatusOut(BaseModel):
     lanes: list[LaneOut]
     calendar_windows: int = Field(description="calendar windows the flexible searches need")
     calendar_windows_due: int = Field(description="of those, not priced within the refresh time")
+    explore_departures: int = Field(description="Explore calls the region boards need")
+    explore_departures_due: int = Field(
+        description="of those, not priced within explore.refresh_hours"
+    )
     requests_by_day: list[RequestDay]
     recent_runs: list[RunOut]
     feeds: list[FeedOut]
@@ -464,6 +504,7 @@ class ApiTypes(BaseModel):
     search: SearchOut
     history: HistoryOut
     deals: list[DealOut]
+    explore: list[ExploreBoardOut]
     status: StatusOut
     airports: list[AirportOut]
     me: Me

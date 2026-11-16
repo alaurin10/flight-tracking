@@ -197,6 +197,21 @@ class DealWatchIn(_Base):
     )
     max_price: int | None = Field(default=None, ge=0)
     status: WatchStatus = "active"
+    nights: int | None = Field(
+        default=None,
+        ge=0,
+        le=30,
+        description="trip length a region is priced for on Google's Explore map; "
+        "null = a week, 0 = one way",
+    )
+    origin: str | None = Field(
+        default=None, description="airport a region is priced from; null = the home airport"
+    )
+
+    @field_validator("origin", mode="before")
+    @classmethod
+    def _origin(cls, v: object) -> str | None:
+        return None if v in (None, "") else _airport(v)
 
     @field_validator("months", mode="before")
     @classmethod
@@ -235,6 +250,8 @@ class DealWatch(DealWatchIn):
             max_price=self.max_price,
             keywords=tuple(self.keywords),
             months=tuple(self.months),
+            nights=self.nights,
+            origin=self.origin,
         )
 
 
@@ -738,6 +755,8 @@ def _watch_values(w: DealWatchIn) -> tuple[Any, ...]:
         json.dumps(w.months),
         w.max_price,
         w.status,
+        w.nights,
+        w.origin,
     )
 
 
@@ -747,8 +766,8 @@ def create_deal_watch(conn: sqlite3.Connection, data: DealWatchIn | dict[str, An
     with conn:
         cur = conn.execute(
             """INSERT INTO deal_watches (name, origins, destinations, keywords, months,
-                   max_price, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   max_price, status, nights, origin, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (*_watch_values(w), now, now),
         )
     return get_deal_watch(conn, int(cur.lastrowid or 0))
@@ -762,7 +781,8 @@ def update_deal_watch(
     with conn:
         conn.execute(
             """UPDATE deal_watches SET name = ?, origins = ?, destinations = ?, keywords = ?,
-                   months = ?, max_price = ?, status = ?, updated_at = ? WHERE id = ?""",
+                   months = ?, max_price = ?, status = ?, nights = ?, origin = ?,
+                   updated_at = ? WHERE id = ?""",
             (*_watch_values(w), utcnow(), watch_id),
         )
     return get_deal_watch(conn, watch_id)
@@ -1131,6 +1151,8 @@ def import_watch_file(
             "keywords": list(w.keywords),
             "months": list(w.months),
             "max_price": w.max_price,
+            "nights": w.nights,
+            "origin": w.origin,
             "status": row["status"] if row else "active",
         }
         if row is None:
@@ -1226,6 +1248,10 @@ def export_watch_file(conn: sqlite3.Connection, cfg: Config) -> dict[str, Any]:
             we["max_price"] = w.max_price
         if w.months:
             we["months"] = w.months
+        if w.nights is not None:
+            we["nights"] = w.nights
+        if w.origin:
+            we["origin"] = w.origin
         watches.append(we)
     return {
         "home": home,

@@ -130,6 +130,28 @@ calendar:
   priority_boost_pct: 10
 
 # ---------------------------------------------------------------------------
+# Explore boards (D2). One call to Google's Explore map prices every destination
+# of a region (anywhere, europe, asia, …) from an airport for one departure date
+# and trip length. A board is priced for every week ahead (horizon above), each
+# departure again when it is refresh_hours old, in the explore lane's share.
+#
+# boards        the built-in "anywhere from HOME_AIRPORT" boards, by trip
+#               length in nights (0 = one way): weekends leave on Fridays,
+#               a week or longer on Saturdays. Region watches add their own
+#               boards (their region, trip length, airport and months).
+# fresh_hours   a fare not seen again within this long drops off its board.
+# Checked from a cloud sandbox on 2026-11-16: 92 places for SEA→Anywhere, 6 to 8
+# of them with a fare per call (the fares Google already has), so a board fills
+# in over its departures and over repeated calls. Fares include basic economy:
+# they are estimates, like calendar prices.
+# ---------------------------------------------------------------------------
+explore:
+  enabled: true
+  refresh_hours: 24
+  boards: [3, 7]
+  fresh_hours: 72
+
+# ---------------------------------------------------------------------------
 # Alerting. Expect phase 1 to be QUIET for the first few weeks — that is the
 # system accumulating, not failing.
 # ---------------------------------------------------------------------------

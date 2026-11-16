@@ -119,6 +119,17 @@ def test_an_upgraded_database_gets_scans_with_history_and_triggers_intact(tmp_pa
         conn.execute("DELETE FROM observations")
 
 
+def test_an_upgraded_database_gets_the_explore_columns_and_table(tmp_path: Path) -> None:
+    """D2 adds two columns to deal_watches and an append-only explore_prices table."""
+    _m1_database(tmp_path / "old.db")
+    conn = db.open_db(tmp_path / "old.db")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(deal_watches)")]
+    assert cols[-2:] == ["nights", "origin"]
+    assert "explore_prices" in db.table_names(conn)
+    assert {"explore_prices_no_update", "explore_prices_no_delete"} <= db.trigger_names(conn)
+    assert {"observations_no_update", "observations_no_delete"} <= db.trigger_names(conn)
+
+
 def test_new_database_matches_an_adopted_one(tmp_path: Path) -> None:
     """001_init and the M1 schema plus its ALTERs give the same columns."""
     fresh = db.open_db(tmp_path / "fresh.db")

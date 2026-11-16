@@ -242,8 +242,60 @@ def seed(
             ),
         )
     _seed_alerts(conn, now)
+    _seed_explore(conn, cfg, now, today, rng)
     conn.commit()
     return {"queries": len(rows), "observations": written, "days": days}
+
+
+# Invented places for the built-in Explore boards (place ids say /demo/, so nothing
+# here can be mistaken for a fare Google returned).
+EXPLORE_PLACES = (
+    ("Los Angeles", "United States", "LAX", 15000),
+    ("Denver", "United States", "DEN", 17000),
+    ("New York", "United States", "JFK", 24000),
+    ("Mexico City", "Mexico", "MEX", 29000),
+    ("Honolulu", "United States", "HNL", 38000),
+    ("Reykjavík", "Iceland", "KEF", 49000),
+    ("Lisbon", "Portugal", "LIS", 61000),
+    ("Tokyo", "Japan", "HND", 72000),
+)
+
+
+def _seed_explore(
+    conn: sqlite3.Connection, cfg: Config, now: datetime, today: date, rng: random.Random
+) -> None:
+    """A few fares on each built-in Explore board's first departures, seen hours ago."""
+    from . import explore
+
+    for board in explore.boards(conn, cfg):
+        if board.watch_id is not None:
+            continue
+        longer = 1.0 + 0.04 * (board.nights or 0)
+        for depart in explore.board_departures(cfg, board, today)[:4]:
+            for name, country, airport, base in EXPLORE_PLACES:
+                if rng.random() < 0.35:
+                    continue  # like the real call: some places have no fare
+                cents = round(base * longer * rng.uniform(0.85, 1.25) / 100) * 100
+                conn.execute(
+                    """INSERT INTO explore_prices (origin, region, place_id, name, country,
+                           airport, depart_date, nights, price_cents, airline, stops,
+                           duration_min, observed_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Alaska', ?, ?, ?)""",
+                    (
+                        board.origin,
+                        board.region,
+                        f"/demo/{airport.lower()}",
+                        name,
+                        country,
+                        airport,
+                        depart,
+                        board.nights,
+                        cents,
+                        0 if base < 30000 else 1,
+                        120 + base // 100,
+                        _iso(now - timedelta(hours=rng.randint(1, 20))),
+                    ),
+                )
 
 
 def _money(cents: int) -> str:

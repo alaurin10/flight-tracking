@@ -795,6 +795,57 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             ok = False
             print(f"[FAIL] calendar        : network: {exc}")
 
+    # --- live: Explore (experimental) -----------------------------------------
+    if args.explore:
+        from .gflights import explore as explore_mod
+        from .gflights.transport import TransportError
+
+        origin = route.origin_or(cfg.home)
+        print(f"\n--- Explore (EXPERIMENTAL) {origin}→{args.explore} from {depart} ---")
+        stay = (date.fromisoformat(ret) - date.fromisoformat(depart)).days if ret else None
+        try:
+            body = explore_mod.build_body(
+                origin,
+                args.explore,
+                depart,
+                stay,
+                seat=cfg.search.seat,
+                adults=cfg.search.adults,
+                carry_on_bags=cfg.search.carry_on_bags,
+            )
+            resp = transport.post(
+                explore_mod.RPC_URL,
+                body,
+                params={**explore_mod.RPC_PARAMS, "curr": cfg.search.currency},
+                headers=explore_mod.RPC_HEADERS,
+                timeout=cfg.fetch.request_timeout_seconds,
+            )
+            print(f"       response        : HTTP {resp.status}, {resp.size:,} bytes")
+            if args.dump:
+                Path(args.dump + ".explore.txt").write_text(resp.text, encoding="utf-8")
+                print(f"       dumped          : {args.dump}.explore.txt")
+            result = explore_mod.parse_explore(resp.text)
+            priced = result.priced
+            if result.destinations:
+                print(
+                    f"[ok]   explore         : {len(result.destinations)} places in "
+                    f"{result.region_name or args.explore}, {len(priced)} with a fare; cheapest: "
+                    + ", ".join(
+                        f"{d.name} ({d.airport or '?'}) ${d.price:,.0f}" for d in priced[:5]
+                    )
+                )
+            else:
+                ok = False
+                why = (
+                    "Google declined without data (gated)"
+                    if explore_mod.looks_gated(resp.text)
+                    else "no destination records found"
+                )
+                print(f"[FAIL] explore         : {why} — save the dump and inspect")
+        except (TransportError, ValueError) as exc:
+            ok = False
+            print(f"[FAIL] explore         : {exc}")
+
     print("\n" + ("All checks passed." if ok else "Some checks FAILED — see above.") + "\n")
     return 0 if ok else 1
 
@@ -1072,6 +1123,12 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--offline", action="store_true", help="skip live calls")
     d.add_argument(
         "--calendar", action="store_true", help="also test the experimental calendar RPC"
+    )
+    d.add_argument(
+        "--explore",
+        metavar="PLACE",
+        default=None,
+        help="also test the experimental Explore call to a region (anywhere, europe, asia, …)",
     )
     d.add_argument("--transport", choices=["auto", "primp", "urllib"], default=None)
     d.add_argument("--dump", metavar="PATH", help="save the raw response(s) here")
